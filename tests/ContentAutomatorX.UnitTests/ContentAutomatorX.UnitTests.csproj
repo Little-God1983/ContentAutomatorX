@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\src\ContentAutomatorX.Infrastructure\ContentAutomatorX.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
