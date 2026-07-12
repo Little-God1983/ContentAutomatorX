@@ -22,7 +22,7 @@ public class RedditConnector(HttpClient http) : ISourceConnector
         var url = $"https://www.reddit.com/r/{config.Subreddit}/{sort}.json?limit={config.Limit ?? 25}&t={config.Timeframe ?? "week"}&raw_json=1";
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
-        request.Headers.UserAgent.ParseAdd("ContentAutomatorX/1.0");
+        request.Headers.UserAgent.ParseAdd("ContentAutomatorX/1.0 (content aggregation)");
         using var response = await http.SendAsync(request, ct);
         response.EnsureSuccessStatusCode();
 
