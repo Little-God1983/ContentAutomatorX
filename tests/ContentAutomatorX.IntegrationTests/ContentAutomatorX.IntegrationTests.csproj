@@ -22,6 +22,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\ContentAutomatorX.Application\ContentAutomatorX.Application.csproj" />
     <ProjectReference Include="..\..\src\ContentAutomatorX.Infrastructure\ContentAutomatorX.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\ContentAutomatorX.Web\ContentAutomatorX.Web.csproj" />
   </ItemGroup>
 
 </Project>
