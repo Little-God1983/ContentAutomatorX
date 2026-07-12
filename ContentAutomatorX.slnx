@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ContentAutomatorX.Application/ContentAutomatorX.Application.csproj" />
+    <Project Path="src/ContentAutomatorX.Domain/ContentAutomatorX.Domain.csproj" />
+    <Project Path="src/ContentAutomatorX.Infrastructure/ContentAutomatorX.Infrastructure.csproj" />
+    <Project Path="src/ContentAutomatorX.Web/ContentAutomatorX.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ContentAutomatorX.IntegrationTests/ContentAutomatorX.IntegrationTests.csproj" />
+    <Project Path="tests/ContentAutomatorX.UnitTests/ContentAutomatorX.UnitTests.csproj" />
+  </Folder>
+</Solution>
