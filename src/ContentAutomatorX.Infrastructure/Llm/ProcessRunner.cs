@@ -20,14 +20,14 @@ public class ProcessRunner : IProcessRunner
         };
         process.Start();
 
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+
         if (stdin is not null)
         {
             await process.StandardInput.WriteAsync(stdin);
             process.StandardInput.Close();
         }
-
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
@@ -38,6 +38,7 @@ public class ProcessRunner : IProcessRunner
         catch (OperationCanceledException)
         {
             try { process.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            try { await Task.WhenAll(stdoutTask, stderrTask); } catch { /* observe, discard */ }
             return new ProcessResult(-1, "", $"timed out after {timeout.TotalSeconds}s");
         }
 
