@@ -40,6 +40,8 @@ logs in `src/ContentAutomatorX.Web/logs/`.
 
 Cron schedules are UTC (Cronos syntax, e.g. `0 8 * * MON` = Mondays 08:00 UTC).
 A scheduled recipe ingests its sources first, then generates — full auto.
+A recipe or source with no prior run fires on the first scheduler tick after startup.
+A failed scheduled run is not retried early — it waits for the next cron occurrence (check **Runs** for failures).
 
 ## MCP
 

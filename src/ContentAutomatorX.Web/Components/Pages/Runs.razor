@@ -16,7 +16,7 @@
     <MudExpansionPanels>
         @foreach (var run in _runs)
         {
-            <MudExpansionPanel>
+            <MudExpansionPanel @key="run.Id">
                 <TitleContent>
                     <div class="d-flex align-center" style="gap:12px">
                         <MudText>@run.StartedAt.ToLocalTime().ToString("g")</MudText>

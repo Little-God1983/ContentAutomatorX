@@ -17,7 +17,7 @@
     <MudExpansionPanels MultiExpansion="false">
         @foreach (var draft in _drafts)
         {
-            <MudExpansionPanel>
+            <MudExpansionPanel @key="draft.Id">
                 <TitleContent>
                     <div class="d-flex align-center" style="gap:12px">
                         <MudText>@draft.CreatedAt.ToLocalTime().ToString("g")</MudText>

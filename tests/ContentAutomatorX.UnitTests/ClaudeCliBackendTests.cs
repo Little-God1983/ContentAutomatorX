@@ -61,4 +61,20 @@ public class ClaudeCliBackendTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p"));
         Assert.Equal(2, runner.Calls);
     }
+
+    [Fact]
+    public async Task Extracts_model_from_modelUsage_when_present()
+    {
+        const string jsonWithModelUsage = """
+            {"type":"result","result":"OK","is_error":false,
+             "modelUsage":{"claude-opus-4-8[1m]":{"inputTokens":2,"outputTokens":4}}}
+            """;
+        var runner = new FakeProcessRunner(new ProcessResult(0, jsonWithModelUsage, ""));
+        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
+
+        var result = await backend.GenerateAsync("p");
+
+        Assert.Equal("OK", result.Text);
+        Assert.Equal("claude-opus-4-8[1m]", result.Model);
+    }
 }

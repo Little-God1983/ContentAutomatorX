@@ -27,16 +27,17 @@ public class ClaudeCliBackend(IProcessRunner runner, ClaudeCliOptions options) :
         for (int attempt = 1; attempt <= 2; attempt++)
         {
             var result = await runner.RunAsync(options.Command, args, prompt, timeout, ct);
-            if (result.ExitCode == 0 && TryParse(result.StdOut, out var text))
-                return new LlmResult(text, options.Model ?? "claude-default");
+            if (result.ExitCode == 0 && TryParse(result.StdOut, out var text, out var model))
+                return new LlmResult(text, model ?? options.Model ?? "claude-default");
             lastError = $"exit={result.ExitCode} stderr={result.StdErr} stdout={Truncate(result.StdOut)}";
         }
         throw new InvalidOperationException($"claude CLI failed after 2 attempts: {lastError}");
     }
 
-    private static bool TryParse(string stdout, out string text)
+    private static bool TryParse(string stdout, out string text, out string? model)
     {
         text = "";
+        model = null;
         try
         {
             using var doc = JsonDocument.Parse(stdout);
@@ -44,6 +45,21 @@ public class ClaudeCliBackend(IProcessRunner runner, ClaudeCliOptions options) :
             if (root.TryGetProperty("is_error", out var e) && e.GetBoolean()) return false;
             if (!root.TryGetProperty("result", out var r)) return false;
             text = r.GetString() ?? "";
+
+            // Real CLI output (--output-format json) has no top-level "model" field; the
+            // model actually used is the (sole) key of "modelUsage". Support a root "model"
+            // string too in case a future CLI version adds one.
+            if (root.TryGetProperty("model", out var m) && m.ValueKind == JsonValueKind.String)
+                model = m.GetString();
+            else if (root.TryGetProperty("modelUsage", out var mu) && mu.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var prop in mu.EnumerateObject())
+                {
+                    model = prop.Name;
+                    break;
+                }
+            }
+
             return text.Length > 0;
         }
         catch (JsonException) { return false; }

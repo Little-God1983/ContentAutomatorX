@@ -32,6 +32,7 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
         int failed = 0;
         foreach (var source in sources)
         {
+            List<ContentItem> added = [];
             try
             {
                 var connector = connectors.FirstOrDefault(c => c.Type == source.Type)
@@ -46,15 +47,14 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
                     .ToListAsync(ct);
 
                 var fresh = items.Where(f => !existing.Contains(f.ExternalId)).ToList();
-                foreach (var f in fresh)
+                added = fresh.Select(f => new ContentItem
                 {
-                    db.ContentItems.Add(new ContentItem
-                    {
-                        TenantId = tenantId, SourceId = source.Id, ExternalId = f.ExternalId,
-                        Title = f.Title, Url = f.Url, Author = f.Author, Body = f.Body,
-                        MetadataJson = f.MetadataJson, PublishedAt = f.PublishedAt
-                    });
-                }
+                    TenantId = tenantId, SourceId = source.Id, ExternalId = f.ExternalId,
+                    Title = f.Title, Url = f.Url, Author = f.Author, Body = f.Body,
+                    MetadataJson = f.MetadataJson, PublishedAt = f.PublishedAt
+                }).ToList();
+                foreach (var item in added) db.ContentItems.Add(item);
+
                 source.LastFetchedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
                 log.Add($"{source.DisplayName}: fetched {fetched.Count}, new {fresh.Count}");
@@ -63,6 +63,7 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
             {
                 failed++;
                 log.Add($"{source.DisplayName}: FAILED - {ex.Message}");
+                db.ContentItems.RemoveRange(added);
                 source.LastFetchedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
             }

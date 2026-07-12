@@ -53,6 +53,7 @@ public class SchedulerService(IServiceScopeFactory scopeFactory, ILogger<Schedul
                 var ingestion = scope.ServiceProvider.GetRequiredService<IngestionPipeline>();
                 await ingestion.RunAsync(tenantId, sourceId, RunTriggers.Scheduled, ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex) { logger.LogError(ex, "scheduled ingestion failed for source {SourceId}", sourceId); }
         }
 
@@ -76,6 +77,7 @@ public class SchedulerService(IServiceScopeFactory scopeFactory, ILogger<Schedul
                 var generation = scope.ServiceProvider.GetRequiredService<GenerationPipeline>();
                 await generation.RunAsync(recipeId, trigger: RunTriggers.Scheduled, ct: ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { return; }
             catch (Exception ex) { logger.LogError(ex, "scheduled recipe run failed for {RecipeId}", recipeId); }
         }
     }
