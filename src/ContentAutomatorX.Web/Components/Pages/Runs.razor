@@ -1,0 +1,69 @@
+@page "/runs"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject RunService RunSvc
+
+<MudText Typo="Typo.h4" Class="mb-4">Pipeline runs</MudText>
+
+<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
+    @foreach (var t in _tenants)
+    {
+        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
+    }
+</MudSelect>
+
+@if (_tenantId is not null)
+{
+    <MudExpansionPanels>
+        @foreach (var run in _runs)
+        {
+            <MudExpansionPanel>
+                <TitleContent>
+                    <div class="d-flex align-center" style="gap:12px">
+                        <MudText>@run.StartedAt.ToLocalTime().ToString("g")</MudText>
+                        <MudText>@run.Kind</MudText>
+                        <MudText>@run.Trigger</MudText>
+                        <MudText Color="@StatusColor(run.Status)">@run.Status</MudText>
+                    </div>
+                </TitleContent>
+                <ChildContent>
+                    <MudPaper Class="pa-4" Style="white-space: pre-wrap; font-family: monospace;">
+                        @FormatLog(run.LogJson)
+                    </MudPaper>
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
+@code {
+    private List<Tenant> _tenants = [];
+    private List<PipelineRun> _runs = [];
+    private Guid? _tenantId;
+
+    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
+
+    private async Task OnTenantChanged(Guid? id)
+    {
+        _tenantId = id;
+        _runs = id is null ? [] : await RunSvc.ListAsync(id.Value);
+    }
+
+    private static Color StatusColor(RunStatus status) => status switch
+    {
+        RunStatus.Succeeded => Color.Success,
+        RunStatus.Partial => Color.Warning,
+        RunStatus.Failed => Color.Error,
+        _ => Color.Info
+    };
+
+    private static string FormatLog(string logJson)
+    {
+        try
+        {
+            var lines = JsonSerializer.Deserialize<string[]>(logJson) ?? [];
+            return string.Join("\n", lines);
+        }
+        catch { return logJson; }
+    }
+}

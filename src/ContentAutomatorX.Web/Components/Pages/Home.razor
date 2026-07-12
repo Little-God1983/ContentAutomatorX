@@ -1,7 +1,61 @@
-﻿@page "/"
+@page "/"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject ContentService ContentSvc
+@inject DraftService DraftSvc
+@inject RunService RunSvc
 
-<PageTitle>Home</PageTitle>
+<MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
 
-<h1>Hello, world!</h1>
+<MudGrid>
+    @foreach (var card in _cards)
+    {
+        <MudItem xs="12" md="6" lg="4">
+            <MudCard>
+                <MudCardHeader>
+                    <MudText Typo="Typo.h6">@card.Tenant.Name</MudText>
+                </MudCardHeader>
+                <MudCardContent>
+                    <MudText>New items: <b>@card.NewItems</b></MudText>
+                    <MudText>Drafts: <b>@card.Drafts</b></MudText>
+                    <MudText>
+                        Last run:
+                        @if (card.LastRun is null)
+                        {
+                            <span>none yet</span>
+                        }
+                        else
+                        {
+                            <MudText Inline="true"
+                                     Color="@(card.LastRun.Status == RunStatus.Succeeded ? Color.Success : Color.Error)">
+                                @card.LastRun.Kind @card.LastRun.Status
+                            </MudText>
+                            <span> (@card.LastRun.StartedAt.ToLocalTime().ToString("g"))</span>
+                        }
+                    </MudText>
+                    @if (card.RecentErrors > 0)
+                    {
+                        <MudText Color="Color.Error">@card.RecentErrors failed/partial runs in the last 10</MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    }
+</MudGrid>
 
-Welcome to your new app.
+@code {
+    private record TenantCard(Tenant Tenant, int NewItems, int Drafts, PipelineRun? LastRun, int RecentErrors);
+    private List<TenantCard> _cards = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        foreach (var tenant in await TenantSvc.ListAsync())
+        {
+            var items = await ContentSvc.ListAsync(tenant.Id, ContentItemStatus.New);
+            var drafts = await DraftSvc.ListAsync(tenant.Id);
+            var runs = await RunSvc.ListAsync(tenant.Id, 10);
+            _cards.Add(new TenantCard(tenant, items.Count, drafts.Count, runs.FirstOrDefault(),
+                runs.Count(r => r.Status is RunStatus.Failed or RunStatus.Partial)));
+        }
+    }
+}
