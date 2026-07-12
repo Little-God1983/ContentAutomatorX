@@ -82,13 +82,50 @@ public class McpToolsTests : IDisposable
         Assert.Equal("chan2", foundDoc.RootElement.GetProperty("slug").GetString());
     }
 
-    // NOTE: Coverage follow-ups also called for tests of ListDrafts' projected shape and of
-    // GetPipelineRuns' newest-first/limit ordering. Both are omitted here: DraftService.ListAsync
-    // and RunService.ListAsync order directly on a DateTimeOffset column
-    // (OrderByDescending(d => d.CreatedAt) / OrderByDescending(r => r.StartedAt)), which EF Core's
-    // SQLite provider - the provider this app actually uses in production (see Program.cs
-    // UseSqlite) - does not support ("SQLite does not support expressions of type 'DateTimeOffset'
-    // in ORDER BY clauses"). The call fails at query-translation time regardless of row count, so
-    // no test of this MCP tool's real behavior can pass without a production-code fix, which is out
-    // of scope for this test-only pass. Reported as a concern; see the follow-ups report.
+    [Fact]
+    public async Task List_drafts_returns_the_projected_shape()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-drafts" };
+        var recipe = new Recipe { TenantId = tenant.Id, Name = "R", Kind = DraftKinds.SocialPost };
+        var draft = new Draft
+        {
+            TenantId = tenant.Id, RecipeId = recipe.Id, Kind = DraftKinds.SocialPost,
+            Title = "My Post", Status = DraftStatus.Generated, FilePath = "/out/my-post.md"
+        };
+        test.Db.Tenants.Add(tenant); test.Db.Recipes.Add(recipe); test.Db.Drafts.Add(draft);
+        await test.Db.SaveChangesAsync();
+
+        var json = await ContentXTools.ListDrafts(new DraftService(test.Db, new FileShareDraftDelivery()), tenant.Id.ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+        var element = doc.RootElement[0];
+        Assert.Equal(draft.Id, element.GetProperty("id").GetGuid());
+        Assert.Equal(DraftKinds.SocialPost, element.GetProperty("kind").GetString());
+        Assert.Equal("My Post", element.GetProperty("title").GetString());
+        Assert.Equal((int)DraftStatus.Generated, element.GetProperty("status").GetInt32());
+        Assert.Equal("/out/my-post.md", element.GetProperty("filePath").GetString());
+    }
+
+    [Fact]
+    public async Task Get_pipeline_runs_returns_newest_first_with_limit_applied()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-runs" };
+        var now = DateTimeOffset.UtcNow;
+        var oldest = new PipelineRun { TenantId = tenant.Id, Kind = RunKinds.Ingestion, Trigger = RunTriggers.Mcp, StartedAt = now.AddMinutes(-10) };
+        var middle = new PipelineRun { TenantId = tenant.Id, Kind = RunKinds.Ingestion, Trigger = RunTriggers.Mcp, StartedAt = now.AddMinutes(-5) };
+        var newest = new PipelineRun { TenantId = tenant.Id, Kind = RunKinds.Ingestion, Trigger = RunTriggers.Mcp, StartedAt = now };
+        test.Db.Tenants.Add(tenant);
+        test.Db.PipelineRuns.AddRange(oldest, middle, newest);
+        await test.Db.SaveChangesAsync();
+
+        var json = await ContentXTools.GetPipelineRuns(new RunService(test.Db), tenant.Id.ToString(), 2);
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(2, doc.RootElement.GetArrayLength());
+        Assert.Equal(newest.Id, doc.RootElement[0].GetProperty("id").GetGuid());
+        Assert.Equal(middle.Id, doc.RootElement[1].GetProperty("id").GetGuid());
+    }
 }

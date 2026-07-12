@@ -6,12 +6,15 @@ namespace ContentAutomatorX.Application.Services;
 
 public class ContentService(IAppDbContext db)
 {
-    public Task<List<ContentItem>> ListAsync(Guid tenantId, ContentItemStatus? status = null, DateTimeOffset? since = null)
+    public async Task<List<ContentItem>> ListAsync(Guid tenantId, ContentItemStatus? status = null, DateTimeOffset? since = null)
     {
         var query = db.ContentItems.Where(i => i.TenantId == tenantId);
         if (status is not null) query = query.Where(i => i.Status == status);
         if (since is not null) query = query.Where(i => i.FetchedAt >= since);
-        return query.OrderByDescending(i => i.PublishedAt ?? i.FetchedAt).ToListAsync();
+        // SQLite cannot ORDER BY DateTimeOffset server-side, so materialize the filtered
+        // query first and sort client-side (acceptable at this app's per-tenant scale).
+        var list = await query.ToListAsync();
+        return list.OrderByDescending(i => i.PublishedAt ?? i.FetchedAt).ToList();
     }
 
     public async Task MarkAsync(Guid itemId, ContentItemStatus status)

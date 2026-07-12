@@ -9,12 +9,15 @@ namespace ContentAutomatorX.Application.Services;
 
 public class DraftService(IAppDbContext db, IDraftDelivery delivery)
 {
-    public Task<List<Draft>> ListAsync(Guid tenantId, string? kind = null, DraftStatus? status = null)
+    public async Task<List<Draft>> ListAsync(Guid tenantId, string? kind = null, DraftStatus? status = null)
     {
         var query = db.Drafts.Where(d => d.TenantId == tenantId);
         if (kind is not null) query = query.Where(d => d.Kind == kind);
         if (status is not null) query = query.Where(d => d.Status == status);
-        return query.OrderByDescending(d => d.CreatedAt).ToListAsync();
+        // SQLite cannot ORDER BY DateTimeOffset server-side, so materialize the filtered
+        // query first and sort client-side (acceptable at this app's per-tenant scale).
+        var list = await query.ToListAsync();
+        return list.OrderByDescending(d => d.CreatedAt).ToList();
     }
 
     public Task<Draft?> GetAsync(Guid id) => db.Drafts.FirstOrDefaultAsync(d => d.Id == id);

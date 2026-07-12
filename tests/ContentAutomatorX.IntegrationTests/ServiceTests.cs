@@ -28,6 +28,31 @@ public class ServiceTests
     }
 
     [Fact]
+    public async Task ContentService_list_orders_newest_first_against_real_sqlite()
+    {
+        // Regression pin: EF Core's SQLite provider cannot translate ORDER BY on DateTimeOffset
+        // ("SQLite does not support expressions of type 'DateTimeOffset' in ORDER BY clauses").
+        // ContentService.ListAsync must materialize first and sort client-side, or this throws
+        // NotSupportedException against a real (non-InMemory) SQLite database.
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-content-order" };
+        var source = new Source { TenantId = tenant.Id, Type = SourceTypes.Rss, DisplayName = "f" };
+        var now = DateTimeOffset.UtcNow;
+        var oldest = new ContentItem { TenantId = tenant.Id, SourceId = source.Id, ExternalId = "e1", Title = "Old", FetchedAt = now.AddMinutes(-10) };
+        var newest = new ContentItem { TenantId = tenant.Id, SourceId = source.Id, ExternalId = "e2", Title = "New", FetchedAt = now };
+        test.Db.Tenants.Add(tenant); test.Db.Sources.Add(source);
+        test.Db.ContentItems.AddRange(oldest, newest);
+        await test.Db.SaveChangesAsync();
+
+        var service = new ContentService(test.Db);
+        var list = await service.ListAsync(tenant.Id);
+
+        Assert.Equal(2, list.Count);
+        Assert.Equal(newest.Id, list[0].Id);
+        Assert.Equal(oldest.Id, list[1].Id);
+    }
+
+    [Fact]
     public async Task ContentService_marks_items()
     {
         using var test = TestDb.Create();
