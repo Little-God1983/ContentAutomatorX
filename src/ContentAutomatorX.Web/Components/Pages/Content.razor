@@ -1,0 +1,127 @@
+@page "/content"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject ContentService ContentSvc
+@inject RecipeService RecipeSvc
+@inject GenerationPipeline Generation
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Content items</MudText>
+
+<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-2">
+    @foreach (var t in _tenants)
+    {
+        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
+    }
+</MudSelect>
+
+@if (_tenantId is not null)
+{
+    <MudSelect T="string" Value="_statusFilter" ValueChanged="OnFilterChanged" Label="Status filter" Class="mb-4">
+        <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+        @foreach (var s in Enum.GetNames<ContentItemStatus>())
+        {
+            <MudSelectItem T="string" Value="@s">@s</MudSelectItem>
+        }
+    </MudSelect>
+
+    <MudPaper Class="pa-4 mb-4">
+        <MudText Typo="Typo.subtitle1">Generate from hand-picked items (@_selectedItems.Count selected)</MudText>
+        <MudSelect T="Guid?" @bind-Value="_recipeId" Label="Recipe">
+            @foreach (var r in _recipes)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name (@r.Kind)</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="_extraInstructions" Label="Extra instructions for this run (optional)" />
+        <MudButton OnClick="RunWithSelection" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
+                   Disabled="@(_recipeId is null || _selectedItems.Count == 0 || _running)">Generate draft</MudButton>
+    </MudPaper>
+
+    <MudTable T="ContentItem" Items="_items" Hover="true" MultiSelection="true" @bind-SelectedItems="_selectedItems">
+        <HeaderContent>
+            <MudTh>Title</MudTh><MudTh>Published</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>
+                @if (context.Url is not null)
+                {
+                    <MudLink Href="@context.Url" Target="_blank">@context.Title</MudLink>
+                }
+                else
+                {
+                    @context.Title
+                }
+            </MudTd>
+            <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
+            <MudTd>@context.Status</MudTd>
+            <MudTd>
+                <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.Selected))">Select</MudButton>
+                <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.Ignored))">Ignore</MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<Tenant> _tenants = [];
+    private List<ContentItem> _items = [];
+    private List<Recipe> _recipes = [];
+    private HashSet<ContentItem> _selectedItems = [];
+    private Guid? _tenantId;
+    private Guid? _recipeId;
+    private string _statusFilter = "all";
+    private string _extraInstructions = "";
+    private bool _running;
+
+    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
+
+    private async Task OnTenantChanged(Guid? id)
+    {
+        _tenantId = id;
+        _selectedItems = [];
+        _recipes = id is null ? [] : await RecipeSvc.ListAsync(id.Value);
+        await Reload();
+    }
+
+    private async Task OnFilterChanged(string filter)
+    {
+        _statusFilter = filter;
+        await Reload();
+    }
+
+    private async Task Reload()
+    {
+        if (_tenantId is null) { _items = []; return; }
+        ContentItemStatus? status = _statusFilter == "all" ? null : Enum.Parse<ContentItemStatus>(_statusFilter);
+        _items = await ContentSvc.ListAsync(_tenantId.Value, status);
+    }
+
+    private async Task Mark(ContentItem item, ContentItemStatus status)
+    {
+        await ContentSvc.MarkAsync(item.Id, status);
+        await Reload();
+    }
+
+    private async Task RunWithSelection()
+    {
+        _running = true;
+        Snackbar.Add("Generating draft from selected items...", Severity.Info);
+        try
+        {
+            var ids = _selectedItems.Select(i => i.Id).ToList();
+            var (run, draft) = await Generation.RunAsync(_recipeId!.Value, ids,
+                string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions);
+            if (run.Status == RunStatus.Succeeded)
+                Snackbar.Add($"Draft delivered: {draft!.FilePath}", Severity.Success);
+            else
+                Snackbar.Add($"Run {run.Status}: {run.LogJson}", Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+            _selectedItems = [];
+            await Reload();
+        }
+    }
+}

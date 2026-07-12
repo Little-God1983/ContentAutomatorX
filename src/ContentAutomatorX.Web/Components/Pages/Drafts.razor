@@ -1,0 +1,84 @@
+@page "/drafts"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject DraftService DraftSvc
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Drafts</MudText>
+
+<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
+    @foreach (var t in _tenants)
+    {
+        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
+    }
+</MudSelect>
+
+@if (_tenantId is not null)
+{
+    <MudExpansionPanels MultiExpansion="false">
+        @foreach (var draft in _drafts)
+        {
+            <MudExpansionPanel>
+                <TitleContent>
+                    <div class="d-flex align-center" style="gap:12px">
+                        <MudText>@draft.CreatedAt.ToLocalTime().ToString("g")</MudText>
+                        <MudText Color="Color.Primary">@draft.Kind</MudText>
+                        <MudText>@draft.Title</MudText>
+                        <MudText Color="@(draft.Status == DraftStatus.Delivered ? Color.Success : Color.Warning)">
+                            @draft.Status
+                        </MudText>
+                    </div>
+                </TitleContent>
+                <ChildContent>
+                    @if (draft.FilePath is not null)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2">@draft.FilePath</MudText>
+                        <MudButton Size="Size.Small" OnClick="@(() => OpenFolder(draft))" Class="mb-2">Open folder</MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => RetryDelivery(draft))"
+                                   Class="mb-2">Retry delivery</MudButton>
+                    }
+                    <MudPaper Class="pa-4" Style="white-space: pre-wrap; font-family: monospace; max-height: 480px; overflow-y: auto;">
+                        @draft.Body
+                    </MudPaper>
+                </ChildContent>
+            </MudExpansionPanel>
+        }
+    </MudExpansionPanels>
+}
+
+@code {
+    private List<Tenant> _tenants = [];
+    private List<Draft> _drafts = [];
+    private Guid? _tenantId;
+
+    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
+
+    private async Task OnTenantChanged(Guid? id)
+    {
+        _tenantId = id;
+        _drafts = id is null ? [] : await DraftSvc.ListAsync(id.Value);
+    }
+
+    private void OpenFolder(Draft draft)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{draft.FilePath}\"");
+        }
+        catch (Exception ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private async Task RetryDelivery(Draft draft)
+    {
+        try
+        {
+            var delivered = await DraftSvc.RetryDeliveryAsync(draft.Id);
+            Snackbar.Add($"Delivered: {delivered.FilePath}", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add($"Delivery failed again: {ex.Message}", Severity.Error); }
+        _drafts = await DraftSvc.ListAsync(_tenantId!.Value);
+    }
+}
