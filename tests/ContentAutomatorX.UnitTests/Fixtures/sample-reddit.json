@@ -1,0 +1,31 @@
+{
+  "kind": "Listing",
+  "data": {
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "abc123",
+          "title": "New model released",
+          "permalink": "/r/StableDiffusion/comments/abc123/new_model_released/",
+          "author": "bob",
+          "selftext": "Details about the model.",
+          "score": 456,
+          "created_utc": 1783850000
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "def456",
+          "title": "Workflow question",
+          "permalink": "/r/StableDiffusion/comments/def456/workflow_question/",
+          "author": "carol",
+          "selftext": "",
+          "score": 12,
+          "created_utc": 1783936400
+        }
+      }
+    ]
+  }
+}
