@@ -1,0 +1,209 @@
+@page "/recipes"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject SourceService SourceSvc
+@inject RecipeService RecipeSvc
+@inject GenerationPipeline Generation
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Recipes</MudText>
+
+<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
+    @foreach (var t in _tenants)
+    {
+        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
+    }
+</MudSelect>
+
+@if (_tenantId is not null)
+{
+    <MudPaper Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6">@(_editing is null ? "New recipe" : $"Edit: {_editing.Name}")</MudText>
+        <MudTextField @bind-Value="_name" Label="Name (e.g. 'Weekly AI News Newsletter')" />
+        <MudSelect T="string" @bind-Value="_kind" Label="Kind" Disabled="@(_editing is not null)">
+            @foreach (var k in DraftKinds.All)
+            {
+                <MudSelectItem T="string" Value="@k">@k</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="Guid" MultiSelection="true" @bind-SelectedValues="_selectedSourceIds"
+                   Label="Sources feeding this recipe (none selected = all)">
+            @foreach (var s in _sources)
+            {
+                <MudSelectItem T="Guid" Value="@s.Id">@s.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-3">Selection rules</MudText>
+        <MudNumericField T="int?" @bind-Value="_windowDays" Label="Time window (days, empty = any age)" />
+        <MudNumericField T="int?" @bind-Value="_minScore" Label="Min score (Reddit upvotes, empty = any)" />
+        <MudNumericField T="int" @bind-Value="_maxItems" Label="Max items" />
+        <MudTextField @bind-Value="_includeKeywords" Label="Include keywords (comma separated, empty = all)" />
+        <MudTextField @bind-Value="_excludeKeywords" Label="Exclude keywords (comma separated)" />
+
+        <MudText Typo="Typo.subtitle1" Class="mt-3">Style</MudText>
+        <MudTextField @bind-Value="_tone" Label="Tone modifiers (added to tenant voice profile)" Lines="2" />
+        <MudTextField @bind-Value="_length" Label="Length target (e.g. '800 words')" />
+        <MudTextField @bind-Value="_language" Label="Language (e.g. 'English')" />
+
+        <MudText Typo="Typo.subtitle1" Class="mt-3">Output</MudText>
+        <MudTextField @bind-Value="_subfolder" Label="Subfolder in tenant output folder (optional)" />
+        <MudTextField @bind-Value="_filenamePattern" Label="Filename pattern (default {date}-{kind}-{slug}.md)" />
+        <MudTextField @bind-Value="_targetPlatform" Label="Target platform label (optional, e.g. Patreon, Ko-fi)" />
+        <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; empty = manual only). Scheduled runs ingest sources first." />
+        <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
+
+        @if (_editing is not null && _template is not null)
+        {
+            <MudText Typo="Typo.subtitle1" Class="mt-3">Prompt template (placeholders: {voice_profile} {tone_modifiers} {items} {extra_instructions})</MudText>
+            <MudTextField @bind-Value="_template.Template" Lines="14" Variant="Variant.Outlined" />
+        }
+
+        <div class="mt-2">
+            <MudButton OnClick="Save" Variant="Variant.Filled" Color="Color.Primary" Class="mr-2">Save</MudButton>
+            @if (_editing is not null)
+            {
+                <MudButton OnClick="Reset">Cancel</MudButton>
+            }
+        </div>
+    </MudPaper>
+
+    <MudTable Items="_recipes" Hover="true">
+        <HeaderContent>
+            <MudTh>Name</MudTh><MudTh>Kind</MudTh><MudTh>Schedule</MudTh><MudTh>Enabled</MudTh><MudTh>Last run</MudTh><MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.Name</MudTd>
+            <MudTd>@context.Kind</MudTd>
+            <MudTd>@(context.ScheduleCron ?? "manual")</MudTd>
+            <MudTd>@(context.IsEnabled ? "yes" : "no")</MudTd>
+            <MudTd>@(context.LastRunAt?.ToLocalTime().ToString("g") ?? "never")</MudTd>
+            <MudTd>
+                <MudButton Size="Size.Small" Color="Color.Primary" Disabled="_running" OnClick="@(() => RunNow(context))">Run now</MudButton>
+                <MudButton Size="Size.Small" OnClick="@(() => Edit(context))">Edit</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Delete(context))">Delete</MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<Tenant> _tenants = [];
+    private List<Source> _sources = [];
+    private List<Recipe> _recipes = [];
+    private Guid? _tenantId;
+    private Recipe? _editing;
+    private PromptTemplate? _template;
+    private bool _running;
+
+    private string _name = "", _kind = DraftKinds.Newsletter, _includeKeywords = "", _excludeKeywords = "",
+        _tone = "", _length = "", _language = "", _subfolder = "", _filenamePattern = "", _targetPlatform = "", _cron = "";
+    private int? _windowDays = 7, _minScore;
+    private int _maxItems = 10;
+    private bool _enabled = true;
+    private IReadOnlyCollection<Guid> _selectedSourceIds = [];
+
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+
+    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
+
+    private async Task OnTenantChanged(Guid? id)
+    {
+        _tenantId = id;
+        Reset();
+        _sources = id is null ? [] : await SourceSvc.ListAsync(id.Value);
+        _recipes = id is null ? [] : await RecipeSvc.ListAsync(id.Value);
+    }
+
+    private async Task Edit(Recipe r)
+    {
+        _editing = r;
+        _name = r.Name; _kind = r.Kind; _cron = r.ScheduleCron ?? ""; _enabled = r.IsEnabled;
+        _tone = r.ToneModifiers ?? ""; _length = r.LengthTarget ?? ""; _language = r.Language ?? "";
+        _selectedSourceIds = JsonSerializer.Deserialize<Guid[]>(r.SourceIdsJson) ?? [];
+        var rules = JsonSerializer.Deserialize<SelectionRules>(r.SelectionJson, JsonOpts) ?? new SelectionRules();
+        _windowDays = rules.TimeWindowDays; _minScore = rules.MinScore; _maxItems = rules.MaxItems;
+        _includeKeywords = string.Join(", ", rules.IncludeKeywords);
+        _excludeKeywords = string.Join(", ", rules.ExcludeKeywords);
+        var output = JsonSerializer.Deserialize<RecipeOutput>(r.OutputJson, JsonOpts) ?? new RecipeOutput();
+        _subfolder = output.Subfolder ?? ""; _filenamePattern = output.FilenamePattern ?? "";
+        _targetPlatform = output.TargetPlatform ?? "";
+        _template = await RecipeSvc.GetTemplateAsync(r.PromptTemplateId);
+    }
+
+    private void Reset()
+    {
+        _editing = null; _template = null;
+        _name = ""; _kind = DraftKinds.Newsletter; _includeKeywords = ""; _excludeKeywords = "";
+        _tone = ""; _length = ""; _language = ""; _subfolder = ""; _filenamePattern = ""; _targetPlatform = "";
+        _cron = ""; _windowDays = 7; _minScore = null; _maxItems = 10; _enabled = true;
+        _selectedSourceIds = [];
+    }
+
+    private static string[] SplitCsv(string csv) =>
+        csv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+    private async Task Save()
+    {
+        if (_tenantId is null || string.IsNullOrWhiteSpace(_name)) return;
+        var selection = JsonSerializer.Serialize(new SelectionRules
+        {
+            TimeWindowDays = _windowDays, MinScore = _minScore, MaxItems = _maxItems,
+            IncludeKeywords = SplitCsv(_includeKeywords), ExcludeKeywords = SplitCsv(_excludeKeywords)
+        }, JsonOpts);
+        var output = JsonSerializer.Serialize(new RecipeOutput
+        {
+            Subfolder = string.IsNullOrWhiteSpace(_subfolder) ? null : _subfolder,
+            FilenamePattern = string.IsNullOrWhiteSpace(_filenamePattern) ? null : _filenamePattern,
+            TargetPlatform = string.IsNullOrWhiteSpace(_targetPlatform) ? null : _targetPlatform
+        }, JsonOpts);
+        var sourceIds = JsonSerializer.Serialize(_selectedSourceIds.ToArray());
+
+        if (_editing is null)
+        {
+            await RecipeSvc.CreateAsync(new Recipe
+            {
+                TenantId = _tenantId.Value, Name = _name, Kind = _kind, SourceIdsJson = sourceIds,
+                SelectionJson = selection, OutputJson = output,
+                ToneModifiers = _tone, LengthTarget = _length, Language = _language,
+                ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron, IsEnabled = _enabled
+            });
+        }
+        else
+        {
+            _editing.Name = _name; _editing.SourceIdsJson = sourceIds; _editing.SelectionJson = selection;
+            _editing.OutputJson = output; _editing.ToneModifiers = _tone; _editing.LengthTarget = _length;
+            _editing.Language = _language; _editing.ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron;
+            _editing.IsEnabled = _enabled;
+            await RecipeSvc.UpdateAsync();   // also persists the edited _template.Template (tracked)
+        }
+        Reset();
+        _recipes = await RecipeSvc.ListAsync(_tenantId.Value);
+        Snackbar.Add("Saved", Severity.Success);
+    }
+
+    private async Task Delete(Recipe r)
+    {
+        await RecipeSvc.DeleteAsync(r.Id);
+        _recipes = await RecipeSvc.ListAsync(_tenantId!.Value);
+    }
+
+    private async Task RunNow(Recipe r)
+    {
+        _running = true;
+        Snackbar.Add($"Running recipe '{r.Name}' — this calls the LLM and can take a few minutes...", Severity.Info);
+        try
+        {
+            var (run, draft) = await Generation.RunAsync(r.Id);
+            if (run.Status == RunStatus.Succeeded)
+                Snackbar.Add($"Draft delivered: {draft!.FilePath}", Severity.Success);
+            else
+                Snackbar.Add($"Run {run.Status}: {run.LogJson}", Severity.Error);
+        }
+        finally
+        {
+            _running = false;
+            _recipes = await RecipeSvc.ListAsync(_tenantId!.Value);
+        }
+    }
+}
