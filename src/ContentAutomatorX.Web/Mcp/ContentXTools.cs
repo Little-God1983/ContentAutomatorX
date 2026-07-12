@@ -11,7 +11,7 @@ namespace ContentAutomatorX.Web.Mcp;
 [McpServerToolType]
 public static class ContentXTools
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
     private static string ToJson(object value) => JsonSerializer.Serialize(value, Json);
 
     [McpServerTool(Name = "list_tenants"), Description("List all tenants (channels/brands) with ids, slugs and voice profiles.")]

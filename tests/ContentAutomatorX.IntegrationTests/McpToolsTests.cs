@@ -104,7 +104,7 @@ public class McpToolsTests : IDisposable
         Assert.Equal(draft.Id, element.GetProperty("id").GetGuid());
         Assert.Equal(DraftKinds.SocialPost, element.GetProperty("kind").GetString());
         Assert.Equal("My Post", element.GetProperty("title").GetString());
-        Assert.Equal((int)DraftStatus.Generated, element.GetProperty("status").GetInt32());
+        Assert.Equal("Generated", element.GetProperty("status").GetString());
         Assert.Equal("/out/my-post.md", element.GetProperty("filePath").GetString());
     }
 
