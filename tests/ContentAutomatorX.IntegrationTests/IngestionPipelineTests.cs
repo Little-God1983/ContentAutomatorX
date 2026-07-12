@@ -1,8 +1,11 @@
+using System.Text.Json;
+using ContentAutomatorX.Application.Persistence;
 using ContentAutomatorX.Application.Pipelines;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Domain.Models;
+using ContentAutomatorX.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.IntegrationTests;
@@ -12,6 +15,38 @@ public class FakeConnector(string type, Func<Source, IReadOnlyList<FetchedItem>>
     public string Type => type;
     public Task<IReadOnlyList<FetchedItem>> FetchAsync(Source source, CancellationToken ct = default) =>
         Task.FromResult(fetch(source));
+}
+
+/// <summary>
+/// Wraps a real <see cref="AppDbContext"/> and forwards every <see cref="IAppDbContext"/> member to it,
+/// except that <see cref="SaveChangesAsync"/> runs <paramref name="onFirstMatchingSave"/> immediately
+/// before delegating, the one time it observes pending Added <see cref="ContentItem"/> entries for
+/// <paramref name="targetSourceId"/>. Used to inject a conflicting write from a separate DbContext at the
+/// exact moment the pipeline is about to save newly-fetched items, so the pipeline's own SaveChangesAsync
+/// fails with a unique-constraint DbUpdateException. Fires at most once.
+/// </summary>
+public sealed class SaveHookDbContext(AppDbContext inner, Guid targetSourceId, Action onFirstMatchingSave) : IAppDbContext
+{
+    private bool _armed = true;
+
+    public DbSet<Tenant> Tenants => inner.Tenants;
+    public DbSet<Source> Sources => inner.Sources;
+    public DbSet<ContentItem> ContentItems => inner.ContentItems;
+    public DbSet<Recipe> Recipes => inner.Recipes;
+    public DbSet<Draft> Drafts => inner.Drafts;
+    public DbSet<PipelineRun> PipelineRuns => inner.PipelineRuns;
+    public DbSet<PromptTemplate> PromptTemplates => inner.PromptTemplates;
+
+    public Task<int> SaveChangesAsync(CancellationToken ct = default)
+    {
+        if (_armed && inner.ChangeTracker.Entries<ContentItem>().Any(e =>
+                e.State == EntityState.Added && e.Entity.SourceId == targetSourceId))
+        {
+            _armed = false;
+            onFirstMatchingSave();
+        }
+        return inner.SaveChangesAsync(ct);
+    }
 }
 
 public class IngestionPipelineTests
@@ -83,5 +118,76 @@ public class IngestionPipelineTests
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         Assert.Equal(1, await test.Db.ContentItems.CountAsync());
+    }
+
+    [Fact]
+    public async Task Mid_save_conflict_recovers_tracker_and_pipeline_continues()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t" };
+        test.Db.Tenants.Add(tenant);
+        await test.Db.SaveChangesAsync();
+
+        // Seed "bad" then "good" in separate SaveChanges calls so "bad" gets a lower rowid.
+        // The pipeline's Sources query has no ORDER BY, and an unindexed SQLite table scan
+        // returns rows in rowid (insertion) order, so "bad" is processed first below - which
+        // is what lets this test prove a failure on the first source doesn't poison the second.
+        var badSource = new Source { TenantId = tenant.Id, Type = SourceTypes.Rss, DisplayName = "bad" };
+        test.Db.Sources.Add(badSource);
+        await test.Db.SaveChangesAsync();
+
+        var goodSource = new Source { TenantId = tenant.Id, Type = SourceTypes.Reddit, DisplayName = "good" };
+        test.Db.Sources.Add(goodSource);
+        await test.Db.SaveChangesAsync();
+
+        var badConnector = new FakeConnector(SourceTypes.Rss, _ =>
+            [new FetchedItem("e1", "One", null, null, "b1", "{}", null)]);
+        var goodConnector = new FakeConnector(SourceTypes.Reddit, _ =>
+            [new FetchedItem("g1", "Good one", null, null, "b2", "{}", null)]);
+
+        // Right as the pipeline is about to save its newly-added ContentItem for "bad", race a
+        // competing insert of the same (SourceId, ExternalId) through a separate context so the
+        // pipeline's own SaveChangesAsync hits the unique index (ContentItems.SourceId/ExternalId).
+        var hookedDb = new SaveHookDbContext(test.Db, badSource.Id, () =>
+        {
+            using var competitor = test.NewContext();
+            competitor.ContentItems.Add(new ContentItem
+            {
+                TenantId = tenant.Id, SourceId = badSource.Id, ExternalId = "e1",
+                Title = "planted by competing insert", Body = "x"
+            });
+            competitor.SaveChanges();
+        });
+
+        var pipeline = new IngestionPipeline(hookedDb, [badConnector, goodConnector]);
+
+        var run = await pipeline.RunAsync(tenant.Id);
+
+        // (a) the conflict is recorded as a failed source, not an unhandled exception out of RunAsync.
+        Assert.Equal(RunStatus.Partial, run.Status);
+        var log = JsonSerializer.Deserialize<List<string>>(run.LogJson)!;
+        Assert.Equal(2, log.Count);
+        Assert.StartsWith("bad: FAILED - ", log[0]);
+        Assert.Contains("An error occurred while saving the entity changes", log[0]);
+        Assert.StartsWith("good: fetched", log[1]);
+
+        using var verify = test.NewContext();
+
+        // (b) tracker not poisoned: the catch block's recovery save still landed LastFetchedAt
+        // for the failing source. Before the fix, RemoveRange(added) was missing and this second
+        // SaveChangesAsync retried the same doomed insert, throwing out of RunAsync entirely.
+        var reloadedBad = await verify.Sources.SingleAsync(s => s.Id == badSource.Id);
+        Assert.NotNull(reloadedBad.LastFetchedAt);
+
+        var conflictedRows = await verify.ContentItems
+            .Where(i => i.SourceId == badSource.Id && i.ExternalId == "e1")
+            .ToListAsync();
+        var survivor = Assert.Single(conflictedRows);
+        Assert.Equal("planted by competing insert", survivor.Title);
+
+        // (c) continuation: the source processed after the failing one still landed its item.
+        Assert.Equal(1, await verify.ContentItems.CountAsync(i => i.SourceId == goodSource.Id));
+        var reloadedGood = await verify.Sources.SingleAsync(s => s.Id == goodSource.Id);
+        Assert.NotNull(reloadedGood.LastFetchedAt);
     }
 }
