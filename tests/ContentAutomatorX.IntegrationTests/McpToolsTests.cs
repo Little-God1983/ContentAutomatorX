@@ -62,4 +62,33 @@ public class McpToolsTests : IDisposable
 
         Assert.Contains("Selected", json);
     }
+
+    [Fact]
+    public async Task Get_tenant_returns_not_found_for_unknown_id_and_tenant_json_for_a_real_one()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "Chan", Slug = "chan2" };
+        test.Db.Tenants.Add(tenant);
+        await test.Db.SaveChangesAsync();
+        var service = new TenantService(test.Db);
+
+        var notFoundJson = await ContentXTools.GetTenant(service, Guid.NewGuid().ToString());
+        using var notFoundDoc = JsonDocument.Parse(notFoundJson);
+        Assert.Equal(JsonValueKind.String, notFoundDoc.RootElement.ValueKind);
+        Assert.Equal("not found", notFoundDoc.RootElement.GetString());
+
+        var foundJson = await ContentXTools.GetTenant(service, tenant.Id.ToString());
+        using var foundDoc = JsonDocument.Parse(foundJson);
+        Assert.Equal("chan2", foundDoc.RootElement.GetProperty("slug").GetString());
+    }
+
+    // NOTE: Coverage follow-ups also called for tests of ListDrafts' projected shape and of
+    // GetPipelineRuns' newest-first/limit ordering. Both are omitted here: DraftService.ListAsync
+    // and RunService.ListAsync order directly on a DateTimeOffset column
+    // (OrderByDescending(d => d.CreatedAt) / OrderByDescending(r => r.StartedAt)), which EF Core's
+    // SQLite provider - the provider this app actually uses in production (see Program.cs
+    // UseSqlite) - does not support ("SQLite does not support expressions of type 'DateTimeOffset'
+    // in ORDER BY clauses"). The call fails at query-translation time regardless of row count, so
+    // no test of this MCP tool's real behavior can pass without a production-code fix, which is out
+    // of scope for this test-only pass. Reported as a concern; see the follow-ups report.
 }

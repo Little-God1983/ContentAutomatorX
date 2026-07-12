@@ -63,6 +63,28 @@ public class ClaudeCliBackendTests
     }
 
     [Fact]
+    public async Task Exit_zero_with_is_error_true_retries_then_throws()
+    {
+        const string errorJson = """{"type":"result","result":"ignored","is_error":true}""";
+        var runner = new FakeProcessRunner(new ProcessResult(0, errorJson, ""));
+        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p"));
+        Assert.Equal(2, runner.Calls);
+    }
+
+    [Fact]
+    public async Task Exit_zero_without_result_property_retries_then_throws()
+    {
+        const string noResultJson = """{"type":"result","is_error":false}""";
+        var runner = new FakeProcessRunner(new ProcessResult(0, noResultJson, ""));
+        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p"));
+        Assert.Equal(2, runner.Calls);
+    }
+
+    [Fact]
     public async Task Extracts_model_from_modelUsage_when_present()
     {
         const string jsonWithModelUsage = """

@@ -63,4 +63,38 @@ public class ItemSelectorTests
         Assert.Single(result);
         Assert.Equal("about comfyui nodes", result[0].Title);
     }
+
+    [Fact]
+    public void Missing_or_invalid_score_metadata_is_treated_as_score_zero()
+    {
+        var emptyJson = new ContentItem
+        {
+            Title = "empty", ExternalId = "empty", Body = "", MetadataJson = "{}",
+            PublishedAt = Now.AddDays(-1)
+        };
+        var invalidJson = new ContentItem
+        {
+            Title = "invalid", ExternalId = "invalid", Body = "", MetadataJson = "not json",
+            PublishedAt = Now.AddDays(-1)
+        };
+        var items = new[] { emptyJson, invalidJson };
+
+        var excluded = ItemSelector.Select(items, new SelectionRules { MinScore = 1 }, new HashSet<Guid>(), Now);
+        Assert.Empty(excluded);
+
+        var included = ItemSelector.Select(items, new SelectionRules(), new HashSet<Guid>(), Now);
+        Assert.Equal(2, included.Count);
+    }
+
+    [Fact]
+    public void Equal_scores_break_ties_by_newer_PublishedAt_first()
+    {
+        var older = Item("older", score: 50, ageDays: 5);
+        var newer = Item("newer", score: 50, ageDays: 1);
+        var items = new[] { older, newer };
+
+        var result = ItemSelector.Select(items, new SelectionRules(), new HashSet<Guid>(), Now);
+
+        Assert.Equal(["newer", "older"], result.Select(i => i.Title).ToArray());
+    }
 }

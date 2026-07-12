@@ -62,4 +62,48 @@ public class FileShareDraftDeliveryTests : IDisposable
         await Assert.ThrowsAnyAsync<Exception>(() =>
             delivery.DeliverAsync(tenant, new RecipeOutput(), draft));
     }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Empty_or_whitespace_title_falls_back_to_draft_slug(string title)
+    {
+        var (tenant, draft) = Make();
+        draft.Title = title;
+        var delivery = new FileShareDraftDelivery();
+
+        var path = await delivery.DeliverAsync(tenant, new RecipeOutput(), draft);
+
+        Assert.Equal(Path.Combine(_dir, "2026-07-12-newsletter-draft.md"), path);
+    }
+
+    [Fact]
+    public async Task NonAscii_only_title_falls_back_to_draft_slug()
+    {
+        var (tenant, draft) = Make();
+        draft.Title = "日本語タイトル";
+        var delivery = new FileShareDraftDelivery();
+
+        var path = await delivery.DeliverAsync(tenant, new RecipeOutput(), draft);
+
+        Assert.Equal(Path.Combine(_dir, "2026-07-12-newsletter-draft.md"), path);
+    }
+
+    [Fact]
+    public async Task Long_title_slug_is_capped_at_60_chars_with_no_trailing_hyphen()
+    {
+        var (tenant, draft) = Make();
+        draft.Title = string.Join(" ", Enumerable.Repeat("word", 30)); // slugifies to 149 chars, well over the cap
+        var delivery = new FileShareDraftDelivery();
+
+        var path = await delivery.DeliverAsync(tenant, new RecipeOutput(), draft);
+
+        var prefix = "2026-07-12-newsletter-";
+        var fileName = Path.GetFileNameWithoutExtension(path);
+        Assert.StartsWith(prefix, fileName);
+        var slug = fileName[prefix.Length..];
+        Assert.True(slug.Length <= 60, $"slug '{slug}' exceeds 60 chars");
+        Assert.False(slug.EndsWith('-'), $"slug '{slug}' has a trailing hyphen");
+        Assert.Equal(string.Join("-", Enumerable.Repeat("word", 12)), slug);
+    }
 }

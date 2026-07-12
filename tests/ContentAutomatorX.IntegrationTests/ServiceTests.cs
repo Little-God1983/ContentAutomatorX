@@ -1,3 +1,4 @@
+using ContentAutomatorX.Application.Generation;
 using ContentAutomatorX.Application.Services;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Entities;
@@ -51,6 +52,42 @@ public class ServiceTests
         var recipe = new Recipe { TenantId = tenant.Id, Name = "R", Kind = DraftKinds.SocialPost };
         var draft = new Draft { TenantId = tenant.Id, RecipeId = recipe.Id, Kind = recipe.Kind, Title = "Post", Body = "# Post" };
         test.Db.Tenants.Add(tenant); test.Db.Recipes.Add(recipe); test.Db.Drafts.Add(draft);
+        await test.Db.SaveChangesAsync();
+
+        var service = new DraftService(test.Db, new FileShareDraftDelivery());
+        var delivered = await service.RetryDeliveryAsync(draft.Id);
+
+        Assert.Equal(DraftStatus.Delivered, delivered.Status);
+        Assert.True(File.Exists(delivered.FilePath));
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
+    public async Task RecipeService_create_falls_back_to_DefaultTemplates_when_no_system_default_template_exists()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-no-default" };
+        test.Db.Tenants.Add(tenant);
+        await test.Db.SaveChangesAsync();
+
+        var service = new RecipeService(test.Db);
+        var recipe = await service.CreateAsync(new Recipe { TenantId = tenant.Id, Name = "R", Kind = DraftKinds.SocialPost });
+
+        Assert.NotEqual(Guid.Empty, recipe.PromptTemplateId);
+        var clone = await test.Db.PromptTemplates.SingleAsync(p => p.Id == recipe.PromptTemplateId);
+        Assert.Equal(tenant.Id, clone.TenantId);
+        Assert.Equal(DefaultTemplates.GetFor(DraftKinds.SocialPost), clone.Template);
+    }
+
+    [Fact]
+    public async Task DraftService_retry_delivery_uses_default_output_when_recipe_row_is_missing()
+    {
+        using var test = TestDb.Create();
+        var dir = Path.Combine(Path.GetTempPath(), $"contentx-svc-{Guid.NewGuid():N}");
+        var tenant = new Tenant { Name = "T", Slug = "t-deleted-recipe", OutputFolderPath = dir };
+        // RecipeId points at a recipe that was never created (equivalent to one that was since deleted).
+        var draft = new Draft { TenantId = tenant.Id, RecipeId = Guid.NewGuid(), Kind = DraftKinds.SocialPost, Title = "Post", Body = "# Post" };
+        test.Db.Tenants.Add(tenant); test.Db.Drafts.Add(draft);
         await test.Db.SaveChangesAsync();
 
         var service = new DraftService(test.Db, new FileShareDraftDelivery());

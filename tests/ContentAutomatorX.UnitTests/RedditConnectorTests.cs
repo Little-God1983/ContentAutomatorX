@@ -31,4 +31,41 @@ public class RedditConnectorTests
         Assert.Contains("t=week", requestUrl);
         Assert.True(handler.Requests[0].Headers.UserAgent.Count > 0, "must send a User-Agent");
     }
+
+    [Fact]
+    public async Task Config_with_only_subreddit_defaults_to_hot_limit25_and_week()
+    {
+        var handler = StubHttpHandler.ReturningFile("Fixtures/sample-reddit.json", "application/json");
+        var connector = new RedditConnector(new HttpClient(handler));
+        var source = new Source
+        {
+            Type = SourceTypes.Reddit, DisplayName = "x",
+            ConfigJson = """{"subreddit":"x"}"""
+        };
+
+        await connector.FetchAsync(source);
+
+        var requestUrl = handler.Requests[0].RequestUri!.ToString();
+        Assert.Contains("/r/x/hot.json", requestUrl);
+        Assert.Contains("limit=25", requestUrl);
+        Assert.Contains("t=week", requestUrl);
+    }
+
+    [Fact]
+    public async Task Post_missing_permalink_has_null_url()
+    {
+        var handler = StubHttpHandler.ReturningFile("Fixtures/sample-reddit-no-permalink.json", "application/json");
+        var connector = new RedditConnector(new HttpClient(handler));
+        var source = new Source
+        {
+            Type = SourceTypes.Reddit, DisplayName = "x",
+            ConfigJson = """{"subreddit":"x"}"""
+        };
+
+        var items = await connector.FetchAsync(source);
+
+        Assert.Single(items);
+        Assert.Equal("noperma1", items[0].ExternalId);
+        Assert.Null(items[0].Url);
+    }
 }
