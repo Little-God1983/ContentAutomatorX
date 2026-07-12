@@ -14,6 +14,7 @@ It runs locally on the owner's Windows machine but is architected so the same de
 
 - Multi-tenant core: tenants as brand/channel profiles
 - Ingestion from Reddit (public JSON endpoints) and RSS/Atom feeds
+- **Recipes**: per-tenant, fully configurable content products binding sources → selection rules → prompt → output → schedule
 - Draft generation via Claude (`claude` CLI, subscription billing — no per-token API)
 - Draft kinds: Newsletter, SocialPost, VideoScript
 - Delivery as Markdown files into per-tenant sync folders
@@ -36,7 +37,7 @@ Modular monolith. One solution, four projects, one deployable ASP.NET Core host 
 ContentAutomatorX/
 ├─ src/
 │  ├─ ContentAutomatorX.Domain/            # entities + abstractions, zero dependencies
-│  │   ├─ Entities/        (Tenant, Source, ContentItem, Draft, PipelineRun, PromptTemplate)
+│  │   ├─ Entities/        (Tenant, Source, ContentItem, Recipe, Draft, PipelineRun, PromptTemplate)
 │  │   └─ Abstractions/    (ISourceConnector, ILlmBackend,
 │  │                        IPlatformConnector, IDraftDelivery)
 │  ├─ ContentAutomatorX.Application/       # use cases & orchestration
@@ -52,7 +53,7 @@ ContentAutomatorX/
 │  └─ ContentAutomatorX.Web/               # the single host
 │      ├─ Components/      (Blazor Server UI, MudBlazor)
 │      ├─ Mcp/             (exposed MCP server — streamable HTTP endpoint at /mcp)
-│      └─ Jobs/            (hosted background service: per-tenant ingestion scheduler)
+│      └─ Jobs/            (hosted background service: source ingestion + recipe schedules)
 └─ tests/
    ├─ ContentAutomatorX.UnitTests/
    └─ ContentAutomatorX.IntegrationTests/
@@ -92,8 +93,22 @@ SQLite via EF Core. Every tenant-owned row carries `TenantId`.
 - `Title`, `Url`, `Author`, `Body` (extracted text), `Metadata` (JSON: score etc.), `PublishedAt`, `FetchedAt`
 - `Status`: `New` → `Selected` | `Ignored` → `Used`
 
+### Recipe
+
+The central drafting configuration — one per automated content product. Sources are decoupled from outputs: sources gather into the tenant's content pool; recipes choose what they draw from. Adding/removing a source never breaks a recipe.
+
+- `Id`, `TenantId`, `Name`, `Kind` (`Newsletter` | `SocialPost` | `VideoScript`), `IsEnabled`
+- `SourceIds` (JSON array — which of the tenant's sources feed this recipe; empty = all)
+- `Selection` (JSON: time window, min score, max items, keyword include/exclude, exclude items already used by this recipe)
+- `PromptTemplateId` — the recipe's template (cloned from a system default per kind, then edited)
+- `ToneModifiers` (text appended to the tenant voice profile), `LengthTarget`, `Language`
+- `Output` (JSON: subfolder, filename pattern, `TargetPlatform` nullable)
+- `ScheduleCron` (nullable → manual-only; set → full auto: ingest → select → generate → deliver)
+
+Examples: "Weekly AI news newsletter from r/StableDiffusion + blog feeds, Mondays 08:00", "Daily Patreon teaser from the single hottest Reddit post".
+
 ### Draft
-- `Id`, `TenantId`, `Kind` (`Newsletter` | `SocialPost` | `VideoScript`; string, extensible)
+- `Id`, `TenantId`, `RecipeId`, `Kind` (`Newsletter` | `SocialPost` | `VideoScript`; string, extensible)
 - `Title`, `Body` (Markdown), `TargetPlatform` (nullable string, e.g. `Patreon`)
 - `SourceItemIds` (JSON array of ContentItem ids — provenance)
 - `FilePath` (delivered location), `Status`: `Generated` → `Delivered` (later: `Approved`, `Published`)
@@ -106,7 +121,8 @@ SQLite via EF Core. Every tenant-owned row carries `TenantId`.
 
 ### PromptTemplate
 - `Id`, `TenantId` (nullable → system default), `Kind`
-- `Template` — text with placeholders: `{voice_profile}`, `{items}`, `{extra_instructions}`
+- `Template` — text with placeholders: `{voice_profile}`, `{tone_modifiers}`, `{items}`, `{extra_instructions}`
+- System defaults per kind ship with the app (newsletter structure; Patreon-style post; YouTube script beats); recipes clone and customize them.
 
 ### Decisions
 - Dedup at ingest via the `(SourceId, ExternalId)` unique constraint; re-fetches never duplicate.
@@ -123,13 +139,14 @@ SQLite via EF Core. Every tenant-owned row carries `TenantId`.
 3. New items (dedup via `ExternalId`) stored as `ContentItem(Status=New)`.
 4. `PipelineRun` records counts and per-source errors; one failing source never blocks others (run status `Partial`).
 
-### Generation (per tenant + draft kind; triggers: UI, MCP, optional schedule)
+### Generation (per recipe; triggers: UI "run now", MCP, recipe schedule)
 
-1. Input selection: default = top-N `New`/`Selected` items since the last generation of that kind (N configurable per tenant, default 10); or hand-picked item ids from UI/MCP.
-2. Prompt built from the tenant's `PromptTemplate` for the kind: voice profile + item titles/bodies/links + kind-specific instructions (newsletter structure; Patreon-style post format; YouTube script beats: hook/intro/sections/outro/CTA).
+1. Input selection per the recipe's `Selection` rules against its `SourceIds` pool (time window, min score, max items, keyword filters, exclude already-used-by-this-recipe); or hand-picked item ids from UI/MCP override the selection.
+2. Prompt built from the recipe's `PromptTemplate`: tenant voice profile + recipe tone modifiers/length/language + item titles/bodies/links + kind-specific structure from the template (newsletter structure; Patreon-style post format; YouTube script beats: hook/intro/sections/outro/CTA).
 3. `ILlmBackend.GenerateAsync(prompt)` → `ClaudeCliBackend` runs `claude -p` headlessly (non-interactive, JSON output mode, configurable timeout default 5 min, stderr captured, one retry on transient failure). Subscription billing; no API key.
-4. Result saved as `Draft`, then `IDraftDelivery` writes `{date}-{kind}-{slug}.md` with YAML front-matter (tenant, kind, source items, model) into the tenant's output folder; the sync client uploads it.
-5. Used items flip to `Used`; `PipelineRun` logs prompt size, duration, output path.
+4. Result saved as `Draft`, then `IDraftDelivery` writes the file per the recipe's output config (subfolder + filename pattern, default `{date}-{kind}-{slug}.md`) with YAML front-matter (tenant, recipe, kind, source items, model) into the tenant's output folder; the sync client uploads it.
+5. Used items flip to `Used`; `PipelineRun` logs recipe, prompt size, duration, output path.
+6. A scheduled recipe optionally triggers ingestion of its sources first, so "full auto" means: ingest → select → generate → deliver, no manual step.
 
 ### Concurrency
 - One pipeline run per tenant at a time (per-tenant semaphore). Ingestion and generation are separate runs; a slow LLM call never blocks fetching.
@@ -152,7 +169,8 @@ Tools (thin wrappers over Application services):
 | `trigger_ingestion(tenantId, sourceId?)` | run fetches on demand |
 | `list_content_items(tenantId, status?, since?)` | browse gathered material |
 | `mark_item(itemId, status)` | curate (select/ignore) |
-| `generate_draft(tenantId, kind, itemIds?, extraInstructions?)` | run generation; returns draft + file path |
+| `list_recipes(tenantId)` / `get_recipe(recipeId)` | inspect drafting configurations |
+| `run_recipe(recipeId, itemIds?, extraInstructions?)` | run generation for a recipe; returns draft + file path |
 | `list_drafts(tenantId, kind?, status?)` / `get_draft(draftId)` | read results |
 | `get_pipeline_runs(tenantId, limit)` | audit/run history |
 
@@ -165,8 +183,9 @@ Notes:
 1. **Dashboard** — per-tenant cards: new item counts, last runs, recent drafts, error badges
 2. **Tenants** — CRUD, voice profile editor, output folder picker with write-access check
 3. **Sources** — per tenant: add/edit Reddit/RSS sources, schedule, enable/disable, "fetch now", last-fetch status
-4. **Content & Drafts** — item browser (select/ignore), "generate draft" dialog (kind + items + extra instructions), draft list with preview and open-file/folder actions
-5. **Runs** — `PipelineRun` history with expandable logs (primary debugging view)
+4. **Recipes** — per tenant: create/edit/clone recipes (kind, source picks, selection rules, template editor, tone/length/language, output config, schedule), "run now" button, last-run status
+5. **Content & Drafts** — item browser (select/ignore), "run recipe" dialog (recipe + optional hand-picked items + extra instructions), draft list with preview and open-file/folder actions
+6. **Runs** — `PipelineRun` history with expandable logs (primary debugging view)
 
 ## 7. Error Handling
 
@@ -185,7 +204,7 @@ Notes:
 
 | Phase | Content |
 |---|---|
-| **1 (this spec)** | tenants, Reddit+RSS ingestion, Claude-CLI generation (newsletter / social post / video script), file delivery, Blazor UI, exposed MCP server |
+| **1 (this spec)** | tenants, Reddit+RSS ingestion, recipes, Claude-CLI generation (newsletter / social post / video script), file delivery, Blazor UI, exposed MCP server |
 | **2** | platform connectors: YouTube, Patreon, Civitai, Ko-fi (native API or MCP-proxied), credential store, publish pipeline, approval flow |
 | **3** | more sources (generic website extraction, YouTube channels, news), LM Studio backend, per-tenant LLM backend choice |
 | **4** | ComfyUI integration: AI audio for video scripts, thumbnails |
