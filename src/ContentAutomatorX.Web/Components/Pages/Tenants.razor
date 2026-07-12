@@ -1,0 +1,100 @@
+@page "/tenants"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Tenants</MudText>
+
+<MudPaper Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6">@(_editing is null ? "New tenant" : $"Edit: {_editing.Name}")</MudText>
+    <MudTextField @bind-Value="_name" Label="Name" />
+    <MudTextField @bind-Value="_slug" Label="Slug (short id, used in draft front-matter)" />
+    <MudTextField @bind-Value="_voice" Label="Voice profile (tone, style, audience — goes into every prompt)" Lines="5" />
+    <MudTextField @bind-Value="_folder" Label="Output folder (local OneDrive/Mega synced path)" />
+    <MudSwitch T="bool" @bind-Value="_active" Label="Active" Color="Color.Primary" />
+    <div class="mt-2">
+        <MudButton OnClick="VerifyFolder" Variant="Variant.Outlined" Class="mr-2">Verify folder</MudButton>
+        <MudButton OnClick="Save" Variant="Variant.Filled" Color="Color.Primary" Class="mr-2">Save</MudButton>
+        @if (_editing is not null)
+        {
+            <MudButton OnClick="Reset">Cancel</MudButton>
+        }
+    </div>
+</MudPaper>
+
+<MudTable Items="_tenants" Hover="true">
+    <HeaderContent>
+        <MudTh>Name</MudTh><MudTh>Slug</MudTh><MudTh>Output folder</MudTh><MudTh>Active</MudTh><MudTh></MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd>@context.Name</MudTd>
+        <MudTd>@context.Slug</MudTd>
+        <MudTd>@context.OutputFolderPath</MudTd>
+        <MudTd>@(context.IsActive ? "yes" : "no")</MudTd>
+        <MudTd>
+            <MudButton Size="Size.Small" OnClick="@(() => Edit(context))">Edit</MudButton>
+            <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Delete(context))">Delete</MudButton>
+        </MudTd>
+    </RowTemplate>
+</MudTable>
+
+@code {
+    private List<Tenant> _tenants = [];
+    private Tenant? _editing;
+    private string _name = "", _slug = "", _voice = "", _folder = "";
+    private bool _active = true;
+
+    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
+
+    private void Edit(Tenant t)
+    {
+        _editing = t;
+        (_name, _slug, _voice, _folder, _active) = (t.Name, t.Slug, t.VoiceProfile, t.OutputFolderPath, t.IsActive);
+    }
+
+    private void Reset()
+    {
+        _editing = null;
+        (_name, _slug, _voice, _folder, _active) = ("", "", "", "", true);
+    }
+
+    private void VerifyFolder()
+    {
+        try
+        {
+            if (!Directory.Exists(_folder)) { Snackbar.Add("Folder does not exist", Severity.Error); return; }
+            var probe = Path.Combine(_folder, $".contentx-probe-{Guid.NewGuid():N}");
+            File.WriteAllText(probe, "ok");
+            File.Delete(probe);
+            Snackbar.Add("Folder is writable", Severity.Success);
+        }
+        catch (Exception ex) { Snackbar.Add($"Not writable: {ex.Message}", Severity.Error); }
+    }
+
+    private async Task Save()
+    {
+        if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_slug))
+        { Snackbar.Add("Name and slug are required", Severity.Warning); return; }
+
+        if (_editing is null)
+        {
+            await TenantSvc.CreateAsync(new Tenant
+            { Name = _name, Slug = _slug, VoiceProfile = _voice, OutputFolderPath = _folder, IsActive = _active });
+        }
+        else
+        {
+            (_editing.Name, _editing.Slug, _editing.VoiceProfile, _editing.OutputFolderPath, _editing.IsActive)
+                = (_name, _slug, _voice, _folder, _active);
+            await TenantSvc.UpdateAsync();
+        }
+        Reset();
+        _tenants = await TenantSvc.ListAsync();
+        Snackbar.Add("Saved", Severity.Success);
+    }
+
+    private async Task Delete(Tenant t)
+    {
+        await TenantSvc.DeleteAsync(t.Id);
+        _tenants = await TenantSvc.ListAsync();
+    }
+}

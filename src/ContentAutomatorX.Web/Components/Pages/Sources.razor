@@ -1,0 +1,149 @@
+@page "/sources"
+@rendermode InteractiveServer
+@inject TenantService TenantSvc
+@inject SourceService SourceSvc
+@inject IngestionPipeline Ingestion
+@inject ISnackbar Snackbar
+
+<MudText Typo="Typo.h4" Class="mb-4">Sources</MudText>
+
+<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
+    @foreach (var t in _tenants)
+    {
+        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
+    }
+</MudSelect>
+
+@if (_tenantId is not null)
+{
+    <MudPaper Class="pa-4 mb-4">
+        <MudText Typo="Typo.h6">@(_editing is null ? "New source" : $"Edit: {_editing.DisplayName}")</MudText>
+        <MudSelect T="string" @bind-Value="_type" Label="Type">
+            <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_displayName" Label="Display name" />
+        @if (_type == SourceTypes.Reddit)
+        {
+            <MudTextField @bind-Value="_subreddit" Label="Subreddit (without r/)" />
+            <MudTextField @bind-Value="_sort" Label="Sort (hot|new|top|rising)" />
+            <MudTextField @bind-Value="_timeframe" Label="Timeframe for top (hour|day|week|month|year|all)" />
+        }
+        else
+        {
+            <MudTextField @bind-Value="_feedUrl" Label="Feed URL" />
+        }
+        <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; e.g. '0 6 * * *' = daily 06:00; empty = manual only)" />
+        <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
+        <div class="mt-2">
+            <MudButton OnClick="Save" Variant="Variant.Filled" Color="Color.Primary" Class="mr-2">Save</MudButton>
+            @if (_editing is not null)
+            {
+                <MudButton OnClick="Reset">Cancel</MudButton>
+            }
+        </div>
+    </MudPaper>
+
+    <MudTable Items="_sources" Hover="true">
+        <HeaderContent>
+            <MudTh>Name</MudTh><MudTh>Type</MudTh><MudTh>Schedule</MudTh><MudTh>Enabled</MudTh><MudTh>Last fetched</MudTh><MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.DisplayName</MudTd>
+            <MudTd>@context.Type</MudTd>
+            <MudTd>@(context.ScheduleCron ?? "manual")</MudTd>
+            <MudTd>@(context.IsEnabled ? "yes" : "no")</MudTd>
+            <MudTd>@(context.LastFetchedAt?.ToLocalTime().ToString("g") ?? "never")</MudTd>
+            <MudTd>
+                <MudButton Size="Size.Small" OnClick="@(() => FetchNow(context))">Fetch now</MudButton>
+                <MudButton Size="Size.Small" OnClick="@(() => Edit(context))">Edit</MudButton>
+                <MudButton Size="Size.Small" Color="Color.Error" OnClick="@(() => Delete(context))">Delete</MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private List<Tenant> _tenants = [];
+    private List<Source> _sources = [];
+    private Guid? _tenantId;
+    private Source? _editing;
+    private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
+        _timeframe = "week", _feedUrl = "", _cron = "";
+    private bool _enabled = true;
+
+    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
+
+    private async Task OnTenantChanged(Guid? id)
+    {
+        _tenantId = id;
+        Reset();
+        _sources = id is null ? [] : await SourceSvc.ListAsync(id.Value);
+    }
+
+    private void Edit(Source s)
+    {
+        _editing = s;
+        _type = s.Type; _displayName = s.DisplayName; _cron = s.ScheduleCron ?? ""; _enabled = s.IsEnabled;
+        using var doc = JsonDocument.Parse(s.ConfigJson);
+        if (s.Type == SourceTypes.Reddit)
+        {
+            _subreddit = doc.RootElement.TryGetProperty("subreddit", out var v) ? v.GetString() ?? "" : "";
+            _sort = doc.RootElement.TryGetProperty("sort", out var so) ? so.GetString() ?? "hot" : "hot";
+            _timeframe = doc.RootElement.TryGetProperty("timeframe", out var tf) ? tf.GetString() ?? "week" : "week";
+        }
+        else
+        {
+            _feedUrl = doc.RootElement.TryGetProperty("feedUrl", out var f) ? f.GetString() ?? "" : "";
+        }
+    }
+
+    private void Reset()
+    {
+        _editing = null;
+        (_type, _displayName, _subreddit, _sort, _timeframe, _feedUrl, _cron, _enabled)
+            = (SourceTypes.Reddit, "", "", "hot", "week", "", "", true);
+    }
+
+    private string BuildConfig() => _type == SourceTypes.Reddit
+        ? JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe })
+        : JsonSerializer.Serialize(new { feedUrl = _feedUrl });
+
+    private async Task Save()
+    {
+        if (_tenantId is null || string.IsNullOrWhiteSpace(_displayName)) return;
+        if (_editing is null)
+        {
+            await SourceSvc.CreateAsync(new Source
+            {
+                TenantId = _tenantId.Value, Type = _type, DisplayName = _displayName,
+                ConfigJson = BuildConfig(), ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron,
+                IsEnabled = _enabled
+            });
+        }
+        else
+        {
+            _editing.Type = _type; _editing.DisplayName = _displayName; _editing.ConfigJson = BuildConfig();
+            _editing.ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron; _editing.IsEnabled = _enabled;
+            await SourceSvc.UpdateAsync();
+        }
+        Reset();
+        _sources = await SourceSvc.ListAsync(_tenantId.Value);
+        Snackbar.Add("Saved", Severity.Success);
+    }
+
+    private async Task Delete(Source s)
+    {
+        await SourceSvc.DeleteAsync(s.Id);
+        _sources = await SourceSvc.ListAsync(_tenantId!.Value);
+    }
+
+    private async Task FetchNow(Source s)
+    {
+        Snackbar.Add($"Fetching {s.DisplayName}...", Severity.Info);
+        var run = await Ingestion.RunAsync(s.TenantId, s.Id);
+        Snackbar.Add($"Fetch {run.Status}: {run.LogJson}",
+            run.Status == RunStatus.Succeeded ? Severity.Success : Severity.Error);
+        _sources = await SourceSvc.ListAsync(_tenantId!.Value);
+    }
+}
