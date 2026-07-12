@@ -79,6 +79,7 @@
     private async Task OnTenantChanged(Guid? id)
     {
         _tenantId = id;
+        _recipeId = null;
         _selectedItems = [];
         _recipes = id is null ? [] : await RecipeSvc.ListAsync(id.Value);
         await Reload();
@@ -92,6 +93,7 @@
 
     private async Task Reload()
     {
+        _selectedItems = [];
         if (_tenantId is null) { _items = []; return; }
         ContentItemStatus? status = _statusFilter == "all" ? null : Enum.Parse<ContentItemStatus>(_statusFilter);
         _items = await ContentSvc.ListAsync(_tenantId.Value, status);
