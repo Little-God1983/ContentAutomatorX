@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # Claude Code superpowers directory
 .superpowers/
+
+# ContentAutomatorX runtime data (SQLite database)
+data/
