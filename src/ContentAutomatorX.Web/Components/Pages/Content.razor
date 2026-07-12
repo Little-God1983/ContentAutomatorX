@@ -3,7 +3,7 @@
 @inject TenantService TenantSvc
 @inject ContentService ContentSvc
 @inject RecipeService RecipeSvc
-@inject GenerationPipeline Generation
+@inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Content items</MudText>
@@ -112,7 +112,9 @@
         try
         {
             var ids = _selectedItems.Select(i => i.Id).ToList();
-            var (run, draft) = await Generation.RunAsync(_recipeId!.Value, ids,
+            using var scope = ScopeFactory.CreateScope();
+            var generation = scope.ServiceProvider.GetRequiredService<GenerationPipeline>();
+            var (run, draft) = await generation.RunAsync(_recipeId!.Value, ids,
                 string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions);
             if (run.Status == RunStatus.Succeeded)
                 Snackbar.Add($"Draft delivered: {draft!.FilePath}", Severity.Success);

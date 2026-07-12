@@ -3,7 +3,7 @@
 @inject TenantService TenantSvc
 @inject SourceService SourceSvc
 @inject RecipeService RecipeSvc
-@inject GenerationPipeline Generation
+@inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Recipes</MudText>
@@ -194,7 +194,9 @@
         Snackbar.Add($"Running recipe '{r.Name}' — this calls the LLM and can take a few minutes...", Severity.Info);
         try
         {
-            var (run, draft) = await Generation.RunAsync(r.Id);
+            using var scope = ScopeFactory.CreateScope();
+            var generation = scope.ServiceProvider.GetRequiredService<GenerationPipeline>();
+            var (run, draft) = await generation.RunAsync(r.Id);
             if (run.Status == RunStatus.Succeeded)
                 Snackbar.Add($"Draft delivered: {draft!.FilePath}", Severity.Success);
             else

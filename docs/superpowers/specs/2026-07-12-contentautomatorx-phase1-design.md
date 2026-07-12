@@ -149,7 +149,7 @@ Examples: "Weekly AI news newsletter from r/StableDiffusion + blog feeds, Monday
 6. A scheduled recipe optionally triggers ingestion of its sources first, so "full auto" means: ingest → select → generate → deliver, no manual step.
 
 ### Concurrency
-- One pipeline run per tenant at a time (per-tenant semaphore). Ingestion and generation are separate runs; a slow LLM call never blocks fetching.
+- One pipeline run per tenant at a time (per-tenant semaphore). Ingestion and generation are separate runs but share the per-tenant lock: a running generation delays that tenant's fetches until it completes (Phase 1 simplicity trade-off).
 
 ### Later-phase seams
 - Publishing = a third pipeline: `Draft(Approved)` → `IPlatformConnector.PublishAsync`.

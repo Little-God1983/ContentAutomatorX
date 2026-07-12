@@ -29,6 +29,7 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
         var run = new PipelineRun { TenantId = recipe.TenantId, Kind = RunKinds.Generation, Trigger = trigger };
         db.PipelineRuns.Add(run);
         await db.SaveChangesAsync(ct);
+        recipe.LastRunAt = DateTimeOffset.UtcNow;
         var log = new List<string> { $"recipe: {recipe.Name} ({recipe.Kind})" };
 
         try
@@ -64,7 +65,6 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
             };
             db.Drafts.Add(draft);
             foreach (var item in items) item.Status = ContentItemStatus.Used;
-            recipe.LastRunAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync(ct);
 
             try

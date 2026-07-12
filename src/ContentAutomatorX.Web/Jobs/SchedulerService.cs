@@ -15,6 +15,7 @@ public class SchedulerService(IServiceScopeFactory scopeFactory, ILogger<Schedul
         do
         {
             try { await TickAsync(ct); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
             catch (Exception ex) { logger.LogError(ex, "scheduler tick failed"); }
         }
         while (await timer.WaitForNextTickAsync(ct));

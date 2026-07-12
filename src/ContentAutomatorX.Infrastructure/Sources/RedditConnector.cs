@@ -38,7 +38,9 @@ public class RedditConnector(HttpClient http) : ISourceConnector
             results.Add(new FetchedItem(
                 ExternalId: d.GetProperty("id").GetString()!,
                 Title: d.GetProperty("title").GetString() ?? "(untitled)",
-                Url: "https://www.reddit.com" + (d.TryGetProperty("permalink", out var p) ? p.GetString() : ""),
+                Url: d.TryGetProperty("permalink", out var p) && p.GetString() is { Length: > 0 } permalink
+                    ? "https://www.reddit.com" + permalink
+                    : null,
                 Author: d.TryGetProperty("author", out var a) ? a.GetString() : null,
                 Body: d.TryGetProperty("selftext", out var t) ? (t.GetString() ?? "") : "",
                 MetadataJson: $"{{\"score\":{score}}}",

@@ -26,8 +26,7 @@
                         }
                         else
                         {
-                            <MudText Inline="true"
-                                     Color="@(card.LastRun.Status == RunStatus.Succeeded ? Color.Success : Color.Error)">
+                            <MudText Inline="true" Color="@StatusColor(card.LastRun.Status)">
                                 @card.LastRun.Kind @card.LastRun.Status
                             </MudText>
                             <span> (@card.LastRun.StartedAt.ToLocalTime().ToString("g"))</span>
@@ -58,4 +57,12 @@
                 runs.Count(r => r.Status is RunStatus.Failed or RunStatus.Partial)));
         }
     }
+
+    private static Color StatusColor(RunStatus status) => status switch
+    {
+        RunStatus.Succeeded => Color.Success,
+        RunStatus.Partial => Color.Warning,
+        RunStatus.Failed => Color.Error,
+        _ => Color.Info
+    };
 }

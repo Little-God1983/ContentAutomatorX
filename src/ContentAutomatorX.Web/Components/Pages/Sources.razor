@@ -2,7 +2,7 @@
 @rendermode InteractiveServer
 @inject TenantService TenantSvc
 @inject SourceService SourceSvc
-@inject IngestionPipeline Ingestion
+@inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Sources</MudText>
@@ -141,7 +141,9 @@
     private async Task FetchNow(Source s)
     {
         Snackbar.Add($"Fetching {s.DisplayName}...", Severity.Info);
-        var run = await Ingestion.RunAsync(s.TenantId, s.Id);
+        using var scope = ScopeFactory.CreateScope();
+        var ingestion = scope.ServiceProvider.GetRequiredService<IngestionPipeline>();
+        var run = await ingestion.RunAsync(s.TenantId, s.Id);
         Snackbar.Add($"Fetch {run.Status}: {run.LogJson}",
             run.Status == RunStatus.Succeeded ? Severity.Success : Severity.Error);
         _sources = await SourceSvc.ListAsync(_tenantId!.Value);

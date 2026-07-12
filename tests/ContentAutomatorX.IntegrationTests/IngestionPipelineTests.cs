@@ -66,4 +66,22 @@ public class IngestionPipelineTests
         Assert.Equal(1, await test.Db.ContentItems.CountAsync());
         Assert.Contains("boom", run.LogJson);
     }
+
+    [Fact]
+    public async Task Duplicate_external_ids_within_one_batch_are_deduped()
+    {
+        using var test = TestDb.Create();
+        var (tenant, source) = Seed(test);
+        var connector = new FakeConnector(SourceTypes.Rss, _ =>
+        [
+            new FetchedItem("dup", "First", null, null, "a", "{}", null),
+            new FetchedItem("dup", "Second", null, null, "b", "{}", null)
+        ]);
+        var pipeline = new IngestionPipeline(test.Db, [connector]);
+
+        var run = await pipeline.RunAsync(tenant.Id);
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        Assert.Equal(1, await test.Db.ContentItems.CountAsync());
+    }
 }

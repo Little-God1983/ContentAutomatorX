@@ -37,14 +37,15 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
                 var connector = connectors.FirstOrDefault(c => c.Type == source.Type)
                     ?? throw new InvalidOperationException($"No connector for type '{source.Type}'");
                 var fetched = await connector.FetchAsync(source, ct);
+                var items = fetched.DistinctBy(f => f.ExternalId).ToList();
 
-                var externalIds = fetched.Select(f => f.ExternalId).ToList();
+                var externalIds = items.Select(f => f.ExternalId).ToList();
                 var existing = await db.ContentItems
                     .Where(i => i.SourceId == source.Id && externalIds.Contains(i.ExternalId))
                     .Select(i => i.ExternalId)
                     .ToListAsync(ct);
 
-                var fresh = fetched.Where(f => !existing.Contains(f.ExternalId)).ToList();
+                var fresh = items.Where(f => !existing.Contains(f.ExternalId)).ToList();
                 foreach (var f in fresh)
                 {
                     db.ContentItems.Add(new ContentItem
@@ -62,6 +63,8 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
             {
                 failed++;
                 log.Add($"{source.DisplayName}: FAILED - {ex.Message}");
+                source.LastFetchedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(ct);
             }
         }
 

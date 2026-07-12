@@ -20,12 +20,15 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseSerilog((context, config) => config
     .ReadFrom.Configuration(context.Configuration)
     .WriteTo.Console()
-    .WriteTo.File("logs/contentx-.log", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14));
+    .WriteTo.File(Path.Combine(context.HostingEnvironment.ContentRootPath, "logs", "contentx-.log"),
+        rollingInterval: RollingInterval.Day, retainedFileCountLimit: 14));
 
 // --- persistence ---
 var dbPath = builder.Configuration["Database:Path"];
 if (string.IsNullOrWhiteSpace(dbPath))
     dbPath = Path.Combine(builder.Environment.ContentRootPath, "data", "contentx.db");
+else if (!Path.IsPathRooted(dbPath))
+    dbPath = Path.Combine(builder.Environment.ContentRootPath, dbPath);
 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dbPath))!);
 builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite($"Data Source={dbPath}"));
 builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
@@ -70,9 +73,15 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
+    db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
     foreach (var kind in DraftKinds.All)
         if (!db.PromptTemplates.Any(p => p.TenantId == null && p.Kind == kind))
             db.PromptTemplates.Add(new PromptTemplate { TenantId = null, Kind = kind, Template = DefaultTemplates.GetFor(kind) });
+    foreach (var stale in db.PipelineRuns.Where(r => r.Status == RunStatus.Running))
+    {
+        stale.Status = RunStatus.Failed;
+        stale.FinishedAt = DateTimeOffset.UtcNow;
+    }
     db.SaveChanges();
 }
 
