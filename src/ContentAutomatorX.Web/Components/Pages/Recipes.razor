@@ -4,6 +4,7 @@
 @inject TenantContext Ctx
 @inject SourceService SourceSvc
 @inject RecipeService RecipeSvc
+@inject PlatformService PlatformSvc
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 
@@ -53,6 +54,14 @@ else
         <MudTextField @bind-Value="_filenamePattern" Label="Filename pattern (default {date}-{kind}-{slug}.md)" />
         <MudTextField @bind-Value="_targetPlatform" Label="Target platform label (optional, e.g. Patreon, Ko-fi)" />
         <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; empty = manual only). Scheduled runs ingest sources first." />
+        <MudSelect T="Guid?" @bind-Value="_targetPlatformId"
+                   Label="Create post for platform (optional — parks in Today's review queue)">
+            <MudSelectItem T="Guid?" Value="@((Guid?)null)">none (file only)</MudSelectItem>
+            @foreach (var p in _platforms)
+            {
+                <MudSelectItem T="Guid?" Value="@((Guid?)p.Id)">@p.DisplayName</MudSelectItem>
+            }
+        </MudSelect>
         <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
 
         @if (_editing is not null && _template is not null)
@@ -91,6 +100,7 @@ else
 
 @code {
     private List<Source> _sources = [];
+    private List<Platform> _platforms = [];
     private List<Recipe> _recipes = [];
     private Recipe? _editing;
     private PromptTemplate? _template;
@@ -101,6 +111,7 @@ else
     private int? _windowDays = 7, _minScore;
     private int _maxItems = 10;
     private bool _enabled = true;
+    private Guid? _targetPlatformId;
     private IReadOnlyCollection<Guid> _selectedSourceIds = [];
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
@@ -130,10 +141,12 @@ else
         if (!Ctx.Initialized || Ctx.Active is null)
         {
             _sources = [];
+            _platforms = [];
             _recipes = [];
             return;
         }
         _sources = await SourceSvc.ListAsync(Ctx.Active.Id);
+        _platforms = [await PlatformSvc.GetOrCreateMailerLiteAsync(Ctx.Active.Id)];
         _recipes = await RecipeSvc.ListAsync(Ctx.Active.Id);
     }
 
@@ -141,6 +154,7 @@ else
     {
         _editing = r;
         _name = r.Name; _kind = r.Kind; _cron = r.ScheduleCron ?? ""; _enabled = r.IsEnabled;
+        _targetPlatformId = r.TargetPlatformId;
         _tone = r.ToneModifiers ?? ""; _length = r.LengthTarget ?? ""; _language = r.Language ?? "";
         _selectedSourceIds = JsonSerializer.Deserialize<Guid[]>(r.SourceIdsJson) ?? [];
         var rules = JsonSerializer.Deserialize<SelectionRules>(r.SelectionJson, JsonOpts) ?? new SelectionRules();
@@ -159,6 +173,7 @@ else
         _name = ""; _kind = DraftKinds.Newsletter; _includeKeywords = ""; _excludeKeywords = "";
         _tone = ""; _length = ""; _language = ""; _subfolder = ""; _filenamePattern = ""; _targetPlatform = "";
         _cron = ""; _windowDays = 7; _minScore = null; _maxItems = 10; _enabled = true;
+        _targetPlatformId = null;
         _selectedSourceIds = [];
     }
 
@@ -188,7 +203,8 @@ else
                 TenantId = Ctx.Active.Id, Name = _name, Kind = _kind, SourceIdsJson = sourceIds,
                 SelectionJson = selection, OutputJson = output,
                 ToneModifiers = _tone, LengthTarget = _length, Language = _language,
-                ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron, IsEnabled = _enabled
+                ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron, IsEnabled = _enabled,
+                TargetPlatformId = _targetPlatformId
             });
         }
         else
@@ -196,7 +212,7 @@ else
             _editing.Name = _name; _editing.SourceIdsJson = sourceIds; _editing.SelectionJson = selection;
             _editing.OutputJson = output; _editing.ToneModifiers = _tone; _editing.LengthTarget = _length;
             _editing.Language = _language; _editing.ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron;
-            _editing.IsEnabled = _enabled;
+            _editing.IsEnabled = _enabled; _editing.TargetPlatformId = _targetPlatformId;
             await RecipeSvc.UpdateAsync();   // also persists the edited _template.Template (tracked)
         }
         Reset();

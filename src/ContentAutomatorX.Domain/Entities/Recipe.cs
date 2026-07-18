@@ -16,4 +16,5 @@ public class Recipe
     public string OutputJson { get; set; } = "{}";     // RecipeOutput
     public string? ScheduleCron { get; set; }          // null = manual only
     public DateTimeOffset? LastRunAt { get; set; }
+    public Guid? TargetPlatformId { get; set; } // set → each run also creates a review-queue Post
 }

@@ -67,6 +67,18 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
             foreach (var item in items) item.Status = ContentItemStatus.Used;
             await db.SaveChangesAsync(ct);
 
+            if (recipe.TargetPlatformId is Guid platformId)
+            {
+                db.Posts.Add(new Post
+                {
+                    TenantId = recipe.TenantId, PlatformId = platformId, RecipeId = recipe.Id,
+                    DraftId = draft.Id, Kind = recipe.Kind, Title = draft.Title,
+                    Subject = draft.Title, Status = PostStatus.Draft, NeedsReview = true
+                });
+                await db.SaveChangesAsync(ct);
+                log.Add("post created (review queue)");
+            }
+
             try
             {
                 draft.FilePath = await delivery.DeliverAsync(tenant, output, draft, ct);
