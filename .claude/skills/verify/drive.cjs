@@ -151,16 +151,48 @@ const log = (...a) => console.log('[drive]', ...a);
   log('STEP8 switcher after rename (expect Alpha Media Renamed):', JSON.stringify(await switcherText()));
   await page.screenshot({ path: SHOT('8-renamed') });
 
-  // ---- 9. delete ACTIVE tenant -> fallback to remaining ----
+  // Delete now requires typing the tenant name into a confirm dialog.
+  const confirmInput = () => page.locator('.mud-dialog input');
+  const confirmDeleteBtn = () => page.locator('.mud-dialog button').filter({ hasText: /^Delete$/ });
+  const dialogCount = () => page.locator('.mud-dialog').count();
+
+  // ---- 9. delete ACTIVE tenant (via confirm dialog) -> fallback to remaining ----
   const rowDel = page.locator('tr').filter({ hasText: 'Alpha Media Renamed' });
   await rowDel.locator('button').filter({ hasText: 'Delete' }).click();
+  await page.waitForSelector('.mud-dialog');
+  log('STEP9a Delete disabled with empty input (expect true):', await confirmDeleteBtn().isDisabled());
+  await confirmInput().fill('Alpha');                 // wrong name
+  await page.waitForTimeout(300);
+  log('STEP9b Delete disabled with wrong name (expect true):', await confirmDeleteBtn().isDisabled());
+  await page.keyboard.press('Enter');                 // Enter with wrong name must NOT delete
+  await page.waitForTimeout(500);
+  log('STEP9c dialog still open after Enter on wrong name (expect 1):', await dialogCount());
+  await page.screenshot({ path: SHOT('9a-confirm-dialog') });
+  await page.locator('.mud-dialog button').filter({ hasText: 'Cancel' }).click();
+  await page.waitForSelector('.mud-dialog', { state: 'detached' });
+  await page.waitForTimeout(300);
+  const stillThere = await page.locator('tr').filter({ hasText: 'Alpha Media Renamed' }).count();
+  log('STEP9d tenant survives Cancel (expect 1):', stillThere);
+
+  await rowDel.locator('button').filter({ hasText: 'Delete' }).click();
+  await page.waitForSelector('.mud-dialog');
+  await confirmInput().fill('Alpha Media Renamed');   // exact name
+  await page.waitForTimeout(300);
+  log('STEP9e Delete enabled with exact name (expect false):', await confirmDeleteBtn().isDisabled());
+  await confirmDeleteBtn().click();
+  await page.waitForSelector('.mud-dialog', { state: 'detached' });
   await page.waitForTimeout(1000);
-  log('STEP9 switcher after deleting active (expect Beta Studio Renamed):', JSON.stringify(await switcherText()));
+  log('STEP9f switcher after deleting active (expect Beta Studio Renamed):', JSON.stringify(await switcherText()));
   await page.screenshot({ path: SHOT('9-fallback') });
 
-  // ---- 10. delete last tenant -> empty state returns ----
+  // ---- 10. delete last tenant (confirm via Enter key) -> empty state returns ----
   const rowDel2 = page.locator('tr').filter({ hasText: 'Beta Studio Renamed' });
   await rowDel2.locator('button').filter({ hasText: 'Delete' }).click();
+  await page.waitForSelector('.mud-dialog');
+  await confirmInput().fill('Beta Studio Renamed');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Enter');                 // Enter path (fill leaves focus in the input)
+  await page.waitForSelector('.mud-dialog', { state: 'detached' });
   await page.waitForTimeout(1000);
   const finalText = await switcherText();
   await page.goto(BASE);

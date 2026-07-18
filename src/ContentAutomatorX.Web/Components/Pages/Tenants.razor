@@ -2,6 +2,7 @@
 @inject TenantService TenantSvc
 @inject ISnackbar Snackbar
 @inject TenantContext Ctx
+@inject IDialogService DialogService
 
 <MudText Typo="Typo.h4" Class="mb-4">Tenants</MudText>
 
@@ -95,8 +96,15 @@
 
     private async Task Delete(Tenant t)
     {
+        var parameters = new DialogParameters<DeleteTenantDialog> { { x => x.TenantName, t.Name } };
+        var dialog = await DialogService.ShowAsync<DeleteTenantDialog>("Delete tenant", parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+
         await TenantSvc.DeleteAsync(t.Id);
+        if (_editing?.Id == t.Id) Reset();
         _tenants = await TenantSvc.ListAsync();
         await Ctx.RefreshAsync();
+        Snackbar.Add($"Deleted {t.Name}", Severity.Success);
     }
 }

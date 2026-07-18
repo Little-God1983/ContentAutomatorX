@@ -1,0 +1,38 @@
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-3">
+            This permanently deletes <b>@TenantName</b> and everything that belongs to it
+            — sources, recipes, content, drafts and runs. This cannot be undone.
+        </MudText>
+        <MudTextField T="string" @bind-Value="_confirmation" Immediate="true" AutoFocus="true"
+                      Label="@($"Type \"{TenantName}\" to confirm")"
+                      OnKeyDown="OnKeyDown" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" Disabled="@(!Matches)"
+                   OnClick="Confirm">Delete</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter, EditorRequired] public string TenantName { get; set; } = "";
+
+    private string _confirmation = "";
+
+    private bool Matches => DeleteConfirmation.Matches(_confirmation, TenantName);
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Confirm()
+    {
+        if (Matches) MudDialog.Close(DialogResult.Ok(true));
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") Confirm();
+    }
+}

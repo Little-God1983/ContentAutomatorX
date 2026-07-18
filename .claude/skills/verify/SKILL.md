@@ -64,5 +64,8 @@ Drive notes:
   screenshots; clicks still land).
 - Dialog inputs: `.mud-dialog input` (nth 0 = Name, 1 = Slug), fill()
   triggers `Immediate` binding; buttons by text (`Create & switch`, `Cancel`).
+- Deleting a tenant opens a type-to-confirm dialog: fill the exact tenant
+  name (case-sensitive) into `.mud-dialog input`, then click its `Delete`
+  button or press Enter. Wrong/empty name keeps Delete disabled.
 
 Known noise: favicon.ico 404 in console — the app ships no favicon.
