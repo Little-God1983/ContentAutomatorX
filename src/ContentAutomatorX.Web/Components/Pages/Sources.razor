@@ -206,7 +206,17 @@ else
 
     private async Task Delete(Source s)
     {
-        await SourceSvc.DeleteAsync(s.Id);
+        try
+        {
+            var removedItems = await SourceSvc.DeleteAsync(s.Id);
+            Snackbar.Add(removedItems > 0
+                ? $"Deleted '{s.DisplayName}' and {removedItems} inbox item(s)"
+                : $"Deleted '{s.DisplayName}'", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Warning);
+        }
         await ReloadAsync();
     }
 
