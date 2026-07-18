@@ -8,6 +8,7 @@ using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Infrastructure.Llm;
 using ContentAutomatorX.Infrastructure.Persistence;
+using ContentAutomatorX.Infrastructure.Security;
 using ContentAutomatorX.Infrastructure.Sources;
 using ContentAutomatorX.Web.Components;
 using ContentAutomatorX.Web.Jobs;
@@ -46,6 +47,7 @@ if (string.IsNullOrWhiteSpace(claudeOptions.Model)) claudeOptions.Model = null;
 builder.Services.AddSingleton(claudeOptions);
 builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
 builder.Services.AddSingleton<ILlmBackend, ClaudeCliBackend>();
+builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
 
 // --- delivery, pipelines, services ---
 builder.Services.AddSingleton<IDraftDelivery, FileShareDraftDelivery>();
