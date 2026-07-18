@@ -37,6 +37,19 @@ public class WebsiteConnectorTests
     }
 
     [Fact]
+    public async Task Auto_mode_skips_self_link_anchors_and_canonicalizes_query_and_fragment()
+    {
+        var connector = new WebsiteConnector(new HttpClient(SiteHandler()));
+        var items = await connector.FetchAsync(Site("""{"url":"https://blog.example.com/blog","mode":"auto"}"""));
+
+        // "#content" and other fragment-only/self-links resolve back to the listing page itself
+        // and must not become spurious recurring items.
+        Assert.DoesNotContain(items, i => i.ExternalId == "https://blog.example.com/blog");
+        // Query string + fragment must be stripped so the same article isn't re-ingested under variants.
+        Assert.Contains(items, i => i.ExternalId == "https://blog.example.com/posts/delta");
+    }
+
+    [Fact]
     public async Task Selector_mode_uses_the_configured_css_selector()
     {
         var connector = new WebsiteConnector(new HttpClient(SiteHandler()));
@@ -74,5 +87,31 @@ public class WebsiteConnectorTests
         var items = await connector.FetchAsync(Site(
             """{"url":"https://blog.example.com/blog","mode":"auto","maxItems":1}"""));
         Assert.Single(items);
+    }
+
+    [Fact]
+    public async Task Cancellation_during_body_fetch_propagates_instead_of_yielding_empty_body()
+    {
+        var cts = new CancellationTokenSource();
+        var requestCount = 0;
+        var handler = new StubHttpHandler(req =>
+        {
+            requestCount++;
+            if (requestCount == 1)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(File.ReadAllText("Fixtures/sample-site-listing.html"),
+                        System.Text.Encoding.UTF8, "text/html")
+                };
+            }
+
+            cts.Cancel();
+            throw new TaskCanceledException(null, null, cts.Token);
+        });
+        var connector = new WebsiteConnector(new HttpClient(handler));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => connector.FetchAsync(Site("""{"url":"https://blog.example.com/blog","mode":"auto"}"""), cts.Token));
     }
 }

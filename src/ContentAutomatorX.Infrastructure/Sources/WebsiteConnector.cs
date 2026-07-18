@@ -24,6 +24,7 @@ public class WebsiteConnector(HttpClient http) : ISourceConnector
         var config = JsonSerializer.Deserialize<WebsiteConfig>(source.ConfigJson, JsonOpts)
             ?? throw new InvalidOperationException($"Source {source.Id}: invalid Website config");
         var baseUri = new Uri(config.Url);
+        var listingUrl = baseUri.GetLeftPart(UriPartial.Path); // canonical listing URL, computed once
 
         var listingHtml = await http.GetStringAsync(config.Url, ct);
         using var doc = await Parser.ParseDocumentAsync(listingHtml, ct);
@@ -44,6 +45,7 @@ public class WebsiteConnector(HttpClient http) : ISourceConnector
             if (items.Count >= config.MaxItems) break;
             if (!Uri.TryCreate(baseUri, a.GetAttribute("href"), out var abs)) continue;
             var url = abs.GetLeftPart(UriPartial.Path); // canonical: strip query/fragment
+            if (url == listingUrl) continue; // skip fragment/self-links back to the listing page itself
             if (!seen.Add(url)) continue;
 
             var title = a.TextContent.Trim();
@@ -66,6 +68,10 @@ public class WebsiteConnector(HttpClient http) : ISourceConnector
                 .TextContent ?? "";
             text = string.Join(' ', text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             return text.Length <= BodyMaxChars ? text : text[..BodyMaxChars];
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
