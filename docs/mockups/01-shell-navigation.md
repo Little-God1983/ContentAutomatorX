@@ -25,7 +25,7 @@ The shell is the part that must survive 5 years unchanged. It stays MudBlazor
 │ SYSTEM        │                                                              │
 │  📡 Sources   │                                                              │
 │  ⚙ Automations│                                                              │
-│  🔌 Channels  │                                                              │
+│  🔌 Platforms │                                                              │
 │  🤖 AI Studio │                                                              │
 │  🧾 Runs      │                                                              │
 └───────────────┴──────────────────────────────────────────────────────────────┘
@@ -45,13 +45,14 @@ One global entry point for everything you start, from anywhere in the app:
 │ 🎬  Video project…            │  → project workspace, video template (07)
 │ ✉️  Newsletter issue…         │  → issue composer (08)
 │ 🧡  Patreon post…             │  → standalone Patreon post + kit (09)
+│ 📣  YT community post…        │  → text/image post (no public API — assisted)
 │ ───────────────────────────── │
 │ 📁  Blank project…            │  → empty container, decide posts later
 └───────────────────────────────┘
 ```
 
 Design rule: the menu lists **work shapes, not platforms**. "Image post" then
-asks *which* image channels (Civitai, next site, Patreon gallery…) inside the
+asks *which* image platforms (Civitai, next site, Patreon gallery…) inside the
 wizard — so a new image platform never adds a menu entry here.
 
 ## Global search (the 2031 escape hatch)
@@ -70,15 +71,15 @@ wizard — so a new image platform never adds a menu entry here.
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Searches titles, tags, descriptions/bodies, and channel names across all years.
+Searches titles, tags, descriptions/bodies, and platform names across all years.
 Grouped by entity type; Library results show publish date + headline stat.
 
 ## Behavior notes
 
 - **Tenant switcher** stays top-right exactly as today; every page below is
   tenant-scoped (existing `TenantContext` pattern).
-- Sidebar sections are fixed. New channels/platforms **never** add nav
-  entries — they appear as chips, colors, and rows in Channels.
+- Sidebar sections are fixed. New platforms **never** add nav
+  entries — they appear as chips, colors, and rows in Platforms.
 - Section order = frequency of use: plan today → do work → look things up →
   configure machinery. SYSTEM is collapsed by default once configured.
 - Current pages map: Dashboard→Today, Content→Inbox, Drafts→merged into Posts,

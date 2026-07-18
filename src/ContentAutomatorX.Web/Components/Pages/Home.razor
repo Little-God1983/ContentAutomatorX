@@ -6,7 +6,7 @@
 @inject RunService RunSvc
 @inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Today</MudText>
 
 @if (!Ctx.Initialized)
 {
@@ -35,6 +35,16 @@ else
             <MudPaper Class="pa-4">
                 <MudText Typo="Typo.subtitle2">Failed/partial (last 10 runs)</MudText>
                 <MudText Typo="Typo.h4" Color="@(_recentErrors > 0 ? Color.Error : Color.Default)">@_recentErrors</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12">
+            <MudPaper Class="pa-4" Outlined="true" Style="opacity:.7">
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Coming soon on Today</MudText>
+                <MudText Typo="Typo.body2">
+                    Needs you (waiting manual publish steps, failures) · Scheduled next 48 h ·
+                    Review queue for automation drafts · Recently published with stats —
+                    see docs/mockups/02-today-dashboard.md
+                </MudText>
             </MudPaper>
         </MudItem>
         <MudItem xs="12">

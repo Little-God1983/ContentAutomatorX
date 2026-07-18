@@ -44,7 +44,7 @@ D:\Content\AIVisions\                      ← tenant root (OneDrive/Mega synced
 1. **`YYYY\YYYY-MM-DD_slug\`** — sorts chronologically in Explorer, year folder
    keeps any single directory from holding 500 entries by 2031. The date is the
    *creation* date and never changes (publish dates live on posts).
-2. **`posts\<channel>\` holds only channel-specific text/exports.** Media stays
+2. **`posts\<platform>\` holds only platform-specific text/exports.** Media stays
    in `assets\`/`renders\`/`images\` and is *referenced* — no duplicate copies
    per destination (exception: Patreon `attachments\` staging, which is a real
    deliverable).
@@ -71,7 +71,7 @@ D:\Content\AIVisions\                      ← tenant root (OneDrive/Mega synced
 ## What stays in the DB only
 
 Post status & schedule, published URLs, provenance (which inbox items, which
-prompt, which model), analytics snapshots, channel credentials (DPAPI),
+prompt, which model), analytics snapshots, platform credentials (DPAPI),
 Library records. **Backup = SQLite file + the tenant folder — two things.**
 
 ## Open questions

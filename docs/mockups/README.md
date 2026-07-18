@@ -1,52 +1,45 @@
 # ContentAutomatorX — Future UI Mockups
 
-**Date:** 2026-07-18 · **Status:** Proposal for discussion (nothing here is implemented)
-**Scope:** The UI as it should look once Phases 2–4 exist: multi-channel publishing
-(MailerLite, YouTube, Civitai, Patreon, future image sites), calendar planning,
-pluggable AI providers, and a structure that still works after 5 years of posts.
+**Date:** 2026-07-18 · **Status:** Direction approved 2026-07-18 (Approach B+C).
+Terminology finalized: **Platforms** (was Channels), **Jobs** (was AI tasks),
+**Automations** (was Recipes). Build order re-prioritized: Blazor shell mockup
++ newsletter vertical first (see §7).
+**Scope:** The UI as it should look once Phases 2–4 exist: multi-platform
+publishing (MailerLite, YouTube, Civitai, Patreon, future image sites),
+calendar planning, pluggable AI providers, and a structure that still works
+after 5 years of posts.
 
-These are Markdown wireframes meant to be argued with. Every file ends with
-**Open questions** — react to those and we distill the approved parts into a
-real Phase 2 spec.
+Every file ends with **Open questions**; answered ones are recorded in the
+decision log (§8).
 
 ---
 
-## 1. The one decision everything hangs on
+## 1. The one decision everything hangs on — ✅ DECIDED
 
-How do we model "a thing I publish"? Three candidate structures:
+How do we model "a thing I publish"? Three candidates were considered:
 
-### Approach A — Channel-centric ("a page per platform")
-Nav has *YouTube*, *Civitai*, *Patreon*, *Newsletter* entries; each page owns its
-posts end-to-end.
+### Approach A — Platform-centric ("a page per platform") — rejected
+Nav has *YouTube*, *Civitai*, *Patreon*, *Newsletter* entries; each page owns
+its posts end-to-end.
 
 - ✅ Dead simple to find "my Civitai stuff"
-- ❌ Nav grows forever (every new platform = new page = your 5-year fear)
+- ❌ Nav grows forever (every new platform = new page = the 5-year fear)
 - ❌ Cross-posting is homeless: a video with an attached Patreon post lives… where?
-- ❌ Duplicate UI for upload/schedule/AI-generate on every page
 
-### Approach B — Project-centric (RECOMMENDED)
+### Approach B — Project-centric — ✅ APPROVED
 A **Project** is the working container (assets, script, notes, folder). It fans
-out into **Posts** — one per destination **Channel**. The video-plus-Patreon case
-is one project with two posts. A patron-only video is one project with one post.
+out into **Posts** — one per destination **Platform**. The video-plus-Patreon
+case is one project with two posts. A patron-only video is one project with one
+post. Quick flows (`+ New → Image post…`) create project + posts in one wizard.
 
-- ✅ Matches how you actually work (one shoot/render → N destinations)
-- ✅ Nav is fixed-size forever; new platforms appear as chips/colors, not pages
-- ✅ One place per piece of work; the folder structure mirrors it 1:1
-- ⚠ Slightly more clicks for a trivial one-off image post — solved by the
-  **quick-post wizard** (`+ New → Image post…`) which creates project + posts in
-  one flow (see [06-image-post-flow.md](06-image-post-flow.md))
+### Approach C — Timeline-centric — ✅ APPROVED as the Calendar view
+Not the data model, but the planning surface on top: the calendar shows posts,
+Buffer-style, without giving up the working container.
 
-### Approach C — Timeline-centric ("everything is a post on a feed")
-No projects; just a stream of posts with dates, like a social scheduler
-(Buffer-style).
-
-- ✅ Great for planning view
-- ❌ No container for multi-asset work (footage + renders + script + thumbnail)
-- ❌ "Which posts belong together?" becomes manual bookkeeping
-
-**Recommendation: B, with C's timeline as the Calendar view on top.** The
-calendar shows posts (not projects), so you get the Buffer-like planning surface
-without giving up the working container.
+**Newsletter exception (decided):** the newsletter is *more or less
+independent* — a weekly, news-first product built from Sources. It *can*
+manually reference sponsors, Patreon, or YouTube projects, but there is **no
+automatic cross-pollination machinery** (see 08).
 
 ---
 
@@ -54,23 +47,27 @@ without giving up the working container.
 
 | Concept | What it is | Today's equivalent |
 |---|---|---|
-| **Tenant** | Brand/channel profile (unchanged) | Tenant |
-| **Source** | RSS / Reddit / news feed (unchanged) | Source |
+| **Tenant** | Brand profile (unchanged) | Tenant |
+| **Source** | Where material comes from: RSS/Reddit feeds, **websites, search engines, or an LLM research run** | Source (types extended) |
 | **Inbox item** | Gathered material to triage | ContentItem |
-| **Automation** | Scheduled content product: sources → rules → prompt → output | Recipe |
+| **Automation** | Scheduled content product: sources → rules → prompt → output | Recipe (renamed) |
 | **Project** | Working container: assets, script, notes, one folder on disk | *(new)* |
-| **Post** | One publication of a project to one channel; owns per-channel fields, schedule, status | Draft (evolved) |
-| **Channel** | A configured destination (account + defaults + color) | *(new — Phase 2 `IPlatformConnector`)* |
-| **AI Task** | A named generation job (e.g. "YouTube description") bound to a provider profile | PromptTemplate + `ILlmBackend` (evolved) |
+| **Post** | One publication of a project to one platform; owns per-platform fields, schedule, status | Draft (evolved; merge decided) |
+| **Platform** | A configured destination (account + defaults + color) | *(new — `IPlatformConnector`)* |
+| **Job** | A named AI generation task (e.g. "yt-description") bound to a provider profile | PromptTemplate + `ILlmBackend` (evolved) |
 
-### Channel capability levels — the honest-automation badge
+`+ New` content categories now also include **YouTube community post** — just
+another post type on the YouTube platform (no public API for these → Assisted
+or Manual mode, TBD when that phase comes).
+
+### Platform capability levels — the honest-automation badge
 
 Not every platform can be automated equally. The UI never pretends otherwise;
-every channel wears a badge and every post's primary button matches it:
+every platform wears a badge and every post's primary button matches it:
 
-| Badge | Meaning | Primary button on a post | Channels |
+| Badge | Meaning | Primary button on a post | Platforms |
 |---|---|---|---|
-| ⚡ **Auto** | Full API | `Publish` / `Schedule` | MailerLite, YouTube |
+| ⚡ **Auto** | Full API | `Publish` / `Schedule` | MailerLite, YouTube videos |
 | 🤝 **Assisted** | App opens browser, prefills the form, uploads files; **you** click the final Post button | `Open & Prefill in Browser` | Civitai, future image sites |
 | ✋ **Manual** | App assembles a copy-paste kit + checklist | `Open Kit` | Patreon |
 
@@ -87,9 +84,9 @@ can; a human click is the last step. These float to the top of **Today**.
 Drafts generated by an automation additionally carry a `needs review` flag and
 appear in Today's Review queue until you approve them.
 
-### Channel colors (your calendar-dot idea, generalized)
+### Platform colors (the calendar-dot idea, generalized)
 
-Every channel gets a user-assignable color used for dots, chips, and analytics
+Every platform gets a user-assignable color used for dots, chips, and analytics
 lines everywhere. Defaults:
 
 `● YouTube = red · ● Civitai = green · ● MailerLite/Newsletter = blue · ● Patreon = orange · ● (next image site) = purple`
@@ -98,30 +95,33 @@ lines everywhere. Defaults:
 
 ## 3. Navigation map & evolution from today
 
+⚠ Grouping/labels below are **still open** ("not sure — leave for later") —
+the Blazor shell mockup exists precisely to feel this out before committing.
+
 ```
 TODAY (v0.1 nav)              FUTURE nav (fixed size — grows in filters, not entries)
 ─────────────────             ──────────────────────────────────────────────
 Dashboard          ──────►    PLAN      ◉ Today          (attention-first dashboard)
-                              (new)     📅 Calendar       (dots per channel, drag to plan)
+                              (new)     📅 Calendar       (dots per platform, drag to plan)
 Content            ──────►    WORK      📥 Inbox          (triage gathered material)
 Drafts             ──merge►             🗂 Projects       (active working containers)
-                              (new)     📤 Posts          (cross-channel post list)
+                              (new)     📤 Posts          (cross-platform post list)
                               ARCHIVE   🏛 Library        (published history — the 5-year answer)
-                              (new)     📊 Analytics      (YouTube first, per-channel tabs)
+                              (new)     📊 Analytics      (YouTube first, per-platform tabs)
 Sources            ──────►    SYSTEM    📡 Sources
 Recipes            ─rename►             ⚙ Automations
 Runs               ──────►              🧾 Runs
-                              (new)     🔌 Channels       (destinations + capability badges)
-                              (new)     🤖 AI Studio      (providers + task bindings)
+                              (new)     🔌 Platforms      (destinations + capability badges)
+                              (new)     🤖 AI Studio      (providers + job bindings)
 ```
 
 Global app bar: `[🔍 Search everything]  [+ New ▾]  [Tenant ▾]` — the `+ New`
-menu is your "do an image post" button: *Image post… / Video project… /
-Newsletter issue… / Patreon post… / Blank project*.
+menu is the "do a post" button: *Image post… / Video project… / Newsletter
+issue… / Patreon post… / YouTube community post… / Blank project*.
 
 ---
 
-## 4. The five longevity rules (how it stays usable in 2031)
+## 4. The five longevity rules — ✅ APPROVED
 
 1. **Working views are time-boxed by default.** Projects shows *Active*; Posts
    shows *open + next 30 days*; Calendar opens on *this month*. "All history"
@@ -130,25 +130,27 @@ Newsletter issue… / Patreon post… / Blank project*.
    Posts/Today and becomes a Library record (with URL, stats, provenance).
    Working views can only shrink.
 3. **Growth goes into filters and colors, never into nav.** A new platform =
-   one row in Channels + a new chip color. The sidebar in 2031 is the sidebar
+   one row in Platforms + a new chip color. The sidebar in 2031 is the sidebar
    from 2026.
 4. **Years are first-class.** Library facets by year; folders shard by year
    (`projects/2029/…`); analytics compare year-over-year.
 5. **Everything is searchable by one box.** Global search across projects,
-   posts, inbox items, and library — title, tags, channel, transcript/body.
+   posts, inbox items, and library — title, tags, platform, transcript/body.
 
 ---
 
 ## 5. Modularity answer in one paragraph
 
 Every AI-fillable field in the UI is **just a text field with a ✨ button next
-to it** — AI is an accelerator, never a gate (your "sometimes fully manual"
-requirement). The ✨ button runs a named **AI Task** ("newsletter-compose",
+to it** — AI is an accelerator, never a gate (the "sometimes fully manual"
+requirement). The ✨ button runs a named **Job** ("newsletter-compose",
 "yt-description", "voiceover-tts"…), each bound in **AI Studio** to a
-**provider profile** (Claude CLI, LM Studio, OpenAI, ElevenLabs…) with a
-per-tenant override and a per-run override dropdown right in the dialog.
-Swapping your newsletter LLM = changing one binding row. Details in
-[10-channels-ai-settings.md](10-channels-ai-settings.md).
+**provider profile** with a per-tenant override and a per-run override dropdown
+right in the dialog. **Local solutions are first-class citizens**: LM Studio,
+Ollama, and any OpenAI-compatible local endpoint sit in the same provider table
+as Claude CLI / hosted APIs / MCP-proxied backends — swapping the newsletter
+LLM is editing one binding cell. Details in
+[10-platforms-ai-settings.md](10-platforms-ai-settings.md).
 
 ---
 
@@ -158,44 +160,52 @@ Swapping your newsletter LLM = changing one binding row. Details in
 |---|---|
 | [01-shell-navigation.md](01-shell-navigation.md) | App shell, sidebar, `+ New`, global search |
 | [02-today-dashboard.md](02-today-dashboard.md) | Attention-first dashboard ("what needs me now") |
-| [03-calendar.md](03-calendar.md) | Month/week planning, channel dots, external calendar sync |
+| [03-calendar.md](03-calendar.md) | Month/week planning, platform dots, local-first calendar |
 | [04-projects-library.md](04-projects-library.md) | Active projects list + the 5-year Library/archive |
 | [05-project-workspace.md](05-project-workspace.md) | Project detail — the "YouTube video + Patreon post" case |
 | [06-image-post-flow.md](06-image-post-flow.md) | Drag-drop image set → Civitai browser-assist |
 | [07-video-youtube-flow.md](07-video-youtube-flow.md) | Video pipeline, voiceover choices, YouTube publish + analytics |
 | [08-newsletter-flow.md](08-newsletter-flow.md) | Sources → triage → AI compose → MailerLite handoff |
 | [09-patreon-flow.md](09-patreon-flow.md) | Prepare-kit pattern for API-less platforms |
-| [10-channels-ai-settings.md](10-channels-ai-settings.md) | Channel config, capability badges, AI providers & task bindings |
-| [11-folder-structure.md](11-folder-structure.md) | On-disk layout: projects, posts-per-channel, patron-only case |
+| [10-platforms-ai-settings.md](10-platforms-ai-settings.md) | Platform config, capability badges, AI providers & job bindings |
+| [11-folder-structure.md](11-folder-structure.md) | On-disk layout: projects, posts-per-platform, patron-only case |
 
 ---
 
-## 7. Suggested build order (each gets its own spec → plan cycle)
+## 7. Build order — ✅ RE-PRIORITIZED 2026-07-18 ("use it ASAP")
 
-1. **Channels + Posts + Library** (data model & pages; no connectors yet — posts publish "manually" with URL tracking). Everything else hangs off this.
-2. **MailerLite connector** (⚡ first real API; newsletter flow end-to-end)
-3. **Calendar** (reads posts; drag-to-reschedule; ICS export)
-4. **YouTube connector + Analytics** (upload, schedule, stats ingestion)
-5. **Browser-assist engine + Civitai** (Playwright prefill, `Waiting for you` state)
-6. **Patreon kit + AI Studio** (task bindings, provider profiles, TTS voiceover)
+The original connector-first order meant ~12 months before daily use. New plan:
+
+1. **Blazor shell mockup (now):** the full future navigation and pages exist in
+   the real app — placeholders and "coming soon" everywhere, existing Phase 1
+   features keep working under their new names (Inbox, Automations, Posts).
+   The app *looks* like its future self immediately and the nav can be felt
+   out (see §3 note).
+2. **Newsletter vertical, end-to-end (next):** everything needed so the weekly
+   newsletter only requires hitting Send in MailerLite —
+   - Sources: RSS + Reddit (exist) **+ websites + search/LLM-research** (new)
+   - Triage → auto-compose via Automations (exists, sharpened)
+   - Issue composer UI (08) with manual sections (incl. sponsor block)
+   - MailerLite ⚡ connector: push as campaign draft, detect Sent, pull stats
+   → spec: `docs/superpowers/specs/2026-07-18-newsletter-first-design.md`
+3. **Everything else: deliberately unplanned.** Calendar, YouTube, Civitai
+   assist, Patreon kits, AI Studio remain mockups until the newsletter ships
+   and we pick the next vertical. (Local calendar first when it comes;
+   external sync designed-for-later.)
 
 ---
 
-## 8. Open decisions (react to these!)
+## 8. Decision log (2026-07-18) & what's still open
 
-1. **Second image site (#4)** — unnamed for now. Mockups assume "add another
-   Assisted channel" is a config action, not new code per site (a per-site
-   Playwright recipe). OK?
-2. **Drafts page fate** — I propose merging Drafts into Posts (a post in status
-   Draft). Any reason to keep a separate Drafts page?
-3. **Civitai "published" confirmation** — after you click Post in the browser:
-   auto-detect the resulting URL vs. you paste it back vs. just click "I posted
-   it". Mockup assumes paste-back with auto-detect as a later nicety.
-4. **Calendar sync direction** — mockup proposes read-only ICS feed export
-   first (works with Google/Outlook/Proton immediately), two-way sync later.
-   Enough for Part 3?
-5. **Newsletter ↔ posts cross-pollination** — should an issue auto-offer a
-   "My releases this week" block built from your published posts? (Mockup says
-   yes, as an optional section.)
-6. **Recipes → "Automations" rename** — clearer for a system that now automates
-   more than drafting? Or keep "Recipes"?
+| # | Question | Decision |
+|---|---|---|
+| 1 | Overall structure | **B + C approved**; newsletter stays independent, news-first |
+| 2 | Second image site as config-only Assisted platform | Still open ("not sure") |
+| 3 | Drafts page merges into Posts | **Yes** |
+| 4 | Civitai publish confirmation mechanism | Later. Core flow confirmed: click button in app → browser opens prefilled → you click Post on Civitai |
+| 5 | Calendar sync | **Local calendar only for now**; design keeps a later external connection in mind |
+| 6 | Auto-offered "My releases" newsletter block | **No** — references to sponsors/Patreon/YT are manual, optional sections |
+| 7 | Recipes rename | **"Automations"** |
+| 8 | Channels / AI tasks naming | **"Platforms"** / **"Jobs"** |
+| 9 | YouTube community posts | Add as a `+ New` category (post type on YouTube platform); capability mode TBD |
+| 10 | Nav grouping/labels (§3) | Open — evaluate in the Blazor shell mockup |

@@ -1,0 +1,48 @@
+@page "/platforms"
+
+<MudText Typo="Typo.h4" Class="mb-4">Platforms</MudText>
+
+<ComingSoonBanner Phase="the MailerLite connector ships with the newsletter vertical; the rest follow phase by phase"
+                  Description="Every destination is a platform with an honest capability badge: Auto (full API), Assisted (the app prefills the platform's web form in your browser — you click the final Post button), or Manual (the app builds a copy-paste kit). New platforms become a row here plus a color — never a new nav entry." />
+
+<MudPaper Class="pa-4" Outlined="true" Style="opacity:.8">
+    <MudText Typo="Typo.subtitle2" Class="mb-2">Planned platforms</MudText>
+    <MudSimpleTable Dense="true">
+        <thead>
+            <tr><th style="text-align:left">Platform</th><th style="text-align:left">Mode</th><th style="text-align:left">How it works</th><th style="text-align:left">Status</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><span style="color:#1e88e5">●</span> MailerLite</td>
+                <td><MudChip T="string" Size="Size.Small" Color="Color.Success" Disabled="true">⚡ Auto</MudChip></td>
+                <td>API — campaign draft is created for you; you hit Send in MailerLite</td>
+                <td><b>next up</b> (newsletter vertical)</td>
+            </tr>
+            <tr>
+                <td><span style="color:#e53935">●</span> YouTube</td>
+                <td><MudChip T="string" Size="Size.Small" Color="Color.Success" Disabled="true">⚡ Auto</MudChip></td>
+                <td>API/MCP — upload, schedule, analytics; community posts assisted</td>
+                <td>planned</td>
+            </tr>
+            <tr>
+                <td><span style="color:#43a047">●</span> Civitai</td>
+                <td><MudChip T="string" Size="Size.Small" Color="Color.Warning" Disabled="true">🤝 Assisted</MudChip></td>
+                <td>No API — browser opens prefilled, you click Post on Civitai</td>
+                <td>planned</td>
+            </tr>
+            <tr>
+                <td><span style="color:#fb8c00">●</span> Patreon</td>
+                <td><MudChip T="string" Size="Size.Small" Color="Color.Default" Disabled="true">✋ Manual</MudChip></td>
+                <td>No API — copy-paste kit with checklist, URL logged afterwards</td>
+                <td>planned</td>
+            </tr>
+        </tbody>
+    </MudSimpleTable>
+    <MudButton Class="mt-3" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" Disabled="true">
+        Add platform
+    </MudButton>
+    <MudText Typo="Typo.caption" Class="mt-2 d-block">
+        Credentials will live in the OS credential store (DPAPI), never in the database.
+        See docs/mockups/10-platforms-ai-settings.md.
+    </MudText>
+</MudPaper>

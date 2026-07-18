@@ -45,7 +45,7 @@ this page looks exactly as empty or full as your actual workload.
 | **Scheduled** | next 48h of ⚡ auto posts + automation runs, so surprises are visible *before* they happen | "Nothing scheduled — plan on the Calendar →" |
 | **Review queue** | AI-generated drafts awaiting approval (newsletter issues, descriptions) | Hidden |
 | **This week** | 7-day mini calendar strip, links to Calendar | Always shown |
-| **Recently published** | last 7 days, with headline stat per channel (pulled by analytics jobs where an API exists; "manual — no stats" otherwise) | Hidden after 7 quiet days |
+| **Recently published** | last 7 days, with headline stat per platform (pulled by analytics sync where an API exists; "manual — no stats" otherwise) | Hidden after 7 quiet days |
 
 ## Behavior notes
 

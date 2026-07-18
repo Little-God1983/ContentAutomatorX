@@ -29,22 +29,22 @@ Idea/plan ──► Project (active) ──► Posts published ──► Library
 ```
 
 - The **POSTS column is the heart**: one chip per destination post, each with
-  channel color + status glyph. The video-with-attached-Patreon-post case reads
+  platform color + status glyph. The video-with-attached-Patreon-post case reads
   at a glance: `[●Y sched] [●P kit ready]`.
 - A patron-only project simply has only a `●P` chip. No special casing.
 - **Default filter: Active.** Done = all posts published (auto-set). Archived =
   Done + 14 days, or manual. Archived projects vanish from here but stay
   searchable and linked from Library records.
 
-## Posts page (the flat cross-channel list)
+## Posts page (the flat cross-platform list)
 
-Same data as project chips, flattened — for channel-centric days ("what's in
+Same data as project chips, flattened — for platform-centric days ("what's in
 flight on Civitai?"). Default: open posts + next 30 days.
 
 ```
-📤 Posts                [Open ▾] [All channels ▾] [Next 30 days ▾]  [🔍]
+📤 Posts                [Open ▾] [All platforms ▾] [Next 30 days ▾]  [🔍]
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ WHEN        CHANNEL   TITLE                        STATUS         PROJECT     │
+│ WHEN        PLATFORM  TITLE                        STATUS         PROJECT     │
 │ today 18:00 ●Y        Flux Workflow Tutorial #12   ○ Scheduled ⚡  Flux #12   │
 │ overdue     ●C        Neon Samurai Set             🖐 Waiting 🤝   Neon Samurai│
 │ overdue     ●P        Flux Tutorial early access   🖐 Kit ready ✋ Flux #12   │
@@ -63,7 +63,7 @@ project folder was that in" — though every row links back to its project.
 ```
 🏛 Library                                              [🔍 search everything…]
 
- YEAR        CHANNELS                    TYPE            ┌ 312 records ────────┐
+ YEAR        PLATFORMS                   TYPE            ┌ 312 records ────────┐
  ▸ 2026 (54) [✓●Y 18][✓●C 21][✓●N 28]    [✓🎬][✓🖼][✓✉️] │ exports: [CSV] [JSON]│
  ▸ 2025 (131)[✓●P 12][ ●K  2]                            └──────────────────────┘
  ▸ 2024 (127)
@@ -80,10 +80,10 @@ project folder was that in" — though every row links back to its project.
 │ …                                                                            │
 ```
 
-- **Facets, not pages**: year ▸ expands; channel and type are toggles. Adding
-  channel #9 in 2029 = one more toggle chip.
-- Stats columns refresh via analytics jobs where an API exists (YouTube,
-  MailerLite); manual channels show the URL you recorded and nothing pretends
+- **Facets, not pages**: year ▸ expands; platform and type are toggles. Adding
+  platform #9 in 2029 = one more toggle chip.
+- Stats columns refresh via analytics sync where an API exists (YouTube,
+  MailerLite); manual platforms show the URL you recorded and nothing pretends
   otherwise.
 - A Library record is created the moment a post hits `Published` — including
   Assisted/Manual posts confirmed via "I posted it ✓ (+URL)".

@@ -32,13 +32,14 @@ below it the patron-only variant. Same page, no special casing.
 │                          [Edit metadata]  [Unschedule]  [Publish now ⚡]     │
 └──────────────────────────────────────────────────────────────────────────────┘
 
-[+ Add destination ▾]   (Civitai · Newsletter mention · Ko-fi · …)
+[+ Add destination ▾]   (Civitai · Ko-fi · …)
 ```
 
 Each card is one **Post**: own status, own schedule, own audience — posts of
 one project are staggered on the calendar (Patreon Wed ●P, YouTube Sat ●Y).
-`+ Add destination` shows every channel that accepts this project's type —
-"Newsletter mention" queues a teaser block into the next issue (see 08).
+`+ Add destination` shows every platform that accepts this project's type.
+(Decided 2026-07-18: no "newsletter mention" destination — the newsletter is
+independent; referencing a project in an issue is a manual step in 08.)
 
 ## Other tabs
 
@@ -48,8 +49,8 @@ Overview  — status strip (what's done/next), notes, linked inbox items that
 Assets    — file grid mirroring the project folder: raw/, renders/, thumbs/;
             drag-drop adds files; [Open folder] everywhere. The DB stores
             paths + hashes; files live on disk, synced by OneDrive/Mega as today.
-Script    — markdown editor; [✨ Generate] runs AI task "video-script" (same
-            pipeline as today's VideoScript recipes); versions kept
+Script    — markdown editor; [✨ Generate] runs job "video-script" (same
+            pipeline as today's VideoScript automations); versions kept
 Voiceover — see 07: Record myself / AI voice / None
 Posts     — above
 Activity  — audit log: generated, edited, scheduled, published, by whom/what
@@ -85,10 +86,9 @@ YouTube post to the same project — nothing moves on disk.
    yes — `posts/youtube/description.md`, editable in any editor, watched by
    the app) or DB-only with export? Files match your sync-folder workflow;
    DB stays source of truth for status/schedule either way.
-2. "Newsletter mention" as a destination: pushes a teaser block into the next
-   open issue. Right model, or should the newsletter side *pull* from
-   recently-published posts instead? (08 proposes: both — push queues, pull
-   offers.)
+2. ~~"Newsletter mention" as a destination~~ — DECIDED 2026-07-18: no push or
+   pull machinery. The newsletter is independent and news-first; project
+   references are added by hand in the issue composer when wanted.
 3. Cross-post links: Patreon early-access wants the unlisted YouTube URL before
    the public one exists. Publish YT as unlisted first, flip to public on
    schedule (YouTube API supports this) — acceptable dependency to model?

@@ -1,15 +1,15 @@
 # 03 — Calendar (planning surface)
 
 The calendar is a **view over Posts** — it owns no data. Dots are posts; colors
-are channels; filled = published, hollow = planned. Drag a hollow dot to
-reschedule. This is your green-dot/red-dot idea, generalized to every channel.
+are platforms; filled = published, hollow = planned. Drag a hollow dot to
+reschedule. This is your green-dot/red-dot idea, generalized to every platform.
 
 ## Month view
 
 ```
 📅 Calendar — July 2026            [◀] [Today] [▶]        [Month|Week|List]
 
-Channels: [✓ ●Y YouTube] [✓ ●C Civitai] [✓ ●N Newsletter] [✓ ●P Patreon]   [+ ICS feed]
+Platforms: [✓ ●Y YouTube] [✓ ●C Civitai] [✓ ●N Newsletter] [✓ ●P Patreon]
 
 ┌─────────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────┐
 │ Mon     │ Tue     │ Wed     │ Thu     │ Fri     │ Sat     │ Sun     │
@@ -31,7 +31,7 @@ Channels: [✓ ●Y YouTube] [✓ ●C Civitai] [✓ ●N Newsletter] [✓ ●P 
 └─────────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────┘
 
 Legend:  ● published   ○ scheduled/planned   🖐 waiting for you (overdue if past)
-         ⚠ failed      colors = channel (set per channel in 🔌 Channels)
+         ⚠ failed      colors = platform (set per platform in 🔌 Platforms)
 ```
 
 ## Day panel (click a day — e.g. Sat 18)
@@ -53,16 +53,16 @@ Legend:  ● published   ○ scheduled/planned   🖐 waiting for you (overdue i
 
 - **Drag** hollow dot → new day: updates the post's scheduled date (and the
   YouTube API schedule if already handed off). Filled dots don't drag.
-- **Hover** dot → tooltip: title, channel, status, time.
+- **Hover** dot → tooltip: title, platform, status, time.
 - **`+ Plan` on any day** → same menu as global `+ New`, date prefilled. This
   enables plan-first workflow: sketch empty slots ("image post here, video
   there"), fill them with content later. A planned-but-empty post = status
   `Idea` and renders as a dimmed hollow dot.
 - **Overdue** 🖐/○ in the past get a red ring and also appear on Today.
 - **Filters** persist per user. Unchecking `●C Civitai` hides its dots — with
-  5+ channels in 2031 you can look at one channel's rhythm alone.
+  5+ platforms in 2031 you can look at one platform's rhythm alone.
 
-## Week view (one line per channel — spotting collisions & gaps)
+## Week view (one line per platform — spotting collisions & gaps)
 
 ```
             Mon 13   Tue 14   Wed 15   Thu 16   Fri 17   Sat 18   Sun 19
@@ -72,18 +72,22 @@ Legend:  ● published   ○ scheduled/planned   🖐 waiting for you (overdue i
 ●P Patreon    ·        ·      🖐 —       ·        ·        ·        ·
 ```
 
-## External calendar (Part 3 of your list)
+## External calendar — DECIDED 2026-07-18: local-only for now
 
-**Phase A (cheap, recommended first):** read-only **ICS feed** per tenant
-(`/calendar/{tenant}.ics`, secret token URL). Subscribe from Google/Outlook/
-Proton/phone — your plan appears everywhere, always current, zero sync bugs.
+The built-in calendar **is** the planning suite; no external connection ships
+initially. The design keeps the door open (posts already carry everything an
+event needs), so when the time comes:
+
+**Phase A (cheap):** read-only **ICS feed** per tenant
+(`/calendar/{tenant}.ics`, secret token URL) — subscribe from Google/Outlook/
+Proton/phone; zero sync bugs.
 
 **Phase B (only if A isn't enough):** two-way sync with one provider (Google
 Calendar API): events created there with a `#cax` tag become `Idea` posts here.
-Deliberately later — two-way sync is a swamp (conflicts, deletions, auth).
+Deliberately last — two-way sync is a swamp (conflicts, deletions, auth).
 
-The built-in calendar stays the **source of truth** either way; your planning
-suite is this page, external calendars are mirrors.
+The built-in calendar stays the **source of truth** in every phase; external
+calendars are mirrors.
 
 ## Open questions
 

@@ -21,13 +21,13 @@ Step 2/4 — Destinations (any combination)
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ [✓] ●C Civitai      🤝 Assisted — prefills post form, you click Post         │
 │ [✓] ●P Patreon      ✋ Manual — builds a copy-paste kit                      │
-│ [ ] ●? <NextSite>   🤝 Assisted — added via Channels, no new UI needed       │
+│ [ ] ●? <NextSite>   🤝 Assisted — added via Platforms, no new UI needed      │
 └──────────────────────────────────────────────────────────────────────────────┘
 
 Step 3/4 — Content                                    shared + per-destination
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Title: [ Neon Samurai Set                    ] [✨]                          │
-│ Description (shared):                          [✨ AI task: image-post-descr]│
+│ Description (shared):                          [✨ job: image-post-descr]    │
 │ ┌──────────────────────────────────────────┐                                 │
 │ │ 8 neon-soaked samurai renders — Flux +   │  ✨ uses: Claude CLI ▾ (change)│
 │ │ my CyberGlow LoRA. Workflow attached.    │                                 │
@@ -77,14 +77,14 @@ Design commitments:
   doesn't post for you.
 - **Your real browser profile** (persistent Playwright context) — you're
   already logged in; no credential handling for Civitai at all.
-- **Site recipes, not hardcoded sites.** Each Assisted channel = a small
+- **Site recipes, not hardcoded sites.** Each Assisted platform = a small
   scripted recipe: `open URL → map fields → upload files → stop`. Civitai
   ships built-in; the unnamed site #4 is a new recipe, ideally configurable
-  (field-mapping UI in Channels), worst-case one small class implementing
+  (field-mapping UI in Platforms), worst-case one small class implementing
   the same interface (`IPlatformConnector` from the Phase 1 seams).
 - **When a site redesign breaks a recipe:** the post flips to
   `⚠ Assist failed — form changed`, with `[Fill manually]` (opens browser +
-  copies the kit like a ✋ Manual channel) as the always-working fallback.
+  copies the kit like a ✋ Manual platform) as the always-working fallback.
   Manual mode is the degraded state of Assisted mode — you're never stuck.
 
 ## Open questions

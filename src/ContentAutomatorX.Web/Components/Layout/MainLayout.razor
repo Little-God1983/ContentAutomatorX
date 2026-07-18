@@ -12,16 +12,31 @@
                        OnClick="@(() => _drawerOpen = !_drawerOpen)" />
         <MudText Typo="Typo.h6">ContentAutomatorX</MudText>
         <MudSpacer />
+        <NewMenu />
         <TenantSwitcher />
     </MudAppBar>
     <MudDrawer @bind-Open="_drawerOpen" Elevation="2">
         <MudNavMenu>
-            <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">Dashboard</MudNavLink>
-            <MudNavLink Href="/sources" Icon="@Icons.Material.Filled.RssFeed">Sources</MudNavLink>
-            <MudNavLink Href="/recipes" Icon="@Icons.Material.Filled.Receipt">Recipes</MudNavLink>
-            <MudNavLink Href="/content" Icon="@Icons.Material.Filled.Article">Content</MudNavLink>
-            <MudNavLink Href="/drafts" Icon="@Icons.Material.Filled.Drafts">Drafts</MudNavLink>
-            <MudNavLink Href="/runs" Icon="@Icons.Material.Filled.History">Runs</MudNavLink>
+            <MudNavGroup Title="Plan" Expanded="true">
+                <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Today">Today</MudNavLink>
+                <MudNavLink Href="/calendar" Icon="@Icons.Material.Filled.CalendarMonth">Calendar</MudNavLink>
+            </MudNavGroup>
+            <MudNavGroup Title="Work" Expanded="true">
+                <MudNavLink Href="/inbox" Icon="@Icons.Material.Filled.Inbox">Inbox</MudNavLink>
+                <MudNavLink Href="/projects" Icon="@Icons.Material.Filled.Folder">Projects</MudNavLink>
+                <MudNavLink Href="/posts" Icon="@Icons.Material.Filled.Send">Posts</MudNavLink>
+            </MudNavGroup>
+            <MudNavGroup Title="Archive" Expanded="true">
+                <MudNavLink Href="/library" Icon="@Icons.Material.Filled.LocalLibrary">Library</MudNavLink>
+                <MudNavLink Href="/analytics" Icon="@Icons.Material.Filled.Insights">Analytics</MudNavLink>
+            </MudNavGroup>
+            <MudNavGroup Title="System" Expanded="true">
+                <MudNavLink Href="/sources" Icon="@Icons.Material.Filled.RssFeed">Sources</MudNavLink>
+                <MudNavLink Href="/automations" Icon="@Icons.Material.Filled.Autorenew">Automations</MudNavLink>
+                <MudNavLink Href="/platforms" Icon="@Icons.Material.Filled.Power">Platforms</MudNavLink>
+                <MudNavLink Href="/ai-studio" Icon="@Icons.Material.Filled.SmartToy">AI Studio</MudNavLink>
+                <MudNavLink Href="/runs" Icon="@Icons.Material.Filled.History">Runs</MudNavLink>
+            </MudNavGroup>
         </MudNavMenu>
     </MudDrawer>
     <MudMainContent Class="pa-6">

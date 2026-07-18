@@ -1,11 +1,13 @@
 # 08 — Newsletter Flow (sources → AI draft → MailerLite → you hit Send)
 
-Your target: *automatic enough that only the final Send is yours.* The chain:
+Your target: *automatic enough that only the final Send is yours.* A weekly,
+**news-first, independent** product — sponsor/Patreon/YouTube references are
+optional manual blocks, never machinery (decided 2026-07-18). The chain:
 
 ```
-Sources (RSS/Reddit/news) ─► Inbox triage ─► Issue composer (✨ AI)
-      ─► Push to MailerLite as draft ⚡ ─► YOU hit Send in MailerLite
-      ─► app detects Sent → Library + open/click stats
+Sources (RSS / Reddit / websites / search / LLM research) ─► Inbox triage
+      ─► Issue composer (✨ AI) ─► Push to MailerLite as draft ⚡
+      ─► YOU hit Send in MailerLite ─► app detects Sent → Library + stats
 ```
 
 Steps 1–3 already exist in spirit (Sources, Content page, Newsletter recipes) —
@@ -18,7 +20,8 @@ this mockup evolves them; the MailerLite connector is the new part.
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ ▸ r/StableDiffusion  "Flux 2.0 rumors thread" ↑2.1k    [👍 Keep] [👎 Skip]   │
 │ ▸ ArsTechnica RSS    "EU AI Act enforcement begins"    [👍 Keep] [👎 Skip]   │
-│ ▸ HN feed            "ComfyUI 2.0 released"            [👍 Keep] [👎 Skip]   │
+│ ▸ 🌐 comfy blog page "2.0 release notes" (site watch)  [👍 Keep] [👎 Skip]   │
+│ ▸ 🤖 LLM research    "Weekly sweep: 6 links found"     [expand ▾]            │
 │   … j/k keys to move, 1 to keep, 0 to skip — triage 30 items in 2 minutes    │
 └──────────────────────────────────────────────────────────────────────────────┘
 Kept items land in the pool automations & issues draw from (status Selected).
@@ -33,11 +36,9 @@ Kept items land in the pool automations & issues draw from (status Selected).
 │ ✓ Intro (✨ generated)     │ │ ## Flux 2.0 — what we actually know        │
 │ ✓ Top stories (5 items)    │ │ The rumor thread everyone linked this week │
 │ ✓ Quick links (8 items)    │ │ claims… [source](reddit.com/…)             │
-│ ▸ My releases this week    │ │                                            │
-│   ↳ offered automatically: │ │ (live preview in MailerLite template →)    │
-│   ●Y Flux Tutorial #12     │ │                                            │
-│   ●C Neon Samurai Set      │ │                                            │
-│   [include ✓] [skip]       │ │                                            │
+│ ▸ Sponsor block (optional) │ │                                            │
+│ ▸ Plug: Patreon / YouTube  │ │ (live preview in MailerLite template →)    │
+│   (optional, added by hand)│ │                                            │
 │ + Add section              │ │                                            │
 ├────────────────────────────┤ │                                            │
 │ ITEM POOL (Selected: 13)   │ │                                            │
@@ -45,15 +46,16 @@ Kept items land in the pool automations & issues draw from (status Selected).
 └────────────────────────────┘ └────────────────────────────────────────────┘
 Subject: [Flux 2.0 rumors, EU AI Act, my new tutorial]  [✨ 5 variants]
 Preview text: [What the leak actually says…]            [✨]
-[Regenerate all ✨ — AI task "newsletter-compose" via Claude CLI ▾]
+[Regenerate all ✨ — job "newsletter-compose" via Claude CLI ▾]
 [Push to MailerLite ⚡]
 ```
 
-- **"My releases this week"** answers your cross-pollination case in the pull
-  direction: the composer offers recently published posts as a ready block;
-  a project's "Newsletter mention" destination (05) pushes into it. Both meet
-  here, and you can skip the section any week.
-- The whole issue is still a **Post** (`●N`, channel MailerLite) inside a
+- **The newsletter is independent and news-first (decided).** No automatic
+  cross-pollination: `+ Add section` offers reusable section types — Stories,
+  Quick links, **Sponsor**, **Plug (Patreon / YouTube / a project)** — and you
+  fill Sponsor/Plug blocks by hand (paste a link, pick a project) only in the
+  weeks you want them.
+- The whole issue is still a **Post** (`●N`, platform MailerLite) inside a
   project — same statuses, same calendar dot, nothing newsletter-special in
   the model.
 

@@ -15,7 +15,7 @@ Voiceover for: Flux Workflow Tutorial #12
 │      → script exported as teleprompter.md (large print, chunked)             │
 │      → drop your recording into assets\audio\ when done   [Open folder]      │
 │                                                                              │
-│ ( ) 🤖 AI voiceover        AI task: "voiceover-tts"                          │
+│ ( ) 🤖 AI voiceover        job: "voiceover-tts"                              │
 │      Provider: [ElevenLabs ▾]  Voice: [Aria ▾]  Speed: [1.0]                 │
 │      Source: Script tab (auto-split into takes)                              │
 │      [Generate 14 takes ✨]  → lands in assets\audio\tts\take_01.mp3 …       │
@@ -26,7 +26,7 @@ Voiceover for: Flux Workflow Tutorial #12
 ```
 
 The choice is **per project**, defaults from the tenant. "AI voiceover" is just
-another AI task binding — swap ElevenLabs for a local TTS in AI Studio without
+another job binding — swap ElevenLabs for a local TTS in AI Studio without
 touching this screen (see 10).
 
 ## YouTube post detail (⚡ Auto via YouTube Data API — or your own MCP)
@@ -36,7 +36,7 @@ touching this screen (see 10).
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ Video file:  renders\render_final.mp4  (14:32 · 2.1 GB · 4K)   [pick other]  │
 │ Title:       [This Flux Workflow Changed My Renders (Tutorial #12)]          │
-│              [✨ 5 title ideas]  ← AI task "yt-title", A/B list to pick from │
+│              [✨ 5 title ideas]  ← job "yt-title", A/B list to pick from     │
 │ Description: [✨ from script]   preview: "In this tutorial we build…"        │
 │              auto-appended: chapter list ✓ · link block (Patreon, Civitai) ✓ │
 │ Tags [✨] · Category [Education ▾] · Playlist [Tutorials ▾] · Lang [EN ▾]    │
@@ -60,7 +60,7 @@ powers for free.
 
 ```
 📊 Analytics                       [ YouTube | Newsletter | Civitai* | All ]
-                                   *manual channels: only what you logged
+                                   *manual platforms: only what you logged
 
 YouTube — channel                                    range: [Last 90 days ▾]
 ┌ Subscribers ─────────┐ ┌ Views ───────────┐ ┌ Watch time ──────────────────┐
@@ -77,8 +77,8 @@ Per video (sortable)                                  [compare year-over-year]
 
 Data pulled by a daily background job (existing scheduler) into local tables →
 works offline, supports 5-year trends YouTube's own UI makes painful. Same
-pattern later for MailerLite (opens/clicks) — one tab per channel that has an
-API, and **no fake numbers for channels that don't**.
+pattern later for MailerLite (opens/clicks) — one tab per platform that has an
+API, and **no fake numbers for platforms that don't**.
 
 ## Open questions
 

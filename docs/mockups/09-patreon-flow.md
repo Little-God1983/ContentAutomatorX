@@ -43,7 +43,7 @@ for free.
 
 Their editor breaks simple form-filling (contenteditable, uploads behind XHR).
 Assisted mode may come later as an experiment — the kit is the fallback that
-always works, and per 06 every Assisted channel degrades to exactly this kit
+always works, and per 06 every Assisted platform degrades to exactly this kit
 when its recipe breaks. Same UI muscle memory either way.
 
 ## Open questions

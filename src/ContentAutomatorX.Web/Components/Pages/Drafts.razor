@@ -1,10 +1,16 @@
 @page "/drafts"
+@page "/posts"
 @implements IDisposable
 @inject TenantContext Ctx
 @inject DraftService DraftSvc
 @inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h4" Class="mb-4">Drafts</MudText>
+<MudText Typo="Typo.h4" Class="mb-1">Posts</MudText>
+<MudText Typo="Typo.body2" Class="mb-4" Style="opacity:.7">
+    Today these are generated drafts. The full cross-platform post model
+    (statuses, scheduling, platform badges) arrives with the Platforms phase —
+    see docs/mockups/04-projects-library.md.
+</MudText>
 
 @if (!Ctx.Initialized)
 {
