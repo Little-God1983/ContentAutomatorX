@@ -4,6 +4,7 @@ public static class SourceTypes
 {
     public const string Reddit = "Reddit";
     public const string Rss = "Rss";
+    public const string Website = "Website";
 }
 
 public static class DraftKinds

@@ -37,8 +37,10 @@ builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbConte
 // --- source connectors (HTTP + retry/backoff) ---
 builder.Services.AddHttpClient<RssConnector>().AddStandardResilienceHandler();
 builder.Services.AddHttpClient<RedditConnector>().AddStandardResilienceHandler();
+builder.Services.AddHttpClient<WebsiteConnector>().AddStandardResilienceHandler();
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RssConnector>());
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RedditConnector>());
+builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<WebsiteConnector>());
 
 // --- LLM backend ---
 var claudeOptions = new ClaudeCliOptions();

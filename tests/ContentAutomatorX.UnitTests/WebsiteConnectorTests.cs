@@ -1,0 +1,78 @@
+using System.Net;
+using ContentAutomatorX.Domain;
+using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Infrastructure.Sources;
+
+namespace ContentAutomatorX.UnitTests;
+
+public class WebsiteConnectorTests
+{
+    private static StubHttpHandler SiteHandler() => new(req =>
+    {
+        var path = req.RequestUri!.AbsolutePath;
+        var file = path == "/blog" ? "Fixtures/sample-site-listing.html" : "Fixtures/sample-site-article.html";
+        return new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(File.ReadAllText(file), System.Text.Encoding.UTF8, "text/html")
+        };
+    });
+
+    private static Source Site(string config) => new()
+    {
+        Type = SourceTypes.Website, DisplayName = "blog", ConfigJson = config
+    };
+
+    [Fact]
+    public async Task Auto_mode_extracts_article_links_with_absolute_urls_and_bodies()
+    {
+        var connector = new WebsiteConnector(new HttpClient(SiteHandler()));
+        var items = await connector.FetchAsync(Site("""{"url":"https://blog.example.com/blog","mode":"auto"}"""));
+
+        Assert.Contains(items, i => i.ExternalId == "https://blog.example.com/posts/alpha");
+        Assert.Contains(items, i => i.ExternalId == "https://blog.example.com/posts/beta");
+        var alpha = items.Single(i => i.ExternalId.EndsWith("/posts/alpha"));
+        Assert.Equal("Alpha release notes for the new engine", alpha.Title);
+        Assert.Contains("quick brown fox", alpha.Body);
+        Assert.DoesNotContain(items, i => i.ExternalId.EndsWith("/nav")); // short link text filtered
+    }
+
+    [Fact]
+    public async Task Selector_mode_uses_the_configured_css_selector()
+    {
+        var connector = new WebsiteConnector(new HttpClient(SiteHandler()));
+        var items = await connector.FetchAsync(Site(
+            """{"url":"https://blog.example.com/blog","mode":"selector","itemSelector":".card a"}"""));
+
+        var item = Assert.Single(items);
+        Assert.Equal("https://blog.example.com/posts/gamma", item.ExternalId);
+        Assert.Equal("Gamma model comparison megathread", item.Title);
+    }
+
+    [Fact]
+    public async Task Body_fetch_failure_still_yields_the_item_with_empty_body()
+    {
+        var handler = new StubHttpHandler(req =>
+            req.RequestUri!.AbsolutePath == "/blog"
+                ? new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(File.ReadAllText("Fixtures/sample-site-listing.html"),
+                        System.Text.Encoding.UTF8, "text/html")
+                }
+                : new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        var connector = new WebsiteConnector(new HttpClient(handler));
+
+        var items = await connector.FetchAsync(Site("""{"url":"https://blog.example.com/blog","mode":"auto"}"""));
+
+        Assert.NotEmpty(items);
+        Assert.All(items, i => Assert.Equal("", i.Body));
+    }
+
+    [Fact]
+    public async Task MaxItems_caps_the_result()
+    {
+        var connector = new WebsiteConnector(new HttpClient(SiteHandler()));
+        var items = await connector.FetchAsync(Site(
+            """{"url":"https://blog.example.com/blog","mode":"auto","maxItems":1}"""));
+        Assert.Single(items);
+    }
+}
