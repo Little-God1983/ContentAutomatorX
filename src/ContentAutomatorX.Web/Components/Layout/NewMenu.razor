@@ -1,0 +1,42 @@
+@inject ISnackbar Snackbar
+
+<MudMenu AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft">
+    <ActivatorContent>
+        @* MudBlazor 9: custom activators must open the menu themselves via the context *@
+        <MudButton Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Add"
+                   EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                   OnClick="@(e => context.ToggleAsync(e))">New</MudButton>
+    </ActivatorContent>
+    <ChildContent>
+        <MudMenuItem Icon="@Icons.Material.Filled.Email"
+                     OnClick="@(() => Soon("Newsletter issue", "the newsletter vertical is the first real feature, in progress"))">
+            Newsletter issue…
+        </MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Image"
+                     OnClick="@(() => Soon("Image post", "wizard + Civitai browser-assist arrive in a later phase"))">
+            Image post…
+        </MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Movie"
+                     OnClick="@(() => Soon("Video project", "video pipeline + YouTube publishing arrive in a later phase"))">
+            Video project…
+        </MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Favorite"
+                     OnClick="@(() => Soon("Patreon post", "prepare-kit flow arrives in a later phase"))">
+            Patreon post…
+        </MudMenuItem>
+        <MudMenuItem Icon="@Icons.Material.Filled.Campaign"
+                     OnClick="@(() => Soon("YouTube community post", "arrives with the YouTube phase"))">
+            YT community post…
+        </MudMenuItem>
+        <MudDivider />
+        <MudMenuItem Icon="@Icons.Material.Filled.CreateNewFolder"
+                     OnClick="@(() => Soon("Blank project", "arrives with the Projects model"))">
+            Blank project…
+        </MudMenuItem>
+    </ChildContent>
+</MudMenu>
+
+@code {
+    private void Soon(string what, string note) =>
+        Snackbar.Add($"{what}: coming soon — {note}.", Severity.Info);
+}

@@ -1,4 +1,5 @@
 @page "/recipes"
+@page "/automations"
 @implements IDisposable
 @inject TenantContext Ctx
 @inject SourceService SourceSvc
@@ -6,7 +7,7 @@
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 
-<MudText Typo="Typo.h4" Class="mb-4">Recipes</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Automations</MudText>
 
 @if (!Ctx.Initialized)
 {

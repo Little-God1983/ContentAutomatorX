@@ -1,0 +1,48 @@
+@page "/ai-studio"
+
+<MudText Typo="Typo.h4" Class="mb-4">AI Studio</MudText>
+
+<ComingSoonBanner Phase="provider profiles land with the newsletter vertical; the full job-binding table grows with each phase"
+                  Description="Provider profiles (Claude CLI, LM Studio, Ollama, hosted APIs, MCP servers, TTS — local solutions are first-class) get bound to named jobs like newsletter-compose or yt-description. Every ✨ button in the app runs a job; swapping the model behind it is editing one row here. Manual always works — AI only ever proposes text into ordinary fields." />
+
+<MudGrid Style="opacity:.8">
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Provider profiles (planned)</MudText>
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr><th style="text-align:left">Name</th><th style="text-align:left">Kind</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Claude CLI</td><td>text · CLI (exists today as the built-in backend)</td></tr>
+                    <tr><td>LM Studio</td><td>text · OpenAI-compatible local HTTP</td></tr>
+                    <tr><td>Ollama</td><td>text · OpenAI-compatible local HTTP</td></tr>
+                    <tr><td>Hosted APIs / MCP</td><td>text · vendor API or MCP proxy</td></tr>
+                    <tr><td>TTS (e.g. ElevenLabs)</td><td>voice · for optional AI voiceovers</td></tr>
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" md="6">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.subtitle2" Class="mb-2">Job bindings (planned)</MudText>
+            <MudSimpleTable Dense="true">
+                <thead>
+                    <tr><th style="text-align:left">Job</th><th style="text-align:left">Default provider</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>newsletter-compose</td><td>Claude CLI</td></tr>
+                    <tr><td>yt-title / yt-description</td><td>—</td></tr>
+                    <tr><td>image-post-descr</td><td>—</td></tr>
+                    <tr><td>patreon-teaser</td><td>—</td></tr>
+                    <tr><td>voiceover-tts</td><td>—</td></tr>
+                </tbody>
+            </MudSimpleTable>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudText Typo="Typo.caption" Class="mt-2 d-block">
+    Resolution order for every ✨: this-run choice → tenant override → job default.
+    See docs/mockups/10-platforms-ai-settings.md.
+</MudText>

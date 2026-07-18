@@ -1,0 +1,13 @@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4"
+          Icon="@Icons.Material.Filled.Construction">
+    <MudText Typo="Typo.subtitle1"><b>Coming soon</b> — @Phase</MudText>
+    @if (!string.IsNullOrEmpty(Description))
+    {
+        <MudText Typo="Typo.body2">@Description</MudText>
+    }
+</MudAlert>
+
+@code {
+    [Parameter] public string Phase { get; set; } = "planned";
+    [Parameter] public string? Description { get; set; }
+}

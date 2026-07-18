@@ -1,0 +1,97 @@
+@page "/calendar"
+
+<MudText Typo="Typo.h4" Class="mb-4">Calendar</MudText>
+
+<ComingSoonBanner Phase="arrives with the Posts model (after the newsletter vertical)"
+                  Description="Posts appear as platform-colored dots: filled = published, hollow = scheduled, waiting-for-you gets a badge. Drag a hollow dot to reschedule. Local calendar by design — external sync (ICS feed) is a possible later phase." />
+
+<MudPaper Class="pa-4" Outlined="true">
+    <div class="d-flex align-center flex-wrap mb-3" style="gap:8px">
+        <MudText Typo="Typo.h6">@_monthTitle</MudText>
+        <MudSpacer />
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#e53935;color:white">YouTube</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#43a047;color:white">Civitai</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#1e88e5;color:white">Newsletter</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#fb8c00;color:white">Patreon</MudChip>
+    </div>
+    <MudSimpleTable Dense="true" Bordered="true" Style="table-layout:fixed">
+        <thead>
+            <tr>
+                @foreach (var d in DayNames)
+                {
+                    <th style="text-align:left">@d</th>
+                }
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var week in _weeks)
+            {
+                <tr>
+                    @foreach (var day in week)
+                    {
+                        <td style="height:72px;vertical-align:top;@(day?.IsToday == true ? "outline:2px solid var(--mud-palette-primary);outline-offset:-2px;" : "")">
+                            @if (day is not null)
+                            {
+                                <MudText Typo="Typo.body2">@day.Number</MudText>
+                                <span style="font-size:14px;letter-spacing:2px">@((MarkupString)day.Dots)</span>
+                            }
+                        </td>
+                    }
+                </tr>
+            }
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.caption" Class="mt-2 d-block">
+        Sample dots for illustration — real posts land here once the Posts model exists
+        (see docs/mockups/03-calendar.md).
+    </MudText>
+</MudPaper>
+
+@code {
+    private static readonly string[] DayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+    private const string YouTubeRed = "#e53935";
+    private const string CivitaiGreen = "#43a047";
+    private const string NewsletterBlue = "#1e88e5";
+    private const string PatreonOrange = "#fb8c00";
+
+    private sealed record Day(int Number, bool IsToday, string Dots);
+
+    private string _monthTitle = "";
+    private readonly List<Day?[]> _weeks = new();
+
+    protected override void OnInitialized()
+    {
+        var today = DateTime.Today;
+        var first = new DateTime(today.Year, today.Month, 1);
+        _monthTitle = first.ToString("MMMM yyyy");
+
+        var daysInMonth = DateTime.DaysInMonth(today.Year, today.Month);
+        var lead = ((int)first.DayOfWeek + 6) % 7; // Monday-start offset
+
+        var sampleDots = new Dictionary<int, string>
+        {
+            [3] = Dot(YouTubeRed, filled: true),
+            [7] = Dot(CivitaiGreen, filled: true),
+            [12] = Dot(NewsletterBlue, filled: true) + Dot(YouTubeRed, filled: true),
+            [18] = Dot(YouTubeRed, filled: false),
+            [20] = Dot(PatreonOrange, filled: false),
+            [26] = Dot(NewsletterBlue, filled: false),
+        };
+
+        var cells = new List<Day?>();
+        for (var i = 0; i < lead; i++) cells.Add(null);
+        for (var n = 1; n <= daysInMonth; n++)
+        {
+            sampleDots.TryGetValue(n, out var dots);
+            cells.Add(new Day(n, n == today.Day, dots ?? ""));
+        }
+        while (cells.Count % 7 != 0) cells.Add(null);
+
+        for (var i = 0; i < cells.Count; i += 7)
+            _weeks.Add(cells.Skip(i).Take(7).ToArray());
+    }
+
+    private static string Dot(string color, bool filled) =>
+        $"<span style=\"color:{color}\">{(filled ? "●" : "○")}</span>";
+}

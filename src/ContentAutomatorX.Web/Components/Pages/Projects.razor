@@ -1,0 +1,47 @@
+@page "/projects"
+
+<MudText Typo="Typo.h4" Class="mb-4">Projects</MudText>
+
+<ComingSoonBanner Phase="arrives with the Projects/Posts model (after the newsletter vertical)"
+                  Description="A project is the working container for one piece of content — assets, script, notes, one folder on disk. It fans out into posts, one per platform: a YouTube video with an attached Patreon post is one project with two post chips. Patron-only work is simply a project whose only post targets Patreon." />
+
+<MudPaper Class="pa-4" Outlined="true" Style="opacity:.65">
+    <MudText Typo="Typo.subtitle2" Class="mb-2">Preview with sample data</MudText>
+    <MudSimpleTable Dense="true" Hover="false">
+        <thead>
+            <tr><th style="text-align:left">Title</th><th style="text-align:left">Type</th><th style="text-align:left">Posts</th><th style="text-align:left">Next</th></tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Flux Workflow Tutorial #12</td>
+                <td>🎬 video</td>
+                <td>
+                    <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#e53935;color:white">YouTube · scheduled</MudChip>
+                    <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#fb8c00;color:white">Patreon · kit ready</MudChip>
+                </td>
+                <td>Sat 18:00</td>
+            </tr>
+            <tr>
+                <td>Neon Samurai Set</td>
+                <td>🖼 images</td>
+                <td>
+                    <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#43a047;color:white">Civitai · waiting for you</MudChip>
+                    <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#fb8c00;color:white">Patreon · draft</MudChip>
+                </td>
+                <td>overdue</td>
+            </tr>
+            <tr>
+                <td>Prompt Vault July (patrons)</td>
+                <td>🎬 video</td>
+                <td>
+                    <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#fb8c00;color:white">Patreon · draft</MudChip>
+                </td>
+                <td>Jul 31</td>
+            </tr>
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.caption" Class="mt-2 d-block">
+        Default view shows Active only; finished projects auto-archive.
+        See docs/mockups/04-projects-library.md and 05-project-workspace.md.
+    </MudText>
+</MudPaper>

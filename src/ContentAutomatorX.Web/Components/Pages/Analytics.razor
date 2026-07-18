@@ -1,0 +1,35 @@
+@page "/analytics"
+
+<MudText Typo="Typo.h4" Class="mb-4">Analytics</MudText>
+
+<ComingSoonBanner Phase="arrives with the YouTube phase"
+                  Description="Per-platform stats pulled into local tables by a daily sync — five-year trends the platform dashboards make painful. One tab per platform that has an API (YouTube, MailerLite); manual platforms only show what you logged, no fake numbers." />
+
+<MudTabs Elevation="0" Class="mb-4">
+    <MudTabPanel Text="YouTube" Disabled="true" />
+    <MudTabPanel Text="Newsletter" Disabled="true" />
+    <MudTabPanel Text="All" Disabled="true" />
+</MudTabs>
+
+<MudGrid Style="opacity:.65">
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.subtitle2">Subscribers</MudText>
+            <MudText Typo="Typo.h4">—</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.subtitle2">Views (90 days)</MudText>
+            <MudText Typo="Typo.h4">—</MudText>
+        </MudPaper>
+    </MudItem>
+    <MudItem xs="12" sm="4">
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.subtitle2">Open rate</MudText>
+            <MudText Typo="Typo.h4">—</MudText>
+        </MudPaper>
+    </MudItem>
+</MudGrid>
+
+<MudText Typo="Typo.caption" Class="mt-2 d-block">See docs/mockups/07-video-youtube-flow.md.</MudText>

@@ -1,0 +1,27 @@
+@page "/library"
+
+<MudText Typo="Typo.h4" Class="mb-4">Library</MudText>
+
+<ComingSoonBanner Phase="arrives with the Posts model (after the newsletter vertical)"
+                  Description="The permanent, append-only record of everything published: one row per post, with URL, provenance and stats where a platform API exists. Faceted by year, platform and type so five years of posts stay findable — working views elsewhere stay small because published work moves here." />
+
+<MudPaper Class="pa-4" Outlined="true" Style="opacity:.65">
+    <div class="d-flex flex-wrap mb-3" style="gap:8px">
+        <MudChip T="string" Size="Size.Small" Disabled="true" Variant="Variant.Outlined">2026</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Variant="Variant.Outlined">2025</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#e53935;color:white">YouTube</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#43a047;color:white">Civitai</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#1e88e5;color:white">Newsletter</MudChip>
+        <MudChip T="string" Size="Size.Small" Disabled="true" Style="background:#fb8c00;color:white">Patreon</MudChip>
+    </div>
+    <MudText Typo="Typo.subtitle2" Class="mb-1">Preview with sample data</MudText>
+    <MudSimpleTable Dense="true">
+        <tbody>
+            <tr><td>Jul 14</td><td><span style="color:#43a047">●</span> Cyber Alley Set</td><td>civitai.com/posts/…</td><td>231 👍</td></tr>
+            <tr><td>Jul 12</td><td><span style="color:#e53935">●</span> ComfyUI Speedrun</td><td>youtu.be/…</td><td>4.1k views</td></tr>
+            <tr><td>Jul 12</td><td><span style="color:#1e88e5">●</span> AI Weekly #41</td><td>—</td><td>48% open rate</td></tr>
+            <tr><td>Jul 10</td><td><span style="color:#fb8c00">●</span> June Prompt Vault</td><td>patreon.com/posts/…</td><td>manual — no stats</td></tr>
+        </tbody>
+    </MudSimpleTable>
+    <MudText Typo="Typo.caption" Class="mt-2 d-block">See docs/mockups/04-projects-library.md.</MudText>
+</MudPaper>
