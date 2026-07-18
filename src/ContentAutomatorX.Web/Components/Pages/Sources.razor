@@ -22,6 +22,8 @@ else
         <MudSelect T="string" @bind-Value="_type" Label="Type">
             <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
             <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Website">Website (page watch)</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.LlmResearch">LLM research (AI web sweep)</MudSelectItem>
         </MudSelect>
         <MudTextField @bind-Value="_displayName" Label="Display name" />
         @if (_type == SourceTypes.Reddit)
@@ -29,6 +31,23 @@ else
             <MudTextField @bind-Value="_subreddit" Label="Subreddit (without r/)" />
             <MudTextField @bind-Value="_sort" Label="Sort (hot|new|top|rising)" />
             <MudTextField @bind-Value="_timeframe" Label="Timeframe for top (hour|day|week|month|year|all)" />
+        }
+        else if (_type == SourceTypes.Website)
+        {
+            <MudTextField @bind-Value="_siteUrl" Label="Page URL (listing/blog index)" />
+            <MudSelect T="string" @bind-Value="_siteMode" Label="Extraction">
+                <MudSelectItem T="string" Value="@("auto")">Auto (articles & main links)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("selector")">CSS selector</MudSelectItem>
+            </MudSelect>
+            @if (_siteMode == "selector")
+            {
+                <MudTextField @bind-Value="_siteSelector" Label="Item selector (e.g. .post-list a)" />
+            }
+        }
+        else if (_type == SourceTypes.LlmResearch)
+        {
+            <MudTextField @bind-Value="_researchPrompt" Label="Research prompt" Lines="3"
+                          HelperText="E.g. 'top AI image-generation news of the past 7 days'. Runs via the LLM with web search (Claude ExtraArgs)." />
         }
         else
         {
@@ -69,6 +88,7 @@ else
     private Source? _editing;
     private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
         _timeframe = "week", _feedUrl = "", _cron = "";
+    private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
     private bool _enabled = true;
 
     protected override async Task OnInitializedAsync()
@@ -107,6 +127,16 @@ else
             _sort = doc.RootElement.TryGetProperty("sort", out var so) ? so.GetString() ?? "hot" : "hot";
             _timeframe = doc.RootElement.TryGetProperty("timeframe", out var tf) ? tf.GetString() ?? "week" : "week";
         }
+        else if (s.Type == SourceTypes.Website)
+        {
+            _siteUrl = doc.RootElement.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+            _siteMode = doc.RootElement.TryGetProperty("mode", out var m) ? m.GetString() ?? "auto" : "auto";
+            _siteSelector = doc.RootElement.TryGetProperty("itemSelector", out var sel) ? sel.GetString() ?? "" : "";
+        }
+        else if (s.Type == SourceTypes.LlmResearch)
+        {
+            _researchPrompt = doc.RootElement.TryGetProperty("prompt", out var p) ? p.GetString() ?? "" : "";
+        }
         else
         {
             _feedUrl = doc.RootElement.TryGetProperty("feedUrl", out var f) ? f.GetString() ?? "" : "";
@@ -118,11 +148,20 @@ else
         _editing = null;
         (_type, _displayName, _subreddit, _sort, _timeframe, _feedUrl, _cron, _enabled)
             = (SourceTypes.Reddit, "", "", "hot", "week", "", "", true);
+        (_siteUrl, _siteMode, _siteSelector, _researchPrompt) = ("", "auto", "", "");
     }
 
-    private string BuildConfig() => _type == SourceTypes.Reddit
-        ? JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe })
-        : JsonSerializer.Serialize(new { feedUrl = _feedUrl });
+    private string BuildConfig() => _type switch
+    {
+        var t when t == SourceTypes.Reddit =>
+            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe }),
+        var t when t == SourceTypes.Website =>
+            JsonSerializer.Serialize(new { url = _siteUrl, mode = _siteMode,
+                itemSelector = _siteMode == "selector" ? _siteSelector : null }),
+        var t when t == SourceTypes.LlmResearch =>
+            JsonSerializer.Serialize(new { prompt = _researchPrompt }),
+        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl })
+    };
 
     private async Task Save()
     {
