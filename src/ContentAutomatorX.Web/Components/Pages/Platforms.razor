@@ -90,6 +90,8 @@ else
     private string? _groupId;
     private string _fromName = "", _fromEmail = "", _colorHex = "#1e88e5";
     private List<MailerLiteGroup> _groups = [];
+    private string? _storedGroupId;
+    private string? _storedGroupName;
 
     protected override async Task OnInitializedAsync()
     {
@@ -113,6 +115,7 @@ else
     private async Task ReloadAsync()
     {
         _groups = [];
+        _apiKey = "";
         if (!Ctx.Initialized || Ctx.Active is null)
         {
             _platform = null;
@@ -123,6 +126,8 @@ else
         _hasKey = await PlatformSvc.GetApiKeyAsync(_platform) is not null;
         var config = PlatformSvc.GetConfig(_platform);
         _groupId = config.GroupId;
+        _storedGroupId = config.GroupId;
+        _storedGroupName = config.GroupName;
         _fromName = config.FromName ?? "";
         _fromEmail = config.FromEmail ?? "";
         _colorHex = _platform.ColorHex;
@@ -178,12 +183,17 @@ else
         _busy = true;
         try
         {
+            var groupId = string.IsNullOrWhiteSpace(_groupId) ? null : _groupId.Trim();
+            var groupName = _groups.FirstOrDefault(g => g.Id == _groupId)?.Name
+                ?? (_groupId == _storedGroupId ? _storedGroupName : null);
             var config = new MailerLiteConfig(
-                string.IsNullOrWhiteSpace(_groupId) ? null : _groupId.Trim(),
-                _groups.FirstOrDefault(g => g.Id == _groupId)?.Name,
+                groupId,
+                groupName,
                 string.IsNullOrWhiteSpace(_fromName) ? null : _fromName.Trim(),
                 string.IsNullOrWhiteSpace(_fromEmail) ? null : _fromEmail.Trim());
             await PlatformSvc.SaveConfigAsync(_platform, config, _colorHex);
+            _storedGroupId = groupId;
+            _storedGroupName = groupName;
             Snackbar.Add("Saved", Severity.Success);
         }
         catch (Exception ex)
