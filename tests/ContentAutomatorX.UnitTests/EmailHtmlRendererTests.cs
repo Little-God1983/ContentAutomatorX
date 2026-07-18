@@ -13,7 +13,7 @@ public class EmailHtmlRendererTests
         Assert.Contains("<html", html);
         Assert.Contains("AI Weekly #1", html);
         Assert.Contains("Top stories", html);
-        Assert.Contains("href=\"https://ex.com\"", html);
+        Assert.Contains("<a style=\"color:#1e88e5;\" href=\"https://ex.com\">", html);
         Assert.Contains("<li", html);
         Assert.Contains("style=", html);           // inline styles present
         Assert.DoesNotContain("<script", html, StringComparison.OrdinalIgnoreCase);
@@ -25,5 +25,20 @@ public class EmailHtmlRendererTests
         var html = EmailHtmlRenderer.Render("hello <script>alert(1)</script> world", "t");
         Assert.DoesNotContain("<script>alert", html);
         Assert.Contains("&lt;script&gt;", html);
+    }
+
+    [Fact]
+    public void Encodes_title_with_special_characters()
+    {
+        var html = EmailHtmlRenderer.Render("Test content", "AI & <Weekly> #1");
+        Assert.Contains("AI &amp; &lt;Weekly&gt; #1", html);
+        Assert.DoesNotContain("<Weekly>", html);
+    }
+
+    [Fact]
+    public void Styles_anchors_that_carry_a_title_attribute()
+    {
+        var html = EmailHtmlRenderer.Render("see [docs](https://ex.com/d \"Docs\")", "Test");
+        Assert.Contains("<a style=\"color:#1e88e5;\" href=\"https://ex.com/d\" title=\"Docs\">", html);
     }
 }

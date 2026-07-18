@@ -46,6 +46,6 @@ public static partial class EmailHtmlRenderer
             .Replace("<hr />", "<hr style=\"border:none;border-top:1px solid #dddddd;margin:20px 0;\" />");
     }
 
-    [GeneratedRegex("<a (href=\"[^\"]*\")>")]
+    [GeneratedRegex("<a (href=\"[^\"]*\"[^>]*)>")]
     private static partial Regex AnchorRegex();
 }
