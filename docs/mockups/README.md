@@ -166,6 +166,7 @@ LLM is editing one binding cell. Details in
 | [06-image-post-flow.md](06-image-post-flow.md) | Drag-drop image set → Civitai browser-assist |
 | [07-video-youtube-flow.md](07-video-youtube-flow.md) | Video pipeline, voiceover choices, YouTube publish + analytics |
 | [08-newsletter-flow.md](08-newsletter-flow.md) | Sources → triage → AI compose → MailerLite handoff |
+| [08a-newsletter-issue-walkthrough.md](08a-newsletter-issue-walkthrough.md) | Step-by-step: what happens after "+ New → Newsletter issue", who/what is AI |
 | [09-patreon-flow.md](09-patreon-flow.md) | Prepare-kit pattern for API-less platforms |
 | [10-platforms-ai-settings.md](10-platforms-ai-settings.md) | Platform config, capability badges, AI providers & job bindings |
 | [11-folder-structure.md](11-folder-structure.md) | On-disk layout: projects, posts-per-platform, patron-only case |
@@ -209,3 +210,4 @@ The original connector-first order meant ~12 months before daily use. New plan:
 | 8 | Channels / AI tasks naming | **"Platforms"** / **"Jobs"** |
 | 9 | YouTube community posts | Add as a `+ New` category (post type on YouTube platform); capability mode TBD |
 | 10 | Nav grouping/labels (§3) | Open — evaluate in the Blazor shell mockup |
+| 11 | Per-issue source control | **Yes** — select/deselect the preconfigured sources (and add new ones) in the new-issue dialog *before* gathering starts; transient override, optional save-as-default (see 08a) |

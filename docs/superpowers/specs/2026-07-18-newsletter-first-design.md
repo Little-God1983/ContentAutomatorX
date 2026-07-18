@@ -32,8 +32,11 @@ machinery; Send stays human; local-only calendar unaffected.
      connector is implemented; others stay the current "planned" table
    - `Post` entity: the publication intent (platform, status, schedule,
      external id/url, stats); a newsletter issue = one Post
-3. **Issue editor** (v1 composer): markdown body + live HTML preview, subject
-   + preview-text fields, `Regenerate ✨` (re-runs the automation's prompt),
+3. **Issue editor** (v1 composer): new-issue dialog with **per-issue source
+   checklist** (select/deselect the automation's preconfigured sources, add a
+   new source inline, before anything gathers), material panel with source
+   chips + `Re-gather`, markdown body + live HTML preview, subject +
+   preview-text fields, `Regenerate ✨` (re-runs the automation's prompt),
    `Push to MailerLite ⚡`, `Open in MailerLite ↗`
 4. **MailerLite connector** (first `IPlatformConnector`):
    - API key stored via DPAPI (new `ICredentialStore`), never in SQLite
@@ -69,7 +72,9 @@ Post          Id, TenantId, PlatformId, DraftId (content payload, FK Draft),
               Kind ("Newsletter"), Title, Subject, PreviewText,
               Status: Draft → Pushed → Published | Failed,
               NeedsReview (bool), ScheduledAt?, PublishedAt?,
-              ExternalId (campaign id), ExternalUrl, StatsJson, timestamps
+              ExternalId (campaign id), ExternalUrl, StatsJson,
+              SourceIdsJson (nullable — this issue's source set; null =
+              use the automation's configured sources), timestamps
 Source.Type   += "Website", "LlmResearch" (Config JSON per type:
               Website {url, itemSelector?, mode: auto|selector};
               LlmResearch {prompt, maxItems})
@@ -130,11 +135,20 @@ behavior (files into sync folders) keeps working in parallel.
 - **Posts page**: top section lists `Post` rows (newsletter issues) with
   status chips + `Edit` / `Open in MailerLite`; the existing Drafts list
   moves below a divider labeled "File drafts (Phase 1)". No removal.
-- **Issue editor** (`/issue/{postId}`): two-pane markdown editor + HTML
-  preview (rendered with the same email template), subject + preview-text
-  inputs, `Regenerate ✨` (rerun recipe prompt; asks before overwriting
-  edits), `Push to MailerLite ⚡` (create/update campaign → status Pushed,
-  snackbar with `Open in MailerLite ↗`), `Re-push` while draft.
+- **New-issue dialog** (`+ New → Newsletter issue…`): based-on automation,
+  material window, auto-numbered title, and the **source checklist** —
+  automation sources pre-checked, other tenant sources below unchecked,
+  `+ New source…` inline (normal source form; unscheduled = one-off),
+  optional "save as automation default". Nothing gathers before this dialog
+  is confirmed. Unchecking a source both skips its fetch and makes its
+  already-ingested items ineligible for this issue's selection.
+- **Issue editor** (`/issue/{postId}`): material panel with the same
+  per-issue source set as chips + `Re-gather` (adjust mid-flight before
+  composing), two-pane markdown editor + HTML preview (rendered with the
+  same email template), subject + preview-text inputs, `Regenerate ✨`
+  (rerun recipe prompt; asks before overwriting edits),
+  `Push to MailerLite ⚡` (create/update campaign → status Pushed, snackbar
+  with `Open in MailerLite ↗`), `Re-push` while draft.
 - **Today**: "Review queue" card (real) — posts with NeedsReview, plus
   Pushed posts as "waiting for your Send in MailerLite". Placeholder strip
   shrinks accordingly.
