@@ -1,6 +1,7 @@
 @page "/tenants"
 @inject TenantService TenantSvc
 @inject ISnackbar Snackbar
+@inject TenantContext Ctx
 
 <MudText Typo="Typo.h4" Class="mb-4">Tenants</MudText>
 
@@ -88,6 +89,7 @@
         }
         Reset();
         _tenants = await TenantSvc.ListAsync();
+        await Ctx.RefreshAsync();
         Snackbar.Add("Saved", Severity.Success);
     }
 
@@ -95,5 +97,6 @@
     {
         await TenantSvc.DeleteAsync(t.Id);
         _tenants = await TenantSvc.ListAsync();
+        await Ctx.RefreshAsync();
     }
 }

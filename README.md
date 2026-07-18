@@ -33,7 +33,7 @@ logs in `src/ContentAutomatorX.Web/logs/`.
 
 ## Quick start
 
-1. **Tenants** → create a tenant; set its voice profile and output folder (Verify folder).
+1. **Tenant menu (top-right)** → create a tenant, then **Manage tenants** to set its voice profile and output folder (Verify folder). The menu also switches the whole app between tenants; the choice persists per browser.
 2. **Sources** → add a subreddit and/or RSS feed; **Fetch now**.
 3. **Recipes** → create a recipe (kind, selection rules, optional schedule); **Run now**.
 4. The draft lands as Markdown in the tenant's output folder and under **Drafts**.
