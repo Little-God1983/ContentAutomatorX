@@ -120,6 +120,8 @@ else
     {
         _editing = s;
         _type = s.Type; _displayName = s.DisplayName; _cron = s.ScheduleCron ?? ""; _enabled = s.IsEnabled;
+        (_subreddit, _sort, _timeframe, _feedUrl, _siteUrl, _siteMode, _siteSelector, _researchPrompt)
+            = ("", "hot", "week", "", "", "auto", "", "");
         using var doc = JsonDocument.Parse(s.ConfigJson);
         if (s.Type == SourceTypes.Reddit)
         {
