@@ -47,7 +47,11 @@ if (string.IsNullOrWhiteSpace(claudeOptions.Model)) claudeOptions.Model = null;
 builder.Services.AddSingleton(claudeOptions);
 builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
 builder.Services.AddSingleton<ILlmBackend, ClaudeCliBackend>();
-builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
+if (OperatingSystem.IsWindows())
+    builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
+else
+    throw new PlatformNotSupportedException(
+        "Secrets storage currently requires Windows (DPAPI). A server deployment swaps in a different ICredentialStore.");
 
 // --- delivery, pipelines, services ---
 builder.Services.AddSingleton<IDraftDelivery, FileShareDraftDelivery>();
