@@ -41,6 +41,52 @@ public class ItemSelectorTests
     }
 
     [Fact]
+    public void Scoreless_items_follow_source_listing_rank_not_date()
+    {
+        // the Reddit RSS fallback delivers no scores — rank must carry the hot order
+        ContentItem Ranked(string title, int rank, int ageDays) => new()
+        {
+            Title = title, ExternalId = title, Body = "",
+            MetadataJson = $"{{\"via\":\"rss\",\"rank\":{rank}}}",
+            PublishedAt = Now.AddDays(-ageDays)
+        };
+        var items = new[]
+        {
+            Ranked("newest but rank 3", rank: 3, ageDays: 0),
+            Ranked("oldest but rank 1", rank: 1, ageDays: 6),
+            Ranked("rank 2", rank: 2, ageDays: 2)
+        };
+
+        var result = ItemSelector.Select(items, new SelectionRules { MaxItems = 3 }, new HashSet<Guid>(), Now);
+
+        Assert.Equal(["oldest but rank 1", "rank 2", "newest but rank 3"],
+            result.Select(i => i.Title).ToArray());
+    }
+
+    [Fact]
+    public void Scored_items_still_order_by_score_first_rank_only_breaks_ties()
+    {
+        ContentItem Scored(string title, int score, int rank) => new()
+        {
+            Title = title, ExternalId = title, Body = "",
+            MetadataJson = $"{{\"score\":{score},\"rank\":{rank}}}",
+            PublishedAt = Now.AddDays(-1)
+        };
+        var items = new[]
+        {
+            Scored("low score rank 1", score: 10, rank: 1),
+            Scored("high score rank 5", score: 500, rank: 5),
+            Scored("tied A rank 4", score: 100, rank: 4),
+            Scored("tied B rank 2", score: 100, rank: 2)
+        };
+
+        var result = ItemSelector.Select(items, new SelectionRules { MaxItems = 4 }, new HashSet<Guid>(), Now);
+
+        Assert.Equal(["high score rank 5", "tied B rank 2", "tied A rank 4", "low score rank 1"],
+            result.Select(i => i.Title).ToArray());
+    }
+
+    [Fact]
     public void Excludes_items_already_used_by_this_recipe_but_not_globally_used()
     {
         var usedByRecipe = Item("used by recipe", score: 50);

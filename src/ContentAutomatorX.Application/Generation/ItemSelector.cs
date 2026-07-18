@@ -25,8 +25,11 @@ public static class ItemSelector
         if (rules.ExcludeKeywords.Length > 0)
             query = query.Where(i => !rules.ExcludeKeywords.Any(k => Matches(i, k)));
 
+        // rank breaks score ties with the source's own listing order (e.g. Reddit hot);
+        // when the RSS fallback delivers no scores at all, rank IS the ordering
         return query
             .OrderByDescending(Score)
+            .ThenBy(Rank)
             .ThenByDescending(i => i.PublishedAt ?? i.FetchedAt)
             .Take(rules.MaxItems)
             .ToList();
@@ -44,5 +47,15 @@ public static class ItemSelector
             return doc.RootElement.TryGetProperty("score", out var s) ? s.GetInt32() : 0;
         }
         catch { return 0; }
+    }
+
+    private static int Rank(ContentItem i)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(i.MetadataJson);
+            return doc.RootElement.TryGetProperty("rank", out var r) ? r.GetInt32() : int.MaxValue;
+        }
+        catch { return int.MaxValue; }
     }
 }
