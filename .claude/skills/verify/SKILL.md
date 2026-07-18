@@ -31,28 +31,37 @@ Get-CimInstance Win32_Process -Filter "Name = 'dotnet.exe'" |
 Get-Process ContentAutomatorX.Web -EA SilentlyContinue | Stop-Process -Force  # dotnet-run instances
 ```
 
+Running a second instance next to a dev one: `appsettings.json` pins
+`"Urls": "http://localhost:5090"`, which beats `ASPNETCORE_URLS`; pass
+`--urls http://localhost:5091` on the command line instead (that wins).
+
 ## Driving the UI headlessly
 
 No Playwright browsers installed; use `npm install playwright-core` (no
 download) + system Chrome:
 `executablePath: 'C:/Program Files/Google/Chrome/Application/chrome.exe'`.
 
+Full tenant-switcher walkthrough script: [drive.cjs](drive.cjs). Copy it
+into a scratch dir that has `playwright-core` installed and run
+`node drive.cjs` there (`BASE`/`OUT_DIR` env vars override port 5090 /
+screenshot dir).
+
 Wait for readiness: poll `http://localhost:5090/` for 200, then in-page wait
 for `.mud-progress-linear` to disappear (circuit up + TenantContext
 initialized).
 
-MudBlazor 9 quirks under headless Chrome (real users unaffected):
+Drive notes:
 
-- **MudMenu won't open from a plain synthetic click.** Reliable sequence:
-  real `click()` on `.mud-menu-activator` (priming), check for items, else
-  `focus()` + `keyboard.press('Enter')`; retry the pair up to 4×.
-- **Never wait for menu-item *visibility*** — the popover never gets
-  `.mud-popover-open`; poll `document.querySelectorAll('.mud-popover
-  .mud-menu-item').length > 0` and use `dispatchEvent('click')` on items.
-- **Snackbars steal keyboard events** — wait for `.mud-snackbar` count 0
-  before keyboard menu activation (auto-hide ≈ 5s).
-- After the switcher's first-tenant branch swap (no-tenant button → menu),
-  reload the page once before opening the menu.
+- **A single plain `click()` must open MudMenus.** Do NOT add keyboard or
+  retry fallbacks: MudBlazor 9 custom `ActivatorContent` needs explicit
+  `OnClick="context.ToggleAsync"` wiring, and a keyboard fallback once
+  masked exactly that bug (menu opened on Enter, never on click — broken
+  for real users while E2E "passed").
+- Menu content renders only while open: wait for `.mud-popover
+  .mud-menu-item` count > 0 after the click, then normal `click()` on items
+  works.
+- Snackbars stack over the top-right menu area for ~5s (cosmetic in
+  screenshots; clicks still land).
 - Dialog inputs: `.mud-dialog input` (nth 0 = Name, 1 = Slug), fill()
   triggers `Immediate` binding; buttons by text (`Create & switch`, `Cancel`).
 

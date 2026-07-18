@@ -16,7 +16,9 @@ else
 {
     <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
         <ActivatorContent>
-            <MudButton Color="Color.Inherit" EndIcon="@Icons.Material.Filled.ArrowDropDown">
+            @* MudBlazor 9: custom activators must open the menu themselves via the context *@
+            <MudButton Color="Color.Inherit" EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                       OnClick="@(e => context.ToggleAsync(e))">
                 <MudAvatar Size="Size.Small" Color="Color.Secondary" Class="mr-2">@Initial(Ctx.Active.Name)</MudAvatar>
                 @Ctx.Active.Name
             </MudButton>
