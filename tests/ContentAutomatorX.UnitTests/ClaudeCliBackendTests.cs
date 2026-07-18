@@ -99,4 +99,16 @@ public class ClaudeCliBackendTests
         Assert.Equal("OK", result.Text);
         Assert.Equal("claude-opus-4-8[1m]", result.Model);
     }
+
+    [Fact]
+    public async Task Extra_args_are_appended_to_the_cli_invocation()
+    {
+        var runner = new FakeProcessRunner(new ProcessResult(0, GoodJson, ""));
+        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions { ExtraArgs = "--allowedTools WebSearch" });
+
+        await backend.GenerateAsync("hi");
+
+        Assert.Contains("-p --output-format json", runner.LastArguments);
+        Assert.EndsWith("--allowedTools WebSearch", runner.LastArguments);
+    }
 }

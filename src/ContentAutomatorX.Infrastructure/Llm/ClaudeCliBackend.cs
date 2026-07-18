@@ -11,6 +11,10 @@ public class ClaudeCliOptions
     public string Command { get; set; } = "claude";
     public string? Model { get; set; }
     public int TimeoutSeconds { get; set; } = 300;
+
+    /// <summary>Appended verbatim to the CLI args. E.g. "--allowedTools WebSearch" lets
+    /// LlmResearch sources actually search the web. Configured via appsettings Claude:ExtraArgs.</summary>
+    public string? ExtraArgs { get; set; }
 }
 
 public class ClaudeCliBackend(IProcessRunner runner, ClaudeCliOptions options) : ILlmBackend
@@ -21,6 +25,7 @@ public class ClaudeCliBackend(IProcessRunner runner, ClaudeCliOptions options) :
     {
         var args = "-p --output-format json";
         if (!string.IsNullOrWhiteSpace(options.Model)) args += $" --model {options.Model}";
+        if (!string.IsNullOrWhiteSpace(options.ExtraArgs)) args += $" {options.ExtraArgs}";
         var timeout = TimeSpan.FromSeconds(options.TimeoutSeconds);
 
         string lastError = "";

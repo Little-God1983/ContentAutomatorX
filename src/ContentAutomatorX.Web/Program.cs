@@ -41,6 +41,7 @@ builder.Services.AddHttpClient<WebsiteConnector>().AddStandardResilienceHandler(
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RssConnector>());
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RedditConnector>());
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<WebsiteConnector>());
+builder.Services.AddTransient<ISourceConnector, LlmResearchConnector>(); // no HttpClient — rides ILlmBackend
 
 // --- LLM backend ---
 var claudeOptions = new ClaudeCliOptions();
