@@ -33,6 +33,26 @@ public class SourceServiceTests
     }
 
     [Fact]
+    public async Task ContentService_bulk_delete_skips_used_items()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t" };
+        var source = NewSource(tenant.Id);
+        var fresh = NewItem(source, "fresh");
+        var used = NewItem(source, "used");
+        used.Status = ContentItemStatus.Used;
+        test.Db.Tenants.Add(tenant);
+        test.Db.Sources.Add(source);
+        test.Db.ContentItems.AddRange(fresh, used);
+        await test.Db.SaveChangesAsync();
+
+        var (deleted, keptUsed) = await new ContentService(test.Db).DeleteAsync([fresh.Id, used.Id]);
+
+        Assert.Equal((1, 1), (deleted, keptUsed));
+        Assert.Equal("used", (await test.Db.ContentItems.SingleAsync()).ExternalId);
+    }
+
+    [Fact]
     public async Task Delete_blocked_when_automation_references_source()
     {
         using var test = TestDb.Create();

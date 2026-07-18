@@ -38,6 +38,8 @@ else
         <MudTextField @bind-Value="_extraInstructions" Label="Extra instructions for this run (optional)" />
         <MudButton OnClick="RunWithSelection" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
                    Disabled="@(_recipeId is null || _selectedItems.Count == 0 || _running)">Generate draft</MudButton>
+        <MudButton OnClick="DeleteSelected" Variant="Variant.Outlined" Color="Color.Error" Class="mt-2 ml-2"
+                   Disabled="@(_selectedItems.Count == 0 || _running)">Delete selected</MudButton>
     </MudPaper>
 
     <MudTable T="ContentItem" Items="_items" Hover="true" MultiSelection="true" @bind-SelectedItems="_selectedItems">
@@ -118,6 +120,15 @@ else
     private async Task Mark(ContentItem item, ContentItemStatus status)
     {
         await ContentSvc.MarkAsync(item.Id, status);
+        await Reload();
+    }
+
+    private async Task DeleteSelected()
+    {
+        var (deleted, keptUsed) = await ContentSvc.DeleteAsync(_selectedItems.Select(i => i.Id).ToList());
+        Snackbar.Add(keptUsed > 0
+            ? $"Deleted {deleted} item(s); kept {keptUsed} already used in an issue"
+            : $"Deleted {deleted} item(s)", Severity.Success);
         await Reload();
     }
 
