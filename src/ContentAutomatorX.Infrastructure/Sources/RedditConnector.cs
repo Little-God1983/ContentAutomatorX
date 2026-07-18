@@ -25,7 +25,7 @@ public class RedditConnector(HttpClient http) : ISourceConnector
             ?? throw new InvalidOperationException($"Source {source.Id}: invalid Reddit config");
 
         var sort = (config.Sort ?? "hot").ToLowerInvariant();
-        var limit = config.Limit ?? 25;
+        var limit = Math.Clamp(config.Limit ?? 20, 1, 20);
         var timeframe = (config.Timeframe ?? "week").ToLowerInvariant();
 
         var url = $"https://www.reddit.com/r/{config.Subreddit}/{sort}.json?limit={limit}&t={timeframe}&raw_json=1";
@@ -56,7 +56,8 @@ public class RedditConnector(HttpClient http) : ISourceConnector
                     : null,
                 Author: d.TryGetProperty("author", out var a) ? a.GetString() : null,
                 Body: d.TryGetProperty("selftext", out var t) ? (t.GetString() ?? "") : "",
-                MetadataJson: $"{{\"score\":{score}}}",
+                // rank = listing position, so the chosen sort (hot etc.) survives into the Inbox
+                MetadataJson: $"{{\"score\":{score},\"rank\":{results.Count + 1}}}",
                 PublishedAt: createdUtc));
         }
         return results;
@@ -74,7 +75,7 @@ public class RedditConnector(HttpClient http) : ISourceConnector
         using var reader = XmlReader.Create(stream);
         var feed = SyndicationFeed.Load(reader);
 
-        return feed.Items.Select(item =>
+        return feed.Items.Select((item, index) =>
         {
             var id = item.Id ?? "";
             var author = item.Authors.FirstOrDefault()?.Name;
@@ -87,7 +88,7 @@ public class RedditConnector(HttpClient http) : ISourceConnector
                 Author: author?.StartsWith("/u/") == true ? author[3..] : author,
                 Body: html.Length == 0 ? "" : HtmlParser.ParseDocument(html).Body?.TextContent.Trim() ?? "",
                 // the Atom feed carries no score — rules with MinScore treat these as 0
-                MetadataJson: """{"via":"rss"}""",
+                MetadataJson: $"{{\"via\":\"rss\",\"rank\":{index + 1}}}",
                 PublishedAt: item.PublishDate == default ? null : item.PublishDate);
         }).ToList();
     }

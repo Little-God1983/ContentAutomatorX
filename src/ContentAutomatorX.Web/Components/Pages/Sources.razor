@@ -46,6 +46,7 @@ else
                     <MudSelectItem T="string" Value="@("all")">All time</MudSelectItem>
                 </MudSelect>
             }
+            <MudNumericField T="int" @bind-Value="_limit" Label="Items per fetch" Min="1" Max="20" />
         }
         else if (_type == SourceTypes.Website)
         {
@@ -103,6 +104,7 @@ else
     private Source? _editing;
     private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
         _timeframe = "week", _feedUrl = "", _cron = "";
+    private int _limit = 20;
     private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
     private bool _enabled = true;
 
@@ -137,6 +139,7 @@ else
         _type = s.Type; _displayName = s.DisplayName; _cron = s.ScheduleCron ?? ""; _enabled = s.IsEnabled;
         (_subreddit, _sort, _timeframe, _feedUrl, _siteUrl, _siteMode, _siteSelector, _researchPrompt)
             = ("", "hot", "week", "", "", "auto", "", "");
+        _limit = 20;
         using var doc = JsonDocument.Parse(s.ConfigJson);
         if (s.Type == SourceTypes.Reddit)
         {
@@ -144,6 +147,7 @@ else
             // normalize legacy free-text values ("Hot") so they match the dropdown options
             _sort = (doc.RootElement.TryGetProperty("sort", out var so) ? so.GetString() ?? "hot" : "hot").ToLowerInvariant();
             _timeframe = (doc.RootElement.TryGetProperty("timeframe", out var tf) ? tf.GetString() ?? "week" : "week").ToLowerInvariant();
+            _limit = Math.Clamp(doc.RootElement.TryGetProperty("limit", out var li) && li.TryGetInt32(out var lim) ? lim : 20, 1, 20);
         }
         else if (s.Type == SourceTypes.Website)
         {
@@ -167,12 +171,13 @@ else
         (_type, _displayName, _subreddit, _sort, _timeframe, _feedUrl, _cron, _enabled)
             = (SourceTypes.Reddit, "", "", "hot", "week", "", "", true);
         (_siteUrl, _siteMode, _siteSelector, _researchPrompt) = ("", "auto", "", "");
+        _limit = 20;
     }
 
     private string BuildConfig() => _type switch
     {
         var t when t == SourceTypes.Reddit =>
-            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe }),
+            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe, limit = _limit }),
         var t when t == SourceTypes.Website =>
             JsonSerializer.Serialize(new { url = _siteUrl, mode = _siteMode,
                 itemSelector = _siteMode == "selector" ? _siteSelector : null }),

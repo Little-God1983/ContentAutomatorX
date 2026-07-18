@@ -43,10 +43,16 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
                 var externalIds = items.Select(f => f.ExternalId).ToList();
                 var existing = await db.ContentItems
                     .Where(i => i.SourceId == source.Id && externalIds.Contains(i.ExternalId))
-                    .Select(i => i.ExternalId)
                     .ToListAsync(ct);
 
-                var fresh = items.Where(f => !existing.Contains(f.ExternalId)).ToList();
+                // refresh volatile metadata (score, listing rank) on re-fetched duplicates
+                // so Inbox ordering reflects the latest fetch, not the first one
+                foreach (var e in existing)
+                    if (items.FirstOrDefault(f => f.ExternalId == e.ExternalId) is { } refetched)
+                        e.MetadataJson = refetched.MetadataJson;
+
+                var existingIds = existing.Select(i => i.ExternalId).ToHashSet();
+                var fresh = items.Where(f => !existingIds.Contains(f.ExternalId)).ToList();
                 added = fresh.Select(f => new ContentItem
                 {
                     TenantId = tenantId, SourceId = source.Id, ExternalId = f.ExternalId,

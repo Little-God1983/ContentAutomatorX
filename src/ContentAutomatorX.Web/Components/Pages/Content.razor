@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject TenantContext Ctx
 @inject ContentService ContentSvc
+@inject SourceService SourceSvc
 @inject RecipeService RecipeSvc
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
@@ -19,13 +20,19 @@ else if (Ctx.Active is null)
 }
 else
 {
-    <MudSelect T="string" Value="_statusFilter" ValueChanged="OnFilterChanged" Label="Status filter" Class="mb-4">
-        <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
-        @foreach (var s in Enum.GetNames<ContentItemStatus>())
-        {
-            <MudSelectItem T="string" Value="@s">@s</MudSelectItem>
-        }
-    </MudSelect>
+    <div class="d-flex mb-4" style="gap:16px">
+        <MudSelect T="string" Value="_statusFilter" ValueChanged="OnFilterChanged" Label="Status filter">
+            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+            @foreach (var s in Enum.GetNames<ContentItemStatus>())
+            {
+                <MudSelectItem T="string" Value="@s">@s</MudSelectItem>
+            }
+        </MudSelect>
+        <MudSelect T="string" Value="_sortMode" ValueChanged="OnSortChanged" Label="Sort">
+            <MudSelectItem T="string" Value="@("date")">Newest first</MudSelectItem>
+            <MudSelectItem T="string" Value="@("rank")">As fetched (source order, e.g. hot)</MudSelectItem>
+        </MudSelect>
+    </div>
 
     <MudPaper Class="pa-4 mb-4">
         <MudText Typo="Typo.subtitle1">Generate from hand-picked items (@_selectedItems.Count selected)</MudText>
@@ -44,7 +51,7 @@ else
 
     <MudTable T="ContentItem" Items="_items" Hover="true" MultiSelection="true" @bind-SelectedItems="_selectedItems">
         <HeaderContent>
-            <MudTh>Title</MudTh><MudTh>Published</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+            <MudTh>Title</MudTh><MudTh>Source</MudTh><MudTh>Published</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd>
@@ -57,6 +64,7 @@ else
                     @context.Title
                 }
             </MudTd>
+            <MudTd>@(_sourceNames.GetValueOrDefault(context.SourceId, "?"))</MudTd>
             <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
             <MudTd>@context.Status</MudTd>
             <MudTd>
@@ -72,7 +80,9 @@ else
     private List<Recipe> _recipes = [];
     private HashSet<ContentItem> _selectedItems = [];
     private Guid? _recipeId;
+    private Dictionary<Guid, string> _sourceNames = [];
     private string _statusFilter = "all";
+    private string _sortMode = "date";
     private string _extraInstructions = "";
     private bool _running;
 
@@ -100,6 +110,9 @@ else
     private async Task ReloadAllAsync()
     {
         _recipes = Ctx.Initialized && Ctx.Active is not null ? await RecipeSvc.ListAsync(Ctx.Active.Id) : [];
+        _sourceNames = Ctx.Initialized && Ctx.Active is not null
+            ? (await SourceSvc.ListAsync(Ctx.Active.Id)).ToDictionary(s => s.Id, s => s.DisplayName)
+            : [];
         await Reload();
     }
 
@@ -109,12 +122,39 @@ else
         await Reload();
     }
 
+    private async Task OnSortChanged(string mode)
+    {
+        _sortMode = mode;
+        await Reload();
+    }
+
     private async Task Reload()
     {
         _selectedItems = [];
         if (!Ctx.Initialized || Ctx.Active is null) { _items = []; return; }
         ContentItemStatus? status = _statusFilter == "all" ? null : Enum.Parse<ContentItemStatus>(_statusFilter);
         _items = await ContentSvc.ListAsync(Ctx.Active.Id, status);
+        if (_sortMode == "rank")
+        {
+            // per source in listing order (rank from fetch metadata); ungrouped/unranked last
+            _items = _items
+                .OrderBy(i => _sourceNames.GetValueOrDefault(i.SourceId, "~"))
+                .ThenBy(RankOf)
+                .ToList();
+        }
+    }
+
+    private static int RankOf(ContentItem item)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(item.MetadataJson);
+            return doc.RootElement.TryGetProperty("rank", out var r) ? r.GetInt32() : int.MaxValue;
+        }
+        catch (JsonException)
+        {
+            return int.MaxValue;
+        }
     }
 
     private async Task Mark(ContentItem item, ContentItemStatus status)

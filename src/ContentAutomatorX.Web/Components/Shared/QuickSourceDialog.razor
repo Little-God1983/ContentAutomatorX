@@ -30,6 +30,7 @@
                     <MudSelectItem T="string" Value="@("all")">All time</MudSelectItem>
                 </MudSelect>
             }
+            <MudNumericField T="int" @bind-Value="_limit" Label="Items per fetch" Min="1" Max="20" />
         }
         else if (_type == SourceTypes.Website)
         {
@@ -70,6 +71,7 @@
     private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
         _timeframe = "week", _feedUrl = "";
     private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
+    private int _limit = 20;
     private bool _busy;
 
     private void Cancel() => MudDialog.Cancel();
@@ -77,7 +79,7 @@
     private string BuildConfig() => _type switch
     {
         var t when t == SourceTypes.Reddit =>
-            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe }),
+            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe, limit = _limit }),
         var t when t == SourceTypes.Website =>
             JsonSerializer.Serialize(new { url = _siteUrl, mode = _siteMode,
                 itemSelector = _siteMode == "selector" ? _siteSelector : null }),

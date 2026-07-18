@@ -25,6 +25,8 @@ public class RedditConnectorTests
         Assert.Equal("New model released", items[0].Title);
         Assert.StartsWith("https://www.reddit.com/r/StableDiffusion/", items[0].Url);
         Assert.Contains("\"score\":456", items[0].MetadataJson);
+        Assert.Contains("\"rank\":1", items[0].MetadataJson);
+        Assert.Contains("\"rank\":2", items[1].MetadataJson);
         Assert.Equal("bob", items[0].Author);
 
         var requestUrl = handler.Requests[0].RequestUri!.ToString();
@@ -34,7 +36,7 @@ public class RedditConnectorTests
     }
 
     [Fact]
-    public async Task Config_with_only_subreddit_defaults_to_hot_limit25_and_week()
+    public async Task Config_with_only_subreddit_defaults_to_hot_limit20_and_week()
     {
         var handler = StubHttpHandler.ReturningFile("Fixtures/sample-reddit.json", "application/json");
         var connector = new RedditConnector(new HttpClient(handler));
@@ -48,7 +50,7 @@ public class RedditConnectorTests
 
         var requestUrl = handler.Requests[0].RequestUri!.ToString();
         Assert.Contains("/r/x/hot.json", requestUrl);
-        Assert.Contains("limit=25", requestUrl);
+        Assert.Contains("limit=20", requestUrl);
         Assert.Contains("t=week", requestUrl);
     }
 
@@ -84,6 +86,8 @@ public class RedditConnectorTests
         Assert.Contains("Weights are out now.", items[0].Body); // HTML stripped to text
         Assert.DoesNotContain("<", items[0].Body);
         Assert.Contains("\"via\":\"rss\"", items[0].MetadataJson);
+        Assert.Contains("\"rank\":1", items[0].MetadataJson);
+        Assert.Contains("\"rank\":2", items[1].MetadataJson);
         Assert.Equal(new DateTimeOffset(2026, 7, 15, 15, 16, 29, TimeSpan.Zero), items[0].PublishedAt);
         Assert.Equal("def456", items[1].ExternalId);
     }
