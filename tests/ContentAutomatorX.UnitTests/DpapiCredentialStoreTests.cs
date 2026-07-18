@@ -1,7 +1,9 @@
+using System.Runtime.Versioning;
 using ContentAutomatorX.Infrastructure.Security;
 
 namespace ContentAutomatorX.UnitTests;
 
+[SupportedOSPlatform("windows")]
 public class DpapiCredentialStoreTests : IDisposable
 {
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"cax-secrets-{Guid.NewGuid():N}");
