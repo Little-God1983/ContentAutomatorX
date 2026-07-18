@@ -14,17 +14,18 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
     public async Task<(PipelineRun Run, Draft? Draft)> RunAsync(Guid recipeId, IReadOnlyList<Guid>? itemIds = null,
-        string? extraInstructions = null, string trigger = RunTriggers.Manual, CancellationToken ct = default)
+        string? extraInstructions = null, string trigger = RunTriggers.Manual, bool createReviewPost = true,
+        CancellationToken ct = default)
     {
         var recipe = await db.Recipes.SingleAsync(r => r.Id == recipeId, ct);
         var gate = TenantLocks.Get(recipe.TenantId);
         await gate.WaitAsync(ct);
-        try { return await RunCoreAsync(recipe, itemIds, extraInstructions, trigger, ct); }
+        try { return await RunCoreAsync(recipe, itemIds, extraInstructions, trigger, createReviewPost, ct); }
         finally { gate.Release(); }
     }
 
     private async Task<(PipelineRun, Draft?)> RunCoreAsync(Recipe recipe, IReadOnlyList<Guid>? itemIds,
-        string? extraInstructions, string trigger, CancellationToken ct)
+        string? extraInstructions, string trigger, bool createReviewPost, CancellationToken ct)
     {
         var run = new PipelineRun { TenantId = recipe.TenantId, Kind = RunKinds.Generation, Trigger = trigger };
         db.PipelineRuns.Add(run);
@@ -67,10 +68,10 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
             foreach (var item in items) item.Status = ContentItemStatus.Used;
             await db.SaveChangesAsync(ct);
 
-            // Only a scheduled automation run parks a review-queue post — manual/MCP composes
-            // (PostService.ComposeAsync included) already operate on the issue's own Post row,
-            // so routing them through here as well would spawn a duplicate NeedsReview post.
-            if (trigger == RunTriggers.Scheduled && recipe.TargetPlatformId is Guid platformId)
+            // The caller decides whether this run should park a review-queue post — set by every
+            // caller EXCEPT PostService.ComposeAsync, which passes false because the issue being
+            // composed already IS the Post; letting this block run there too would duplicate it.
+            if (createReviewPost && recipe.TargetPlatformId is Guid platformId)
             {
                 db.Posts.Add(new Post
                 {

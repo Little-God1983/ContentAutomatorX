@@ -127,7 +127,7 @@ public class GenerationPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task Recipe_with_target_platform_creates_a_needs_review_post_on_a_scheduled_run()
+    public async Task Recipe_with_target_platform_creates_a_needs_review_post()
     {
         using var test = TestDb.Create();
         var (tenant, _, recipe) = Seed(test);
@@ -137,7 +137,7 @@ public class GenerationPipelineTests : IDisposable
         test.Db.SaveChanges();
         var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
 
-        var (run, draft) = await pipeline.RunAsync(recipe.Id, trigger: RunTriggers.Scheduled);
+        var (run, draft) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         var post = await test.Db.Posts.SingleAsync();
@@ -149,11 +149,11 @@ public class GenerationPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task Recipe_with_target_platform_creates_no_post_on_a_manual_run()
+    public async Task Recipe_with_target_platform_creates_no_post_when_caller_opts_out()
     {
-        // A manual/MCP compose already routes through PostService.ComposeAsync, which owns the
-        // issue's own Post row — if RunAsync also parked a review-queue post here, every manual
-        // compose of an existing issue would spawn a duplicate.
+        // PostService.ComposeAsync passes createReviewPost: false — the issue being composed
+        // already IS the Post, so letting RunAsync also park a review-queue post here would
+        // spawn a duplicate.
         using var test = TestDb.Create();
         var (tenant, _, recipe) = Seed(test);
         var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
@@ -162,7 +162,7 @@ public class GenerationPipelineTests : IDisposable
         test.Db.SaveChanges();
         var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
 
-        var (run, _) = await pipeline.RunAsync(recipe.Id); // default trigger: Manual
+        var (run, _) = await pipeline.RunAsync(recipe.Id, createReviewPost: false);
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         Assert.Empty(test.Db.Posts.ToList());
@@ -175,7 +175,7 @@ public class GenerationPipelineTests : IDisposable
         var (_, _, recipe) = Seed(test);
         var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery());
 
-        var (run, _) = await pipeline.RunAsync(recipe.Id, trigger: RunTriggers.Scheduled);
+        var (run, _) = await pipeline.RunAsync(recipe.Id);
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         Assert.Empty(test.Db.Posts.ToList());

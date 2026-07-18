@@ -117,7 +117,9 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
         var recipeId = post.RecipeId ?? throw new InvalidOperationException("Issue has no automation to compose with.");
 
-        var (run, draft) = await generation.RunAsync(recipeId, itemIds, extraInstructions, RunTriggers.Manual, ct);
+        // The issue's own Post row already exists — don't let the pipeline park a second one.
+        var (run, draft) = await generation.RunAsync(recipeId, itemIds, extraInstructions, RunTriggers.Manual,
+            createReviewPost: false, ct: ct);
         if (draft is not null)
         {
             post.DraftId = draft.Id;
