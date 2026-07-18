@@ -13,6 +13,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Draft> Drafts => Set<Draft>();
     public DbSet<PipelineRun> PipelineRuns => Set<PipelineRun>();
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
+    public DbSet<Platform> Platforms => Set<Platform>();
+    public DbSet<Post> Posts => Set<Post>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -21,5 +23,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<ContentItem>().Property(i => i.Status).HasConversion<string>();
         b.Entity<Draft>().Property(d => d.Status).HasConversion<string>();
         b.Entity<PipelineRun>().Property(r => r.Status).HasConversion<string>();
+        b.Entity<Post>().Property(p => p.Status).HasConversion<string>();
+        b.Entity<Post>().HasIndex(p => new { p.TenantId, p.Status });
+        b.Entity<Platform>().HasIndex(p => new { p.TenantId, p.Type });
     }
 }

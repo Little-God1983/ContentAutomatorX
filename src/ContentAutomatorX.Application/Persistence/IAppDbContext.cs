@@ -12,5 +12,7 @@ public interface IAppDbContext
     DbSet<Draft> Drafts { get; }
     DbSet<PipelineRun> PipelineRuns { get; }
     DbSet<PromptTemplate> PromptTemplates { get; }
+    DbSet<Platform> Platforms { get; }
+    DbSet<Post> Posts { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

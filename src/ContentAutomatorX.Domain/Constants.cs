@@ -26,3 +26,8 @@ public static class RunTriggers
     public const string Manual = "Manual";
     public const string Mcp = "Mcp";
 }
+
+public static class PlatformTypes
+{
+    public const string MailerLite = "MailerLite";
+}
