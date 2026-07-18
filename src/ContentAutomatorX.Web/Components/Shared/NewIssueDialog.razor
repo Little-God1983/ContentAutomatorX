@@ -1,0 +1,153 @@
+@inject RecipeService RecipeSvc
+@inject SourceService SourceSvc
+@inject PostService PostSvc
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else if (_recipes.Count == 0)
+        {
+            <MudAlert Severity="Severity.Warning">
+                No newsletter automation yet — create one under Automations first
+                (it holds sources, selection rules and the prompt).
+            </MudAlert>
+        }
+        else
+        {
+            <MudSelect T="Guid" Value="_recipeId" ValueChanged="OnRecipeChanged" Label="Based on">
+                @foreach (var r in _recipes)
+                {
+                    <MudSelectItem T="Guid" Value="@r.Id">@r.Name</MudSelectItem>
+                }
+            </MudSelect>
+            <MudSelect T="int" @bind-Value="_windowDays" Label="Material window">
+                <MudSelectItem T="int" Value="3">Last 3 days</MudSelectItem>
+                <MudSelectItem T="int" Value="7">Last 7 days</MudSelectItem>
+                <MudSelectItem T="int" Value="14">Last 14 days</MudSelectItem>
+                <MudSelectItem T="int" Value="30">Last 30 days</MudSelectItem>
+            </MudSelect>
+            <MudTextField @bind-Value="_title" Label="Title" />
+
+            <MudText Typo="Typo.subtitle2" Class="mt-4">
+                Sources for this issue (@_checked.Count of @_sources.Count)
+            </MudText>
+            @foreach (var s in _sources)
+            {
+                <MudCheckBox T="bool" Value="@_checked.Contains(s.Id)"
+                             ValueChanged="@(v => Toggle(s.Id, v))"
+                             Label="@($"{s.DisplayName} ({s.Type})")" Dense="true" />
+            }
+            <div class="mt-1">
+                <MudButton Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                           OnClick="AddSource">New source…</MudButton>
+                <MudCheckBox T="bool" @bind-Value="_saveAsDefault" Dense="true"
+                             Label="Save this set as the automation's new default" />
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton OnClick="@(() => Create(gather: false))"
+                   Disabled="@(_recipes.Count == 0 || _busy)">Start empty</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_recipes.Count == 0 || _busy)"
+                   OnClick="@(() => Create(gather: true))">Create &amp; gather</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid TenantId { get; set; }
+
+    private List<Recipe> _recipes = [];
+    private List<Source> _sources = [];
+    private HashSet<Guid> _checked = [];
+    private Guid _recipeId;
+    private int _windowDays = 7;
+    private string _title = "";
+    private bool _saveAsDefault;
+    private bool _loading = true;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _recipes = (await RecipeSvc.ListAsync(TenantId)).Where(r => r.Kind == DraftKinds.Newsletter).ToList();
+            _sources = await SourceSvc.ListAsync(TenantId);
+            if (_recipes.Count > 0) await OnRecipeChanged(_recipes[0].Id);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load issue setup: {ex.Message}", Severity.Error);
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task OnRecipeChanged(Guid id)
+    {
+        try
+        {
+            _recipeId = id;
+            var recipe = _recipes.Single(r => r.Id == id);
+            var ids = JsonSerializer.Deserialize<Guid[]>(recipe.SourceIdsJson) ?? [];
+            _checked = ids.Length == 0 ? _sources.Select(s => s.Id).ToHashSet() : ids.ToHashSet();
+            _title = await PostSvc.SuggestTitleAsync(id);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to switch automation: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private void Toggle(Guid id, bool on) { if (on) _checked.Add(id); else _checked.Remove(id); }
+
+    private async Task AddSource()
+    {
+        try
+        {
+            var dialog = await DialogService.ShowAsync<QuickSourceDialog>("New source",
+                new DialogParameters<QuickSourceDialog> { { d => d.TenantId, TenantId } });
+            var result = await dialog.Result;
+            if (result?.Canceled != true && result?.Data is Source created)
+            {
+                _sources = await SourceSvc.ListAsync(TenantId);
+                _checked.Add(created.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to create source: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task Create(bool gather)
+    {
+        _busy = true;
+        try
+        {
+            var post = await PostSvc.CreateIssueAsync(TenantId, _recipeId, _windowDays,
+                _checked.ToList(), string.IsNullOrWhiteSpace(_title) ? "Untitled issue" : _title);
+            if (_saveAsDefault)
+            {
+                var recipe = _recipes.Single(r => r.Id == _recipeId);
+                recipe.SourceIdsJson = JsonSerializer.Serialize(_checked.ToList());
+                await RecipeSvc.UpdateAsync();
+            }
+            MudDialog.Close();
+            Nav.NavigateTo(gather ? $"/issue/{post.Id}?gather=1" : $"/issue/{post.Id}");
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to create issue: {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+}
