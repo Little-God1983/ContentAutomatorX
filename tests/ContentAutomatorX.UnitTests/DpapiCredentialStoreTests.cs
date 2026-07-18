@@ -36,5 +36,17 @@ public class DpapiCredentialStoreTests : IDisposable
         Assert.Equal("v", await store.GetAsync(@"weird:name/with\chars"));
     }
 
+    [Fact]
+    public async Task Sanitized_colliding_names_store_distinct_secrets()
+    {
+        var store = new DpapiCredentialStore(_dir);
+        // "a:b" and "a_b" both sanitize to "a_b", but should be stored separately
+        await store.SetAsync("a:b", "secret1");
+        await store.SetAsync("a_b", "secret2");
+
+        Assert.Equal("secret1", await store.GetAsync("a:b"));
+        Assert.Equal("secret2", await store.GetAsync("a_b"));
+    }
+
     public void Dispose() { try { Directory.Delete(_dir, true); } catch { } }
 }

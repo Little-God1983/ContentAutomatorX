@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using ContentAutomatorX.Domain.Abstractions;
@@ -6,6 +7,7 @@ namespace ContentAutomatorX.Infrastructure.Security;
 
 /// <summary>DPAPI (CurrentUser) blobs, one file per secret. Windows-only by design for the
 /// local phase; a server deployment later swaps this implementation behind ICredentialStore.</summary>
+[SupportedOSPlatform("windows")]
 public class DpapiCredentialStore(string? rootDir = null) : ICredentialStore
 {
     private readonly string _root = rootDir ?? Path.Combine(
@@ -39,6 +41,7 @@ public class DpapiCredentialStore(string? rootDir = null) : ICredentialStore
         var safe = new StringBuilder(name.Length);
         foreach (var c in name)
             safe.Append(char.IsLetterOrDigit(c) || c is '-' or '_' or '.' ? c : '_');
-        return Path.Combine(_root, safe + ".bin");
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(name)))[..8];
+        return Path.Combine(_root, $"{safe}-{hash}.bin");
     }
 }
