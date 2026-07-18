@@ -1,0 +1,384 @@
+@page "/issue/{PostId:guid}"
+@implements IDisposable
+@inject TenantContext Ctx
+@inject PostService PostSvc
+@inject SourceService SourceSvc
+@inject IServiceScopeFactory ScopeFactory
+@inject ISnackbar Snackbar
+@inject NavigationManager Nav
+@inject IDialogService DialogService
+
+<MudText Typo="Typo.h4" Class="mb-4">Issue editor</MudText>
+
+@if (_post is null)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else
+{
+    <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
+        <MudTextField @bind-Value="_title" Label="Title" Class="flex-grow-1" Style="min-width:280px" />
+        <MudChip T="string" Color="@StatusColor(_post.Status)">@_post.Status</MudChip>
+        <MudButton OnClick="SaveAsync" Variant="Variant.Outlined">Save</MudButton>
+        <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_pushing">
+            @(_post.Status == PostStatus.Pushed || _post.Status == PostStatus.Published ? "Re-push" : "Push ⚡")
+        </MudButton>
+        @if (_post.ExternalUrl is not null)
+        {
+            <MudButton Href="@_post.ExternalUrl" Target="_blank" EndIcon="@Icons.Material.Filled.OpenInNew">
+                Open in MailerLite
+            </MudButton>
+        }
+    </div>
+    @if (_pushing)
+    {
+        <MudProgressLinear Indeterminate="true" Class="mb-2" />
+    }
+
+    <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
+        <MudTextField @bind-Value="_subject" Label="Subject" Class="flex-grow-1" Style="min-width:240px" />
+        <MudTextField @bind-Value="_preview" Label="Preview text" Class="flex-grow-1" Style="min-width:240px" />
+        <MudButton OnClick="SubjectsAsync" Disabled="@_subjectsLoading">✨ Subjects</MudButton>
+    </div>
+    @if (_subjectIdeas.Count > 0)
+    {
+        <MudChipSet T="string" Class="mb-4">
+            @foreach (var idea in _subjectIdeas)
+            {
+                <MudChip T="string" OnClick="@(() => _subject = idea)">@idea</MudChip>
+            }
+        </MudChipSet>
+    }
+
+    <MudGrid>
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Material</MudText>
+                <MudChipSet T="Guid" SelectionMode="SelectionMode.MultiSelection" CheckMark="true"
+                            SelectedValues="_issueSources" SelectedValuesChanged="OnIssueSourcesChangedAsync"
+                            Class="mb-2">
+                    @foreach (var s in _allSources)
+                    {
+                        <MudChip T="Guid" Value="@s.Id">@s.DisplayName</MudChip>
+                    }
+                </MudChipSet>
+
+                <div>
+                    <MudButton OnClick="GatherAsync" Variant="Variant.Outlined"
+                               Disabled="@(_gathering || _issueSources.Count == 0)">
+                        @(_candidates.Count > 0 ? "Re-gather" : "Gather")
+                    </MudButton>
+                </div>
+                @if (_gathering)
+                {
+                    <MudProgressLinear Indeterminate="true" Class="my-2" />
+                }
+
+                <MudTable Items="_candidates" Hover="true" Dense="true" Class="mt-2">
+                    <HeaderContent>
+                        <MudTh></MudTh>
+                        <MudTh>Title</MudTh>
+                        <MudTh>Source</MudTh>
+                        <MudTh>Published</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd>
+                            <MudCheckBox T="bool" Value="@_checkedItems.Contains(context.Id)"
+                                         ValueChanged="@(v => ToggleItem(context.Id, v))" Dense="true" />
+                        </MudTd>
+                        <MudTd>
+                            @if (context.Url is not null)
+                            {
+                                <MudLink Href="@context.Url" Target="_blank">@context.Title</MudLink>
+                            }
+                            else
+                            {
+                                @context.Title
+                            }
+                        </MudTd>
+                        <MudTd>@SourceName(context.SourceId)</MudTd>
+                        <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText>No candidates yet — gather from the sources above.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+
+                <MudTextField @bind-Value="_extraInstructions" Label="Extra instructions (optional)" Lines="2" Class="mt-3" />
+                <MudButton OnClick="ComposeAsync" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
+                           Disabled="@(_checkedItems.Count == 0 || _composing)">
+                    Compose ✨ (@_checkedItems.Count items)
+                </MudButton>
+                @if (_composing)
+                {
+                    <MudProgressLinear Indeterminate="true" Class="mt-2" />
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudPaper Class="pa-4">
+                <div class="d-flex align-center justify-space-between mb-2">
+                    <MudText Typo="Typo.h6">Body</MudText>
+                    <MudButtonGroup Variant="Variant.Outlined">
+                        <MudButton Color="@(_previewMode ? Color.Default : Color.Primary)"
+                                   OnClick="@(() => _previewMode = false)">Edit</MudButton>
+                        <MudButton Color="@(_previewMode ? Color.Primary : Color.Default)"
+                                   OnClick="@(() => _previewMode = true)">Preview</MudButton>
+                    </MudButtonGroup>
+                </div>
+                @if (_previewMode)
+                {
+                    <div class="pa-3" style="border:1px solid var(--mud-palette-lines-default); border-radius:4px; max-height:720px; overflow-y:auto;">
+                        @((MarkupString)EmailHtmlRenderer.Render(_body, _title))
+                    </div>
+                }
+                else
+                {
+                    <MudTextField @bind-Value="_body" Lines="24" Variant="Variant.Outlined" Style="font-family:monospace" />
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    [Parameter] public Guid PostId { get; set; }
+    private Post? _post;
+    private string _title = "", _body = "", _subject = "", _preview = "", _extraInstructions = "";
+    private List<Source> _allSources = [];
+    private HashSet<Guid> _issueSources = [];
+    private List<ContentItem> _candidates = [];
+    private HashSet<Guid> _checkedItems = [];
+    private IReadOnlyList<string> _subjectIdeas = [];
+    private bool _gathering, _composing, _pushing;
+    private bool _previewMode, _subjectsLoading;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _post = await PostSvc.GetAsync(PostId);
+        if (_post is null) { Nav.NavigateTo("/posts"); return; }
+        _title = _post.Title; _subject = _post.Subject ?? ""; _preview = _post.PreviewText ?? "";
+        if (_post.DraftId is Guid draftId)
+        {
+            var draft = await PostSvc.GetDraftAsync(draftId);
+            _body = draft?.Body ?? "";
+        }
+        _allSources = await SourceSvc.ListAsync(_post.TenantId);
+        _issueSources = (await PostSvc.GetIssueSourceIdsAsync(_post)).ToHashSet();
+        await ReloadCandidatesAsync();
+
+        Ctx.Changed += OnTenantChanged;
+        CheckTenantGuard();
+
+        var uri = new Uri(Nav.Uri);
+        if (System.Web.HttpUtility.ParseQueryString(uri.Query)["gather"] == "1") await GatherAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(() =>
+    {
+        CheckTenantGuard();
+        StateHasChanged();
+    });
+
+    // This page is post-scoped: its data comes from the post's own TenantId, not Ctx.Active,
+    // so it must keep working while Ctx is still initializing. Once Ctx is ready, a mismatch
+    // (or no active tenant at all) means the user switched tenants away from this issue.
+    private void CheckTenantGuard()
+    {
+        if (_post is not null && Ctx.Initialized && (Ctx.Active is null || Ctx.Active.Id != _post.TenantId))
+            Nav.NavigateTo("/posts");
+    }
+
+    private async Task ReloadCandidatesAsync()
+    {
+        if (_post is null) return;
+        _candidates = await PostSvc.GetCandidatesAsync(_post);
+        _checkedItems = _candidates.Select(c => c.Id).ToHashSet();
+    }
+
+    private string SourceName(Guid sourceId) =>
+        _allSources.FirstOrDefault(s => s.Id == sourceId)?.DisplayName ?? "(unknown source)";
+
+    private void ToggleItem(Guid id, bool on)
+    {
+        if (on) _checkedItems.Add(id); else _checkedItems.Remove(id);
+    }
+
+    private async Task OnIssueSourcesChangedAsync(IReadOnlyCollection<Guid> values)
+    {
+        if (_post is null) return;
+        _issueSources = values.ToHashSet();
+        try
+        {
+            await PostSvc.SetIssueSourcesAsync(_post, _issueSources.ToList());
+            await ReloadCandidatesAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to update sources: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task GatherAsync()
+    {
+        if (_post is null || _gathering) return;
+        _gathering = true;
+        StateHasChanged();
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var pipeline = scope.ServiceProvider.GetRequiredService<IngestionPipeline>();
+            var runs = new List<PipelineRun>();
+            foreach (var id in _issueSources)
+                runs.Add(await pipeline.RunAsync(_post.TenantId, id));
+            await ReloadCandidatesAsync();
+
+            var failed = runs.Count(r => r.Status == RunStatus.Failed);
+            var severity = runs.Count == 0 ? Severity.Info
+                : failed == runs.Count ? Severity.Error
+                : failed > 0 ? Severity.Warning : Severity.Success;
+            Snackbar.Add(runs.Count == 0 ? "No sources selected to gather from."
+                : $"Gathered from {runs.Count} source(s){(failed > 0 ? $", {failed} failed" : "")}.", severity);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Gather failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _gathering = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ComposeAsync()
+    {
+        if (_post is null || _checkedItems.Count == 0) return;
+        if (_post.DraftId is not null)
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync("Regenerate?",
+                "Regenerate replaces the current body. Continue?", yesText: "Continue", cancelText: "Cancel");
+            if (confirmed != true) return;
+        }
+
+        _composing = true;
+        StateHasChanged();
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var postSvc = scope.ServiceProvider.GetRequiredService<PostService>();
+            var (run, post) = await postSvc.ComposeAsync(PostId, _checkedItems.ToList(),
+                string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions);
+
+            _post = post;
+            _title = post.Title;
+            _subject = post.Subject ?? _subject;
+            if (post.DraftId is Guid draftId)
+            {
+                var draft = await PostSvc.GetDraftAsync(draftId);
+                _body = draft?.Body ?? _body;
+            }
+
+            var severity = run.Status switch
+            {
+                RunStatus.Succeeded => Severity.Success,
+                RunStatus.Partial => Severity.Warning,
+                _ => Severity.Error
+            };
+            Snackbar.Add(run.Status == RunStatus.Succeeded ? "Composed." : $"Compose {run.Status}: {run.LogJson}",
+                severity);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Compose failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _composing = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        try
+        {
+            await PostSvc.SaveIssueAsync(PostId, _title, _body,
+                string.IsNullOrWhiteSpace(_subject) ? null : _subject,
+                string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+            Snackbar.Add("Saved", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Save failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SubjectsAsync()
+    {
+        if (_subjectsLoading) return;
+        _subjectsLoading = true;
+        StateHasChanged();
+        try
+        {
+            await PostSvc.SaveIssueAsync(PostId, _title, _body,
+                string.IsNullOrWhiteSpace(_subject) ? null : _subject,
+                string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+            _subjectIdeas = await PostSvc.SubjectIdeasAsync(PostId);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Subject ideas failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _subjectsLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PushAsync()
+    {
+        if (_pushing) return;
+        _pushing = true;
+        StateHasChanged();
+        try
+        {
+            await PostSvc.SaveIssueAsync(PostId, _title, _body,
+                string.IsNullOrWhiteSpace(_subject) ? null : _subject,
+                string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+            _post = await PostSvc.PushAsync(PostId);
+            var url = _post.ExternalUrl;
+            Snackbar.Add("Pushed to MailerLite", Severity.Success, config =>
+            {
+                if (url is null) return;
+                config.Action = "Open in MailerLite";
+                config.OnClick = _ =>
+                {
+                    Nav.NavigateTo(url, forceLoad: true);
+                    return Task.CompletedTask;
+                };
+            });
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Push failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _pushing = false;
+            StateHasChanged();
+        }
+    }
+
+    private static Color StatusColor(PostStatus status) => status switch
+    {
+        PostStatus.Pushed => Color.Info,
+        PostStatus.Published => Color.Success,
+        PostStatus.Failed => Color.Error,
+        _ => Color.Default
+    };
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
+}

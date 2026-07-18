@@ -41,6 +41,9 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
     public Task<Post?> GetAsync(Guid postId, CancellationToken ct = default) =>
         db.Posts.FirstOrDefaultAsync(p => p.Id == postId, ct);
 
+    public Task<Draft?> GetDraftAsync(Guid draftId, CancellationToken ct = default) =>
+        db.Drafts.FirstOrDefaultAsync(d => d.Id == draftId, ct);
+
     // SQLite cannot ORDER BY DateTimeOffset server-side, so materialize the filtered
     // query first and sort client-side (acceptable at this app's per-tenant scale).
     public async Task<List<Post>> ListAsync(Guid tenantId, CancellationToken ct = default)
