@@ -19,7 +19,8 @@ else
     <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
         <MudTextField @bind-Value="_title" Label="Title" Class="flex-grow-1" Style="min-width:280px" />
         <MudChip T="string" Color="@StatusColor(_post.Status)">@_post.Status</MudChip>
-        <MudButton OnClick="SaveAsync" Variant="Variant.Outlined">Save</MudButton>
+        <MudButton OnClick="SaveAsync" Variant="Variant.Outlined"
+                   Disabled="@(_pushing || _composing || _subjectsLoading)">Save</MudButton>
         <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_pushing">
             @(_post.Status == PostStatus.Pushed || _post.Status == PostStatus.Published ? "Re-push" : "Push ⚡")
         </MudButton>
@@ -254,11 +255,11 @@ else
 
     private async Task ComposeAsync()
     {
-        if (_post is null || _checkedItems.Count == 0) return;
+        if (_post is null || _checkedItems.Count == 0 || _composing) return;
         if (_post.DraftId is not null)
         {
             var confirmed = await DialogService.ShowMessageBoxAsync("Regenerate?",
-                "Regenerate replaces the current body. Continue?", yesText: "Continue", cancelText: "Cancel");
+                "Regenerate replaces the current body and title. Continue?", yesText: "Continue", cancelText: "Cancel");
             if (confirmed != true) return;
         }
 
@@ -266,6 +267,11 @@ else
         StateHasChanged();
         try
         {
+            // Persist unsaved Title/Subject/Body/Preview edits first — otherwise they're
+            // silently discarded when the compose result overwrites _title/_body below,
+            // and the service's `Subject ??= draft.Title` would clobber a not-yet-saved subject.
+            await SaveCoreAsync();
+
             using var scope = ScopeFactory.CreateScope();
             var postSvc = scope.ServiceProvider.GetRequiredService<PostService>();
             var (run, post) = await postSvc.ComposeAsync(PostId, _checkedItems.ToList(),
@@ -300,13 +306,17 @@ else
         }
     }
 
+    // Shared by Save/Compose/Subjects/Push so none of them can act on stale text —
+    // every path that reads or overwrites the draft persists current field values first.
+    private Task SaveCoreAsync() => PostSvc.SaveIssueAsync(PostId, _title, _body,
+        string.IsNullOrWhiteSpace(_subject) ? null : _subject,
+        string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+
     private async Task SaveAsync()
     {
         try
         {
-            await PostSvc.SaveIssueAsync(PostId, _title, _body,
-                string.IsNullOrWhiteSpace(_subject) ? null : _subject,
-                string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+            await SaveCoreAsync();
             Snackbar.Add("Saved", Severity.Success);
         }
         catch (Exception ex)
@@ -322,9 +332,7 @@ else
         StateHasChanged();
         try
         {
-            await PostSvc.SaveIssueAsync(PostId, _title, _body,
-                string.IsNullOrWhiteSpace(_subject) ? null : _subject,
-                string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+            await SaveCoreAsync();
             _subjectIdeas = await PostSvc.SubjectIdeasAsync(PostId);
         }
         catch (Exception ex)
@@ -345,9 +353,7 @@ else
         StateHasChanged();
         try
         {
-            await PostSvc.SaveIssueAsync(PostId, _title, _body,
-                string.IsNullOrWhiteSpace(_subject) ? null : _subject,
-                string.IsNullOrWhiteSpace(_preview) ? null : _preview);
+            await SaveCoreAsync();
             _post = await PostSvc.PushAsync(PostId);
             var url = _post.ExternalUrl;
             Snackbar.Add("Pushed to MailerLite", Severity.Success, config =>
