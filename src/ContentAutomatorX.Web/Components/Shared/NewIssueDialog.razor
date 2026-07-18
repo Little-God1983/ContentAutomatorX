@@ -74,7 +74,11 @@
     private bool _loading = true;
     private bool _busy;
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel()
+    {
+        if (_busy) return;
+        MudDialog.Cancel();
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -133,20 +137,39 @@
         _busy = true;
         try
         {
-            var post = await PostSvc.CreateIssueAsync(TenantId, _recipeId, _windowDays,
-                _checked.ToList(), string.IsNullOrWhiteSpace(_title) ? "Untitled issue" : _title);
+            Post post;
+            try
+            {
+                post = await PostSvc.CreateIssueAsync(TenantId, _recipeId, _windowDays,
+                    _checked.ToList(), string.IsNullOrWhiteSpace(_title) ? "Untitled issue" : _title);
+            }
+            catch (Exception ex)
+            {
+                Snackbar.Add($"Failed to create issue: {ex.Message}", Severity.Error);
+                return;
+            }
+
             if (_saveAsDefault)
             {
-                var recipe = _recipes.Single(r => r.Id == _recipeId);
-                recipe.SourceIdsJson = JsonSerializer.Serialize(_checked.ToList());
-                await RecipeSvc.UpdateAsync();
+                try
+                {
+                    var recipe = _recipes.Single(r => r.Id == _recipeId);
+                    recipe.SourceIdsJson = JsonSerializer.Serialize(_checked.ToList());
+                    await RecipeSvc.UpdateAsync();
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add(
+                        $"Issue created, but saving the source set as the automation default failed: {ex.Message}",
+                        Severity.Warning);
+                }
             }
+
+            // The post exists at this point regardless of the save-as-default outcome above,
+            // so navigation must always happen — the dialog must not leave the user stuck on
+            // a created-but-still-open screen.
             MudDialog.Close();
             Nav.NavigateTo(gather ? $"/issue/{post.Id}?gather=1" : $"/issue/{post.Id}");
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to create issue: {ex.Message}", Severity.Error);
         }
         finally { _busy = false; }
     }
