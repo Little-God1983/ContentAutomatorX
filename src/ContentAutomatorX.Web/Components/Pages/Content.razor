@@ -20,18 +20,33 @@ else if (Ctx.Active is null)
 }
 else
 {
-    <div class="d-flex mb-4" style="gap:16px">
-        <MudSelect T="string" Value="_statusFilter" ValueChanged="OnFilterChanged" Label="Status filter">
+    <div class="d-flex flex-wrap mb-4" style="gap:16px">
+        <MudSelect T="string" Value="_statusFilter" ValueChanged="OnFilterChanged" Label="Status" Style="min-width:130px">
             <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
             @foreach (var s in Enum.GetNames<ContentItemStatus>())
             {
                 <MudSelectItem T="string" Value="@s">@s</MudSelectItem>
             }
         </MudSelect>
-        <MudSelect T="string" Value="_sortMode" ValueChanged="OnSortChanged" Label="Sort">
+        <MudSelect T="string" Value="_typeFilter" ValueChanged="OnTypeFilterChanged" Label="Source type" Style="min-width:160px">
+            <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Website">Website</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.LlmResearch">LLM research</MudSelectItem>
+        </MudSelect>
+        <MudDatePicker Label="From" Date="_from" DateChanged="@(d => { _from = d; ApplyFilters(); })"
+                       Clearable="true" Style="min-width:150px" />
+        <MudDatePicker Label="To" Date="_to" DateChanged="@(d => { _to = d; ApplyFilters(); })"
+                       Clearable="true" Style="min-width:150px" />
+        <MudSelect T="string" Value="_sortMode" ValueChanged="OnSortChanged" Label="Sort" Style="min-width:200px">
             <MudSelectItem T="string" Value="@("date")">Newest first</MudSelectItem>
             <MudSelectItem T="string" Value="@("rank")">As fetched (source order, e.g. hot)</MudSelectItem>
+            <MudSelectItem T="string" Value="@("score")">Most upvotes</MudSelectItem>
         </MudSelect>
+        <MudTextField T="string" Value="_search" ValueChanged="@((string v) => { _search = v; ApplyFilters(); })"
+                      Immediate="true" DebounceInterval="300" Label="Search title & text" Clearable="true"
+                      Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" Style="min-width:240px" />
     </div>
 
     <MudPaper Class="pa-4 mb-4">
@@ -51,7 +66,7 @@ else
 
     <MudTable T="ContentItem" Items="_items" Hover="true" MultiSelection="true" @bind-SelectedItems="_selectedItems">
         <HeaderContent>
-            <MudTh>Title</MudTh><MudTh>Source</MudTh><MudTh>Published</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+            <MudTh>Title</MudTh><MudTh>Source</MudTh><MudTh>Upvotes</MudTh><MudTh>Published</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
         </HeaderContent>
         <RowTemplate>
             <MudTd>
@@ -64,12 +79,27 @@ else
                     @context.Title
                 }
             </MudTd>
-            <MudTd>@(_sourceNames.GetValueOrDefault(context.SourceId, "?"))</MudTd>
+            <MudTd>@(SourceNameOf(context.SourceId))</MudTd>
+            <MudTd>@(ScoreOf(context)?.ToString("N0") ?? "—")</MudTd>
             <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
             <MudTd>@context.Status</MudTd>
             <MudTd>
-                <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.Selected))">Select</MudButton>
-                <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.Ignored))">Ignore</MudButton>
+                @if (context.Status == ContentItemStatus.Selected)
+                {
+                    <MudButton Size="Size.Small" Color="Color.Warning" OnClick="@(() => Mark(context, ContentItemStatus.New))">Unselect</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.Selected))">Select</MudButton>
+                }
+                @if (context.Status == ContentItemStatus.Ignored)
+                {
+                    <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.New))">Restore</MudButton>
+                }
+                else
+                {
+                    <MudButton Size="Size.Small" OnClick="@(() => Mark(context, ContentItemStatus.Ignored))">Ignore</MudButton>
+                }
             </MudTd>
         </RowTemplate>
     </MudTable>
@@ -80,9 +110,13 @@ else
     private List<Recipe> _recipes = [];
     private HashSet<ContentItem> _selectedItems = [];
     private Guid? _recipeId;
-    private Dictionary<Guid, string> _sourceNames = [];
+    private List<ContentItem> _all = [];
+    private Dictionary<Guid, Source> _sourcesById = [];
     private string _statusFilter = "all";
+    private string _typeFilter = "all";
     private string _sortMode = "date";
+    private string _search = "";
+    private DateTime? _from, _to;
     private string _extraInstructions = "";
     private bool _running;
 
@@ -110,8 +144,8 @@ else
     private async Task ReloadAllAsync()
     {
         _recipes = Ctx.Initialized && Ctx.Active is not null ? await RecipeSvc.ListAsync(Ctx.Active.Id) : [];
-        _sourceNames = Ctx.Initialized && Ctx.Active is not null
-            ? (await SourceSvc.ListAsync(Ctx.Active.Id)).ToDictionary(s => s.Id, s => s.DisplayName)
+        _sourcesById = Ctx.Initialized && Ctx.Active is not null
+            ? (await SourceSvc.ListAsync(Ctx.Active.Id)).ToDictionary(s => s.Id)
             : [];
         await Reload();
     }
@@ -122,27 +156,52 @@ else
         await Reload();
     }
 
-    private async Task OnSortChanged(string mode)
+    private void OnTypeFilterChanged(string type)
+    {
+        _typeFilter = type;
+        ApplyFilters();
+    }
+
+    private void OnSortChanged(string mode)
     {
         _sortMode = mode;
-        await Reload();
+        ApplyFilters();
     }
 
     private async Task Reload()
     {
-        _selectedItems = [];
-        if (!Ctx.Initialized || Ctx.Active is null) { _items = []; return; }
+        if (!Ctx.Initialized || Ctx.Active is null) { _all = []; _items = []; _selectedItems = []; return; }
         ContentItemStatus? status = _statusFilter == "all" ? null : Enum.Parse<ContentItemStatus>(_statusFilter);
-        _items = await ContentSvc.ListAsync(Ctx.Active.Id, status);
-        if (_sortMode == "rank")
-        {
-            // per source in listing order (rank from fetch metadata); ungrouped/unranked last
-            _items = _items
-                .OrderBy(i => _sourceNames.GetValueOrDefault(i.SourceId, "~"))
-                .ThenBy(RankOf)
-                .ToList();
-        }
+        _all = await ContentSvc.ListAsync(Ctx.Active.Id, status);
+        ApplyFilters();
     }
+
+    private void ApplyFilters()
+    {
+        _selectedItems = [];
+        IEnumerable<ContentItem> query = _all;
+        if (_typeFilter != "all")
+            query = query.Where(i => _sourcesById.GetValueOrDefault(i.SourceId)?.Type == _typeFilter);
+        if (_from is DateTime from)
+            query = query.Where(i => (i.PublishedAt ?? i.FetchedAt).ToLocalTime().Date >= from.Date);
+        if (_to is DateTime to)
+            query = query.Where(i => (i.PublishedAt ?? i.FetchedAt).ToLocalTime().Date <= to.Date);
+        if (!string.IsNullOrWhiteSpace(_search))
+            query = query.Where(i =>
+                i.Title.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                i.Body.Contains(_search, StringComparison.OrdinalIgnoreCase));
+
+        _items = _sortMode switch
+        {
+            // per source in listing order (rank from fetch metadata); unranked last
+            "rank" => query.OrderBy(SourceNameOf0).ThenBy(RankOf).ToList(),
+            "score" => query.OrderByDescending(i => ScoreOf(i) ?? -1).ToList(),
+            _ => query.ToList()   // _all is already newest-first from the service
+        };
+    }
+
+    private string SourceNameOf(Guid sourceId) => _sourcesById.GetValueOrDefault(sourceId)?.DisplayName ?? "?";
+    private string SourceNameOf0(ContentItem item) => SourceNameOf(item.SourceId);
 
     private static int RankOf(ContentItem item)
     {
@@ -154,6 +213,19 @@ else
         catch (JsonException)
         {
             return int.MaxValue;
+        }
+    }
+
+    private static int? ScoreOf(ContentItem item)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(item.MetadataJson);
+            return doc.RootElement.TryGetProperty("score", out var s) ? s.GetInt32() : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
