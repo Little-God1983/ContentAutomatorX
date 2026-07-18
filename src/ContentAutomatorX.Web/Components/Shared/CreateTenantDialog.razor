@@ -1,0 +1,74 @@
+@using Microsoft.EntityFrameworkCore
+@inject TenantService TenantSvc
+@inject TenantContext Ctx
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField T="string" Value="_name" ValueChanged="OnNameChanged" Immediate="true"
+                      Label="Name" AutoFocus="true" />
+        <MudTextField T="string" Value="_slug" ValueChanged="OnSlugEdited" Immediate="true"
+                      Label="Slug (short id, used in draft front-matter)" />
+        <MudText Typo="Typo.caption" Class="mt-2">
+            Voice profile and output folder can be set afterwards under Manage tenants.
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="_busy"
+                   OnClick="CreateAsync">Create &amp; switch</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _name = "", _slug = "";
+    private bool _slugEdited;
+    private bool _busy;
+
+    private void OnNameChanged(string value)
+    {
+        _name = value;
+        if (!_slugEdited) _slug = TenantSlug.Derive(value);
+    }
+
+    private void OnSlugEdited(string value)
+    {
+        _slug = value;
+        _slugEdited = true;   // user took over — stop auto-deriving
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task CreateAsync()
+    {
+        var name = _name.Trim();
+        var slug = _slug.Trim();
+        if (name.Length == 0 || slug.Length == 0)
+        {
+            Snackbar.Add("Name and slug are required", Severity.Warning);
+            return;
+        }
+        _busy = true;
+        try
+        {
+            var existing = await TenantSvc.ListAsync();
+            if (existing.Any(t => t.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase)))
+            {
+                Snackbar.Add($"Slug '{slug}' is already in use", Severity.Error);
+                return;
+            }
+
+            var tenant = await TenantSvc.CreateAsync(new Tenant { Name = name, Slug = slug });
+            await Ctx.RefreshAsync(tenant.Id);
+            Snackbar.Add($"Switched to {tenant.Name}", Severity.Success);
+            MudDialog.Close(DialogResult.Ok(tenant.Id));
+        }
+        catch (DbUpdateException)   // unique-index backstop (concurrent create)
+        {
+            Snackbar.Add("A tenant with this slug already exists", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+}

@@ -1,19 +1,21 @@
 @page "/sources"
-@inject TenantService TenantSvc
+@implements IDisposable
+@inject TenantContext Ctx
 @inject SourceService SourceSvc
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Sources</MudText>
 
-<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
-    @foreach (var t in _tenants)
-    {
-        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
-    }
-</MudSelect>
-
-@if (_tenantId is not null)
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
 {
     <MudPaper Class="pa-4 mb-4">
         <MudText Typo="Typo.h6">@(_editing is null ? "New source" : $"Edit: {_editing.DisplayName}")</MudText>
@@ -63,21 +65,35 @@
 }
 
 @code {
-    private List<Tenant> _tenants = [];
     private List<Source> _sources = [];
-    private Guid? _tenantId;
     private Source? _editing;
     private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
         _timeframe = "week", _feedUrl = "", _cron = "";
     private bool _enabled = true;
 
-    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
-
-    private async Task OnTenantChanged(Guid? id)
+    protected override async Task OnInitializedAsync()
     {
-        _tenantId = id;
-        Reset();
-        _sources = id is null ? [] : await SourceSvc.ListAsync(id.Value);
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            Reset();
+            await ReloadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
+    });
+
+    private async Task ReloadAsync()
+    {
+        _sources = Ctx.Initialized && Ctx.Active is not null ? await SourceSvc.ListAsync(Ctx.Active.Id) : [];
     }
 
     private void Edit(Source s)
@@ -110,12 +126,12 @@
 
     private async Task Save()
     {
-        if (_tenantId is null || string.IsNullOrWhiteSpace(_displayName)) return;
+        if (Ctx.Active is null || string.IsNullOrWhiteSpace(_displayName)) return;
         if (_editing is null)
         {
             await SourceSvc.CreateAsync(new Source
             {
-                TenantId = _tenantId.Value, Type = _type, DisplayName = _displayName,
+                TenantId = Ctx.Active.Id, Type = _type, DisplayName = _displayName,
                 ConfigJson = BuildConfig(), ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron,
                 IsEnabled = _enabled
             });
@@ -127,14 +143,14 @@
             await SourceSvc.UpdateAsync();
         }
         Reset();
-        _sources = await SourceSvc.ListAsync(_tenantId.Value);
+        await ReloadAsync();
         Snackbar.Add("Saved", Severity.Success);
     }
 
     private async Task Delete(Source s)
     {
         await SourceSvc.DeleteAsync(s.Id);
-        _sources = await SourceSvc.ListAsync(_tenantId!.Value);
+        await ReloadAsync();
     }
 
     private async Task FetchNow(Source s)
@@ -145,6 +161,8 @@
         var run = await ingestion.RunAsync(s.TenantId, s.Id);
         Snackbar.Add($"Fetch {run.Status}: {run.LogJson}",
             run.Status == RunStatus.Succeeded ? Severity.Success : Severity.Error);
-        _sources = await SourceSvc.ListAsync(_tenantId!.Value);
+        await ReloadAsync();
     }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }

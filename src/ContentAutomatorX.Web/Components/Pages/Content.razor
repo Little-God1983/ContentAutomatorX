@@ -1,5 +1,6 @@
 @page "/content"
-@inject TenantService TenantSvc
+@implements IDisposable
+@inject TenantContext Ctx
 @inject ContentService ContentSvc
 @inject RecipeService RecipeSvc
 @inject IServiceScopeFactory ScopeFactory
@@ -7,14 +8,15 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Content items</MudText>
 
-<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-2">
-    @foreach (var t in _tenants)
-    {
-        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
-    }
-</MudSelect>
-
-@if (_tenantId is not null)
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
 {
     <MudSelect T="string" Value="_statusFilter" ValueChanged="OnFilterChanged" Label="Status filter" Class="mb-4">
         <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
@@ -63,24 +65,38 @@
 }
 
 @code {
-    private List<Tenant> _tenants = [];
     private List<ContentItem> _items = [];
     private List<Recipe> _recipes = [];
     private HashSet<ContentItem> _selectedItems = [];
-    private Guid? _tenantId;
     private Guid? _recipeId;
     private string _statusFilter = "all";
     private string _extraInstructions = "";
     private bool _running;
 
-    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
-
-    private async Task OnTenantChanged(Guid? id)
+    protected override async Task OnInitializedAsync()
     {
-        _tenantId = id;
-        _recipeId = null;
-        _selectedItems = [];
-        _recipes = id is null ? [] : await RecipeSvc.ListAsync(id.Value);
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAllAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            _recipeId = null;
+            _extraInstructions = "";
+            await ReloadAllAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
+    });
+
+    private async Task ReloadAllAsync()
+    {
+        _recipes = Ctx.Initialized && Ctx.Active is not null ? await RecipeSvc.ListAsync(Ctx.Active.Id) : [];
         await Reload();
     }
 
@@ -93,9 +109,9 @@
     private async Task Reload()
     {
         _selectedItems = [];
-        if (_tenantId is null) { _items = []; return; }
+        if (!Ctx.Initialized || Ctx.Active is null) { _items = []; return; }
         ContentItemStatus? status = _statusFilter == "all" ? null : Enum.Parse<ContentItemStatus>(_statusFilter);
-        _items = await ContentSvc.ListAsync(_tenantId.Value, status);
+        _items = await ContentSvc.ListAsync(Ctx.Active.Id, status);
     }
 
     private async Task Mark(ContentItem item, ContentItemStatus status)
@@ -123,8 +139,9 @@
         finally
         {
             _running = false;
-            _selectedItems = [];
             await Reload();
         }
     }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }

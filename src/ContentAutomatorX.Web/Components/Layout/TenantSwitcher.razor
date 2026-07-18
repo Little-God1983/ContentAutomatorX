@@ -1,0 +1,51 @@
+@implements IDisposable
+@inject TenantContext Ctx
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+
+@if (!Ctx.Initialized)
+{
+    @* state not loaded yet — render nothing *@
+}
+else if (Ctx.Active is null)
+{
+    <MudButton Color="Color.Inherit" StartIcon="@Icons.Material.Filled.PersonAdd"
+               OnClick="OpenCreateDialog">No tenant — create one</MudButton>
+}
+else
+{
+    <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+        <ActivatorContent>
+            @* MudBlazor 9: custom activators must open the menu themselves via the context *@
+            <MudButton Color="Color.Inherit" EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                       OnClick="@(e => context.ToggleAsync(e))">
+                <MudAvatar Size="Size.Small" Color="Color.Secondary" Class="mr-2">@Initial(Ctx.Active.Name)</MudAvatar>
+                @Ctx.Active.Name
+            </MudButton>
+        </ActivatorContent>
+        <ChildContent>
+            @foreach (var tenant in Ctx.ActiveTenants)
+            {
+                <MudMenuItem Icon="@(tenant.Id == Ctx.Active.Id ? Icons.Material.Filled.Check : null)"
+                             OnClick="@(() => Ctx.SwitchAsync(tenant.Id))">@tenant.Name</MudMenuItem>
+            }
+            <MudDivider />
+            <MudMenuItem Icon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialog">New tenant</MudMenuItem>
+            <MudMenuItem Icon="@Icons.Material.Filled.Settings"
+                         OnClick="@(() => Nav.NavigateTo("/tenants"))">Manage tenants</MudMenuItem>
+        </ChildContent>
+    </MudMenu>
+}
+
+@code {
+    protected override void OnInitialized() => Ctx.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private static string Initial(string name) =>
+        string.IsNullOrEmpty(name) ? "?" : name[..1].ToUpperInvariant();
+
+    private Task OpenCreateDialog() => DialogService.ShowAsync<CreateTenantDialog>("New tenant");
+
+    public void Dispose() => Ctx.Changed -= OnChanged;
+}

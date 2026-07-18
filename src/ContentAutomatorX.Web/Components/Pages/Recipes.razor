@@ -1,5 +1,6 @@
 @page "/recipes"
-@inject TenantService TenantSvc
+@implements IDisposable
+@inject TenantContext Ctx
 @inject SourceService SourceSvc
 @inject RecipeService RecipeSvc
 @inject IServiceScopeFactory ScopeFactory
@@ -7,14 +8,15 @@
 
 <MudText Typo="Typo.h4" Class="mb-4">Recipes</MudText>
 
-<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
-    @foreach (var t in _tenants)
-    {
-        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
-    }
-</MudSelect>
-
-@if (_tenantId is not null)
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
 {
     <MudPaper Class="pa-4 mb-4">
         <MudText Typo="Typo.h6">@(_editing is null ? "New recipe" : $"Edit: {_editing.Name}")</MudText>
@@ -87,10 +89,8 @@
 }
 
 @code {
-    private List<Tenant> _tenants = [];
     private List<Source> _sources = [];
     private List<Recipe> _recipes = [];
-    private Guid? _tenantId;
     private Recipe? _editing;
     private PromptTemplate? _template;
     private bool _running;
@@ -104,14 +104,36 @@
 
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
-    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
-
-    private async Task OnTenantChanged(Guid? id)
+    protected override async Task OnInitializedAsync()
     {
-        _tenantId = id;
-        Reset();
-        _sources = id is null ? [] : await SourceSvc.ListAsync(id.Value);
-        _recipes = id is null ? [] : await RecipeSvc.ListAsync(id.Value);
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            Reset();
+            await ReloadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
+    });
+
+    private async Task ReloadAsync()
+    {
+        if (!Ctx.Initialized || Ctx.Active is null)
+        {
+            _sources = [];
+            _recipes = [];
+            return;
+        }
+        _sources = await SourceSvc.ListAsync(Ctx.Active.Id);
+        _recipes = await RecipeSvc.ListAsync(Ctx.Active.Id);
     }
 
     private async Task Edit(Recipe r)
@@ -144,7 +166,7 @@
 
     private async Task Save()
     {
-        if (_tenantId is null || string.IsNullOrWhiteSpace(_name)) return;
+        if (Ctx.Active is null || string.IsNullOrWhiteSpace(_name)) return;
         var selection = JsonSerializer.Serialize(new SelectionRules
         {
             TimeWindowDays = _windowDays, MinScore = _minScore, MaxItems = _maxItems,
@@ -162,7 +184,7 @@
         {
             await RecipeSvc.CreateAsync(new Recipe
             {
-                TenantId = _tenantId.Value, Name = _name, Kind = _kind, SourceIdsJson = sourceIds,
+                TenantId = Ctx.Active.Id, Name = _name, Kind = _kind, SourceIdsJson = sourceIds,
                 SelectionJson = selection, OutputJson = output,
                 ToneModifiers = _tone, LengthTarget = _length, Language = _language,
                 ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron, IsEnabled = _enabled
@@ -177,14 +199,14 @@
             await RecipeSvc.UpdateAsync();   // also persists the edited _template.Template (tracked)
         }
         Reset();
-        _recipes = await RecipeSvc.ListAsync(_tenantId.Value);
+        await ReloadAsync();
         Snackbar.Add("Saved", Severity.Success);
     }
 
     private async Task Delete(Recipe r)
     {
         await RecipeSvc.DeleteAsync(r.Id);
-        _recipes = await RecipeSvc.ListAsync(_tenantId!.Value);
+        await ReloadAsync();
     }
 
     private async Task RunNow(Recipe r)
@@ -204,7 +226,9 @@
         finally
         {
             _running = false;
-            _recipes = await RecipeSvc.ListAsync(_tenantId!.Value);
+            await ReloadAsync();
         }
     }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }

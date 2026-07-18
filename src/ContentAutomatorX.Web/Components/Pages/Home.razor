@@ -1,60 +1,96 @@
 @page "/"
-@inject TenantService TenantSvc
+@implements IDisposable
+@inject TenantContext Ctx
 @inject ContentService ContentSvc
 @inject DraftService DraftSvc
 @inject RunService RunSvc
+@inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
 
-<MudGrid>
-    @foreach (var card in _cards)
-    {
-        <MudItem xs="12" md="6" lg="4">
-            <MudCard>
-                <MudCardHeader>
-                    <MudText Typo="Typo.h6">@card.Tenant.Name</MudText>
-                </MudCardHeader>
-                <MudCardContent>
-                    <MudText>New items: <b>@card.NewItems</b></MudText>
-                    <MudText>Drafts: <b>@card.Drafts</b></MudText>
-                    <MudText>
-                        Last run:
-                        @if (card.LastRun is null)
-                        {
-                            <span>none yet</span>
-                        }
-                        else
-                        {
-                            <MudText Inline="true" Color="@StatusColor(card.LastRun.Status)">
-                                @card.LastRun.Kind @card.LastRun.Status
-                            </MudText>
-                            <span> (@card.LastRun.StartedAt.ToLocalTime().ToString("g"))</span>
-                        }
-                    </MudText>
-                    @if (card.RecentErrors > 0)
-                    {
-                        <MudText Color="Color.Error">@card.RecentErrors failed/partial runs in the last 10</MudText>
-                    }
-                </MudCardContent>
-            </MudCard>
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
+{
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.subtitle2">New items</MudText>
+                <MudText Typo="Typo.h4">@_newItems</MudText>
+            </MudPaper>
         </MudItem>
-    }
-</MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.subtitle2">Drafts</MudText>
+                <MudText Typo="Typo.h4">@_draftCount</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.subtitle2">Failed/partial (last 10 runs)</MudText>
+                <MudText Typo="Typo.h4" Color="@(_recentErrors > 0 ? Color.Error : Color.Default)">@_recentErrors</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12">
+            <MudPaper Class="pa-4">
+                <MudText Typo="Typo.subtitle2">Last run</MudText>
+                @if (_lastRun is null)
+                {
+                    <MudText>none yet</MudText>
+                }
+                else
+                {
+                    <MudText Color="@StatusColor(_lastRun.Status)">
+                        @_lastRun.Kind @_lastRun.Status (@_lastRun.StartedAt.ToLocalTime().ToString("g"))
+                    </MudText>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+}
 
 @code {
-    private record TenantCard(Tenant Tenant, int NewItems, int Drafts, PipelineRun? LastRun, int RecentErrors);
-    private List<TenantCard> _cards = [];
+    private int _newItems, _draftCount, _recentErrors;
+    private PipelineRun? _lastRun;
 
     protected override async Task OnInitializedAsync()
     {
-        foreach (var tenant in await TenantSvc.ListAsync())
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        try
         {
-            var items = await ContentSvc.ListAsync(tenant.Id, ContentItemStatus.New);
-            var drafts = await DraftSvc.ListAsync(tenant.Id);
-            var runs = await RunSvc.ListAsync(tenant.Id, 10);
-            _cards.Add(new TenantCard(tenant, items.Count, drafts.Count, runs.FirstOrDefault(),
-                runs.Count(r => r.Status is RunStatus.Failed or RunStatus.Partial)));
+            await ReloadAsync();
+            StateHasChanged();
         }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
+    });
+
+    private async Task ReloadAsync()
+    {
+        if (!Ctx.Initialized || Ctx.Active is null)
+        {
+            (_newItems, _draftCount, _recentErrors, _lastRun) = (0, 0, 0, null);
+            return;
+        }
+        var id = Ctx.Active.Id;
+        _newItems = (await ContentSvc.ListAsync(id, ContentItemStatus.New)).Count;
+        _draftCount = (await DraftSvc.ListAsync(id)).Count;
+        var runs = await RunSvc.ListAsync(id, 10);
+        _lastRun = runs.FirstOrDefault();
+        _recentErrors = runs.Count(r => r.Status is RunStatus.Failed or RunStatus.Partial);
     }
 
     private static Color StatusColor(RunStatus status) => status switch
@@ -64,4 +100,6 @@
         RunStatus.Failed => Color.Error,
         _ => Color.Info
     };
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }
