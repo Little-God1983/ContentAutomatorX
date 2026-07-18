@@ -73,12 +73,14 @@ builder.Services.AddScoped<DraftService>();
 builder.Services.AddScoped<RunService>();
 builder.Services.AddScoped<PlatformService>();
 builder.Services.AddScoped<PostService>();
+builder.Services.AddScoped<PostSyncService>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.TenantContext>();
 
 // --- scheduler ---
 builder.Services.AddHostedService<SchedulerService>();
+builder.Services.AddHostedService<PlatformSyncJob>();
 
 // --- UI + MCP ---
 builder.Services.AddMudServices();
