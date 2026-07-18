@@ -25,6 +25,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<PipelineRun>().Property(r => r.Status).HasConversion<string>();
         b.Entity<Post>().Property(p => p.Status).HasConversion<string>();
         b.Entity<Post>().HasIndex(p => new { p.TenantId, p.Status });
-        b.Entity<Platform>().HasIndex(p => new { p.TenantId, p.Type });
+        b.Entity<Platform>().HasIndex(p => new { p.TenantId, p.Type }).IsUnique();
     }
 }

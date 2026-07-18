@@ -41,6 +41,20 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
     public Task<Post?> GetAsync(Guid postId, CancellationToken ct = default) =>
         db.Posts.FirstOrDefaultAsync(p => p.Id == postId, ct);
 
+    // A cross-scope compose (see IssueEditor) creates a NEW draft under a fresh DbContext and
+    // updates the Post row's DraftId there. This circuit's own context may already be tracking the
+    // OLD Post instance, and EF's change tracker won't notice the row changed underneath it — so a
+    // later save through this context would silently write into the orphaned old draft. Reloading
+    // the tracked entity's values from the database (when this really is a DbContext, i.e. never in
+    // the pipeline's own save path) keeps the two in sync.
+    public async Task<Post?> GetFreshAsync(Guid postId, CancellationToken ct = default)
+    {
+        var tracked = await db.Posts.FirstOrDefaultAsync(p => p.Id == postId, ct);
+        if (tracked is not null && db is Microsoft.EntityFrameworkCore.DbContext ctx)
+            await ctx.Entry(tracked).ReloadAsync(ct);
+        return tracked;
+    }
+
     public Task<Draft?> GetDraftAsync(Guid draftId, CancellationToken ct = default) =>
         db.Drafts.FirstOrDefaultAsync(d => d.Id == draftId, ct);
 
@@ -166,6 +180,8 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
     public async Task<Post> PushAsync(Guid postId, CancellationToken ct = default)
     {
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
+        if (post.Status == PostStatus.Published)
+            throw new InvalidOperationException("This issue was already sent — create a new issue instead.");
         var draft = post.DraftId is Guid id ? await db.Drafts.SingleAsync(d => d.Id == id, ct)
             : throw new InvalidOperationException("Compose or write the issue first.");
         var platform = await db.Platforms.SingleAsync(p => p.Id == post.PlatformId, ct);
@@ -187,6 +203,10 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
             post.NeedsReview = false;
             await db.SaveChangesAsync(ct);
             return post;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch
         {

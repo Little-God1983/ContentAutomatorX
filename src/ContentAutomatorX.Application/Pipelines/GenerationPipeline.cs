@@ -67,7 +67,10 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
             foreach (var item in items) item.Status = ContentItemStatus.Used;
             await db.SaveChangesAsync(ct);
 
-            if (recipe.TargetPlatformId is Guid platformId)
+            // Only a scheduled automation run parks a review-queue post — manual/MCP composes
+            // (PostService.ComposeAsync included) already operate on the issue's own Post row,
+            // so routing them through here as well would spawn a duplicate NeedsReview post.
+            if (trigger == RunTriggers.Scheduled && recipe.TargetPlatformId is Guid platformId)
             {
                 db.Posts.Add(new Post
                 {

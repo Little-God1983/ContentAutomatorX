@@ -13,6 +13,8 @@ public static partial class EmailHtmlRenderer
         .DisableHtml() // raw HTML → escaped text; keeps the campaign script/iframe-free
         .Build();
 
+    private static readonly string[] AllowedHrefSchemes = ["http://", "https://", "mailto:"];
+
     public static string Render(string markdown, string title)
     {
         var body = Markdown.ToHtml(markdown ?? "", Pipeline);
@@ -34,7 +36,7 @@ public static partial class EmailHtmlRenderer
 
     private static string InlineStyles(string html)
     {
-        html = AnchorRegex().Replace(html, "<a style=\"color:#1e88e5;\" $1>");
+        html = AnchorRegex().Replace(html, StyleAnchor);
         return html
             .Replace("<h1>", "<h1 style=\"font-size:26px;margin:24px 0 12px;color:#111111;\">")
             .Replace("<h2>", "<h2 style=\"font-size:21px;margin:20px 0 10px;color:#111111;\">")
@@ -46,6 +48,18 @@ public static partial class EmailHtmlRenderer
             .Replace("<hr />", "<hr style=\"border:none;border-top:1px solid #dddddd;margin:20px 0;\" />");
     }
 
-    [GeneratedRegex("<a (href=\"[^\"]*\"[^>]*)>")]
+    // Anchors carrying a non-http(s)/mailto scheme (e.g. javascript:) are rendered inert —
+    // the href is dropped entirely rather than passed through to a clickable preview/campaign.
+    private static string StyleAnchor(Match m)
+    {
+        var url = m.Groups["href"].Value.Trim();
+        var rest = m.Groups["rest"].Value;
+        var safe = AllowedHrefSchemes.Any(scheme => url.StartsWith(scheme, StringComparison.OrdinalIgnoreCase));
+        return safe
+            ? $"<a style=\"color:#1e88e5;\" href=\"{m.Groups["href"].Value}\"{rest}>"
+            : "<a style=\"color:#1e88e5;\" href=\"#\">";
+    }
+
+    [GeneratedRegex("<a href=\"(?<href>[^\"]*)\"(?<rest>[^>]*)>")]
     private static partial Regex AnchorRegex();
 }

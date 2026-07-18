@@ -41,4 +41,16 @@ public class EmailHtmlRendererTests
         var html = EmailHtmlRenderer.Render("see [docs](https://ex.com/d \"Docs\")", "Test");
         Assert.Contains("<a style=\"color:#1e88e5;\" href=\"https://ex.com/d\" title=\"Docs\">", html);
     }
+
+    [Fact]
+    public void Strips_javascript_scheme_hrefs_but_keeps_http_and_mailto()
+    {
+        var html = EmailHtmlRenderer.Render(
+            "[bad](javascript:alert(1)) [ok](https://ex.com) [mail](mailto:a@ex.com)", "Test");
+
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("<a style=\"color:#1e88e5;\" href=\"#\">", html);
+        Assert.Contains("<a style=\"color:#1e88e5;\" href=\"https://ex.com\">", html);
+        Assert.Contains("<a style=\"color:#1e88e5;\" href=\"mailto:a@ex.com\">", html);
+    }
 }

@@ -21,9 +21,12 @@ else
         <MudChip T="string" Color="@StatusColor(_post.Status)">@_post.Status</MudChip>
         <MudButton OnClick="SaveAsync" Variant="Variant.Outlined"
                    Disabled="@(_pushing || _composing || _subjectsLoading)">Save</MudButton>
-        <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_pushing">
-            @(_post.Status == PostStatus.Pushed || _post.Status == PostStatus.Published ? "Re-push" : "Push ⚡")
-        </MudButton>
+        @if (_post.Status != PostStatus.Published)
+        {
+            <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_pushing">
+                @(_post.Status == PostStatus.Pushed ? "Re-push" : "Push ⚡")
+            </MudButton>
+        }
         @if (_post.ExternalUrl is not null)
         {
             <MudButton Href="@_post.ExternalUrl" Target="_blank" EndIcon="@Icons.Material.Filled.OpenInNew">
@@ -274,9 +277,14 @@ else
 
             using var scope = ScopeFactory.CreateScope();
             var postSvc = scope.ServiceProvider.GetRequiredService<PostService>();
-            var (run, post) = await postSvc.ComposeAsync(PostId, _checkedItems.ToList(),
+            var (run, _) = await postSvc.ComposeAsync(PostId, _checkedItems.ToList(),
                 string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions);
 
+            // Re-sync the circuit-scoped context via the circuit's own PostSvc — the fresh scope
+            // above created a new draft and repointed the Post row's DraftId under a different
+            // DbContext, which this circuit's tracked Post instance wouldn't otherwise see.
+            var post = await PostSvc.GetFreshAsync(PostId);
+            if (post is null) { Nav.NavigateTo("/posts"); return; }
             _post = post;
             _title = post.Title;
             _subject = post.Subject ?? _subject;

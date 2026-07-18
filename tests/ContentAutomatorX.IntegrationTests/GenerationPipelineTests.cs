@@ -127,7 +127,7 @@ public class GenerationPipelineTests : IDisposable
     }
 
     [Fact]
-    public async Task Recipe_with_target_platform_creates_a_needs_review_post()
+    public async Task Recipe_with_target_platform_creates_a_needs_review_post_on_a_scheduled_run()
     {
         using var test = TestDb.Create();
         var (tenant, _, recipe) = Seed(test);
@@ -137,7 +137,7 @@ public class GenerationPipelineTests : IDisposable
         test.Db.SaveChanges();
         var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
 
-        var (run, draft) = await pipeline.RunAsync(recipe.Id);
+        var (run, draft) = await pipeline.RunAsync(recipe.Id, trigger: RunTriggers.Scheduled);
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         var post = await test.Db.Posts.SingleAsync();
@@ -149,13 +149,33 @@ public class GenerationPipelineTests : IDisposable
     }
 
     [Fact]
+    public async Task Recipe_with_target_platform_creates_no_post_on_a_manual_run()
+    {
+        // A manual/MCP compose already routes through PostService.ComposeAsync, which owns the
+        // issue's own Post row — if RunAsync also parked a review-queue post here, every manual
+        // compose of an existing issue would spawn a duplicate.
+        using var test = TestDb.Create();
+        var (tenant, _, recipe) = Seed(test);
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        recipe.TargetPlatformId = platform.Id;
+        test.Db.Platforms.Add(platform);
+        test.Db.SaveChanges();
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+
+        var (run, _) = await pipeline.RunAsync(recipe.Id); // default trigger: Manual
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        Assert.Empty(test.Db.Posts.ToList());
+    }
+
+    [Fact]
     public async Task Recipe_without_target_platform_creates_no_post()
     {
         using var test = TestDb.Create();
         var (_, _, recipe) = Seed(test);
         var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery());
 
-        var (run, _) = await pipeline.RunAsync(recipe.Id);
+        var (run, _) = await pipeline.RunAsync(recipe.Id, trigger: RunTriggers.Scheduled);
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         Assert.Empty(test.Db.Posts.ToList());

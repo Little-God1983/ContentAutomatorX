@@ -6,6 +6,7 @@ using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Domain.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.IntegrationTests;
 
@@ -222,5 +223,86 @@ public class PostServiceTests
 
         Assert.Equal(2, queue.Count);
         Assert.DoesNotContain(queue, p => p.Title == "done");
+    }
+
+    [Fact]
+    public async Task Compose_of_an_existing_issue_does_not_spawn_a_duplicate_review_post_when_the_recipe_targets_a_platform()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        w.Recipe.TargetPlatformId = platform.Id;
+        await w.Test.Db.SaveChangesAsync();
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        var items = await w.Posts.GetCandidatesAsync(post);
+
+        await w.Posts.ComposeAsync(post.Id, items.Select(i => i.Id).ToList(), null);
+
+        // Manual compose only ever touches the issue's own Post row — the pipeline's own
+        // review-queue post creation is gated to scheduled runs, so no second row appears.
+        Assert.Equal(1, await w.Test.Db.Posts.CountAsync());
+    }
+
+    [Fact]
+    public async Task Push_of_a_published_post_throws_and_leaves_status_and_mailerlite_untouched()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        await w.Platforms.SetApiKeyAsync(platform, "KEY");
+        await w.Platforms.SaveConfigAsync(platform, new MailerLiteConfig("g1", "Main", "A", "n@x.com"));
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        var items = await w.Posts.GetCandidatesAsync(post);
+        await w.Posts.ComposeAsync(post.Id, items.Select(i => i.Id).ToList(), null);
+        await w.Posts.PushAsync(post.Id);
+        var tracked = await w.Test.Db.Posts.SingleAsync(p => p.Id == post.Id);
+        tracked.Status = PostStatus.Published; // simulates MailerLite reporting the campaign sent
+        await w.Test.Db.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => w.Posts.PushAsync(post.Id));
+
+        Assert.Contains("already sent", ex.Message);
+        Assert.Equal(PostStatus.Published, (await w.Posts.GetAsync(post.Id))!.Status);
+        Assert.Single(w.MailerLite.Pushes); // only the original push — the rejected re-push never called out
+    }
+
+    [Fact]
+    public async Task GetFresh_resyncs_a_stale_tracked_post_after_a_cross_context_compose()
+    {
+        // Mirrors IssueEditor's flow: the "circuit" context (A) loads the post, then a fresh
+        // scope (B) composes — creating a NEW draft and repointing the DB row's DraftId. Without
+        // GetFreshAsync, context A's tracked Post instance would keep pointing at the orphaned
+        // old draft, and a later save through context A would silently write into it.
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        var itemIds = (await w.Posts.GetCandidatesAsync(post)).Select(i => i.Id).ToList();
+        await w.Posts.ComposeAsync(post.Id, itemIds, null);
+        var firstDraftId = (await w.Posts.GetAsync(post.Id))!.DraftId;
+        Assert.NotNull(firstDraftId);
+
+        using var contextA = w.Test.NewContext();
+        var postSvcA = new PostService(contextA,
+            new GenerationPipeline(contextA, new FakeLlm("# First\nbody"), new FakeDelivery()),
+            new FakeLlm("[]"), new PlatformService(contextA, new InMemoryCredentials(), w.MailerLite), w.MailerLite);
+        var trackedByA = await postSvcA.GetAsync(post.Id);
+        Assert.Equal(firstDraftId, trackedByA!.DraftId);
+
+        using var contextB = w.Test.NewContext();
+        var postSvcB = new PostService(contextB,
+            new GenerationPipeline(contextB, new FakeLlm("# Second\nnew body"), new FakeDelivery()),
+            new FakeLlm("[]"), new PlatformService(contextB, new InMemoryCredentials(), w.MailerLite), w.MailerLite);
+        await postSvcB.ComposeAsync(post.Id, itemIds, null);
+
+        var fresh = await postSvcA.GetFreshAsync(post.Id);
+        Assert.NotNull(fresh);
+        Assert.NotEqual(firstDraftId, fresh!.DraftId);
+
+        await postSvcA.SaveIssueAsync(post.Id, "Edited title", "edited body", null, null);
+
+        using var contextC = w.Test.NewContext();
+        var dbPost = await contextC.Posts.SingleAsync(p => p.Id == post.Id);
+        var dbDraft = await contextC.Drafts.SingleAsync(d => d.Id == dbPost.DraftId);
+        Assert.Equal("edited body", dbDraft.Body);
     }
 }

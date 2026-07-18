@@ -22,8 +22,18 @@ public class PlatformService(IAppDbContext db, ICredentialStore credentials, IMa
         var platform = new Platform { TenantId = tenantId, Type = PlatformTypes.MailerLite, DisplayName = "MailerLite" };
         platform.CredentialRef = $"mailerlite:{platform.Id}";
         db.Platforms.Add(platform);
-        await db.SaveChangesAsync(ct);
-        return platform;
+        try
+        {
+            await db.SaveChangesAsync(ct);
+            return platform;
+        }
+        catch (DbUpdateException)
+        {
+            // Lost a race against another circuit that created the same tenant/type row first —
+            // the unique index rejected our insert. Fall back to the row that won.
+            db.Platforms.Remove(platform);
+            return await db.Platforms.SingleAsync(p => p.TenantId == tenantId && p.Type == PlatformTypes.MailerLite, ct);
+        }
     }
 
     public MailerLiteConfig GetConfig(Platform platform) =>
