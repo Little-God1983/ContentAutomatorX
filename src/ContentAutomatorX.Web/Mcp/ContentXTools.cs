@@ -103,4 +103,16 @@ public static class ContentXTools
         [Description("Tenant id (GUID)")] string tenantId,
         [Description("Max entries (default 20)")] int limit = 20) =>
         ToJson(await runs.ListAsync(Guid.Parse(tenantId), limit));
+
+    [McpServerTool(Name = "list_posts"), Description("List a tenant's posts (newsletter issues): status, needsReview, externalUrl.")]
+    public static async Task<string> ListPosts(PostService posts, [Description("Tenant id (GUID)")] string tenantId) =>
+        ToJson((await posts.ListAsync(Guid.Parse(tenantId)))
+            .Select(p => new { p.Id, p.Title, Status = p.Status.ToString(), p.NeedsReview, p.ExternalUrl, p.CreatedAt }));
+
+    [McpServerTool(Name = "push_post"), Description("Push a composed newsletter issue to MailerLite as a DRAFT campaign (sending stays human).")]
+    public static async Task<string> PushPost(PostService posts, [Description("Post id (GUID)")] string postId)
+    {
+        var post = await posts.PushAsync(Guid.Parse(postId));
+        return ToJson(new { post.Id, Status = post.Status.ToString(), post.ExternalUrl });
+    }
 }
