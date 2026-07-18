@@ -71,6 +71,8 @@ builder.Services.AddScoped<RecipeService>();
 builder.Services.AddScoped<ContentService>();
 builder.Services.AddScoped<DraftService>();
 builder.Services.AddScoped<RunService>();
+builder.Services.AddScoped<PlatformService>();
+builder.Services.AddScoped<PostService>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.TenantContext>();
