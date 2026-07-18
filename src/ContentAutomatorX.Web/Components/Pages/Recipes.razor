@@ -112,9 +112,16 @@ else
 
     private void OnTenantChanged() => _ = InvokeAsync(async () =>
     {
-        Reset();
-        await ReloadAsync();
-        StateHasChanged();
+        try
+        {
+            Reset();
+            await ReloadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
     });
 
     private async Task ReloadAsync()

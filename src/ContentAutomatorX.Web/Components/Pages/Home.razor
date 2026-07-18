@@ -4,6 +4,7 @@
 @inject ContentService ContentSvc
 @inject DraftService DraftSvc
 @inject RunService RunSvc
+@inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Dashboard</MudText>
 
@@ -66,13 +67,24 @@ else
 
     private void OnTenantChanged() => _ = InvokeAsync(async () =>
     {
-        await ReloadAsync();
-        StateHasChanged();
+        try
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
     });
 
     private async Task ReloadAsync()
     {
-        if (!Ctx.Initialized || Ctx.Active is null) return;
+        if (!Ctx.Initialized || Ctx.Active is null)
+        {
+            (_newItems, _draftCount, _recentErrors, _lastRun) = (0, 0, 0, null);
+            return;
+        }
         var id = Ctx.Active.Id;
         _newItems = (await ContentSvc.ListAsync(id, ContentItemStatus.New)).Count;
         _draftCount = (await DraftSvc.ListAsync(id)).Count;

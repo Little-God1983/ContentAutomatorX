@@ -138,4 +138,23 @@ public class TenantContextTests
 
         Assert.Equal(beta.Id, ctx.Active!.Id);
     }
+
+    [Fact]
+    public async Task Refresh_with_preferred_id_re_lists_and_selects_in_one_Changed()
+    {
+        using var test = TestDb.Create();
+        AddTenant(test, "Alpha");
+        var beta = AddTenant(test, "Beta");
+        var store = new FakeTenantIdStore();
+        var ctx = new TenantContext(new TenantService(test.Db), store);
+        await ctx.InitializeAsync();
+        var changed = 0;
+        ctx.Changed += () => changed++;
+
+        await ctx.RefreshAsync(beta.Id);
+
+        Assert.Equal(beta.Id, ctx.Active!.Id);
+        Assert.Equal(beta.Id, store.Stored);
+        Assert.Equal(1, changed);
+    }
 }

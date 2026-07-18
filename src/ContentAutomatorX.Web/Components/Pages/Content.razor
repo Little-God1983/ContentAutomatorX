@@ -81,10 +81,17 @@ else
 
     private void OnTenantChanged() => _ = InvokeAsync(async () =>
     {
-        _recipeId = null;
-        _extraInstructions = "";
-        await ReloadAllAsync();
-        StateHasChanged();
+        try
+        {
+            _recipeId = null;
+            _extraInstructions = "";
+            await ReloadAllAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
+        }
     });
 
     private async Task ReloadAllAsync()

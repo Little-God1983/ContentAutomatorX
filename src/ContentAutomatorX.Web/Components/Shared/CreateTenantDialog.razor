@@ -50,19 +50,18 @@
             Snackbar.Add("Name and slug are required", Severity.Warning);
             return;
         }
-        var existing = await TenantSvc.ListAsync();
-        if (existing.Any(t => t.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase)))
-        {
-            Snackbar.Add($"Slug '{slug}' is already in use", Severity.Error);
-            return;
-        }
-
         _busy = true;
         try
         {
+            var existing = await TenantSvc.ListAsync();
+            if (existing.Any(t => t.Slug.Equals(slug, StringComparison.OrdinalIgnoreCase)))
+            {
+                Snackbar.Add($"Slug '{slug}' is already in use", Severity.Error);
+                return;
+            }
+
             var tenant = await TenantSvc.CreateAsync(new Tenant { Name = name, Slug = slug });
-            await Ctx.RefreshAsync();
-            await Ctx.SwitchAsync(tenant.Id);
+            await Ctx.RefreshAsync(tenant.Id);
             Snackbar.Add($"Switched to {tenant.Name}", Severity.Success);
             MudDialog.Close(DialogResult.Ok(tenant.Id));
         }

@@ -35,9 +35,9 @@ public class TenantContext(TenantService tenantSvc, ITenantIdStore store)
         Changed?.Invoke();
     }
 
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(Guid? preferId = null)
     {
-        await ResolveAsync(Active?.Id);
+        await ResolveAsync(preferId ?? Active?.Id);
         Changed?.Invoke();
     }
 
