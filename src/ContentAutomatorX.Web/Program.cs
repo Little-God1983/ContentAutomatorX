@@ -8,6 +8,7 @@ using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Infrastructure.Llm;
 using ContentAutomatorX.Infrastructure.Persistence;
+using ContentAutomatorX.Infrastructure.Platforms;
 using ContentAutomatorX.Infrastructure.Security;
 using ContentAutomatorX.Infrastructure.Sources;
 using ContentAutomatorX.Web.Components;
@@ -42,6 +43,10 @@ builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RssC
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RedditConnector>());
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<WebsiteConnector>());
 builder.Services.AddTransient<ISourceConnector, LlmResearchConnector>(); // no HttpClient — rides ILlmBackend
+
+// --- MailerLite connector (HTTP + retry/backoff) ---
+builder.Services.AddHttpClient<MailerLiteClient>().AddStandardResilienceHandler();
+builder.Services.AddTransient<IMailerLiteClient>(sp => sp.GetRequiredService<MailerLiteClient>());
 
 // --- LLM backend ---
 var claudeOptions = new ClaudeCliOptions();
