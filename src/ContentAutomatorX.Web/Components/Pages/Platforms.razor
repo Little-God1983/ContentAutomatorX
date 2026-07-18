@@ -1,9 +1,45 @@
 @page "/platforms"
+@implements IDisposable
+@inject TenantContext Ctx
+@inject PlatformService PlatformSvc
+@inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Platforms</MudText>
 
 <ComingSoonBanner Phase="the MailerLite connector ships with the newsletter vertical; the rest follow phase by phase"
                   Description="Every destination is a platform with an honest capability badge: Auto (full API), Assisted (the app prefills the platform's web form in your browser — you click the final Post button), or Manual (the app builds a copy-paste kit). New platforms become a row here plus a color — never a new nav entry." />
+
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
+{
+    <MudPaper Class="pa-4 mb-4" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">● MailerLite — ⚡ Auto</MudText>
+        <MudTextField @bind-Value="_apiKey" Label="API key" InputType="InputType.Password"
+                      HelperText="@(_hasKey ? "A key is stored — enter a new one to replace it." : "Paste your MailerLite API token.")" />
+        <div class="mt-2 mb-2">
+            <MudButton OnClick="SaveKey" Variant="Variant.Outlined" Class="mr-2"
+                       Disabled="@(string.IsNullOrWhiteSpace(_apiKey) || _busy)">Save key</MudButton>
+            <MudButton OnClick="Test" Variant="Variant.Outlined" Disabled="@(!_hasKey || _busy)">Test &amp; load groups</MudButton>
+        </div>
+        <MudSelect T="string" @bind-Value="_groupId" Label="Audience group" Disabled="@(_groups.Count == 0)">
+            @foreach (var g in _groups)
+            {
+                <MudSelectItem T="string" Value="@g.Id">@g.Name</MudSelectItem>
+            }
+        </MudSelect>
+        <MudTextField @bind-Value="_fromName" Label="From name" />
+        <MudTextField @bind-Value="_fromEmail" Label="From email" />
+        <MudTextField @bind-Value="_colorHex" Label="Platform color (hex)" />
+        <MudButton OnClick="SaveConfig" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2" Disabled="@_busy">Save</MudButton>
+    </MudPaper>
+}
 
 <MudPaper Class="pa-4" Outlined="true" Style="opacity:.8">
     <MudText Typo="Typo.subtitle2" Class="mb-2">Planned platforms</MudText>
@@ -15,8 +51,7 @@
             <tr>
                 <td><span style="color:#1e88e5">●</span> MailerLite</td>
                 <td><MudChip T="string" Size="Size.Small" Color="Color.Success" Disabled="true">⚡ Auto</MudChip></td>
-                <td>API — campaign draft is created for you; you hit Send in MailerLite</td>
-                <td><b>next up</b> (newsletter vertical)</td>
+                <td colspan="2">configured below</td>
             </tr>
             <tr>
                 <td><span style="color:#e53935">●</span> YouTube</td>
@@ -46,3 +81,120 @@
         See docs/mockups/10-platforms-ai-settings.md.
     </MudText>
 </MudPaper>
+
+@code {
+    private Platform? _platform;
+    private bool _hasKey;
+    private bool _busy;
+    private string _apiKey = "";
+    private string? _groupId;
+    private string _fromName = "", _fromEmail = "", _colorHex = "#1e88e5";
+    private List<MailerLiteGroup> _groups = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        try
+        {
+            await ReloadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+    });
+
+    private async Task ReloadAsync()
+    {
+        _groups = [];
+        if (!Ctx.Initialized || Ctx.Active is null)
+        {
+            _platform = null;
+            return;
+        }
+
+        _platform = await PlatformSvc.GetOrCreateMailerLiteAsync(Ctx.Active.Id);
+        _hasKey = await PlatformSvc.GetApiKeyAsync(_platform) is not null;
+        var config = PlatformSvc.GetConfig(_platform);
+        _groupId = config.GroupId;
+        _fromName = config.FromName ?? "";
+        _fromEmail = config.FromEmail ?? "";
+        _colorHex = _platform.ColorHex;
+    }
+
+    private async Task SaveKey()
+    {
+        if (_platform is null || string.IsNullOrWhiteSpace(_apiKey)) return;
+        _busy = true;
+        try
+        {
+            await PlatformSvc.SetApiKeyAsync(_platform, _apiKey.Trim());
+            _apiKey = "";
+            _hasKey = true;
+            Snackbar.Add("API key saved", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Test()
+    {
+        if (_platform is null) return;
+        _busy = true;
+        try
+        {
+            var ok = await PlatformSvc.TestAsync(_platform);
+            Snackbar.Add(ok ? "Connection OK ✓" : "Connection failed ✗", ok ? Severity.Success : Severity.Error);
+            if (ok)
+            {
+                _groups = [.. await PlatformSvc.ListGroupsAsync(_platform)];
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task SaveConfig()
+    {
+        if (_platform is null) return;
+        _busy = true;
+        try
+        {
+            var config = new MailerLiteConfig(
+                string.IsNullOrWhiteSpace(_groupId) ? null : _groupId.Trim(),
+                _groups.FirstOrDefault(g => g.Id == _groupId)?.Name,
+                string.IsNullOrWhiteSpace(_fromName) ? null : _fromName.Trim(),
+                string.IsNullOrWhiteSpace(_fromEmail) ? null : _fromEmail.Trim());
+            await PlatformSvc.SaveConfigAsync(_platform, config, _colorHex);
+            Snackbar.Add("Saved", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
+}
