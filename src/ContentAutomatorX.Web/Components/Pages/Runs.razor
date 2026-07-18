@@ -1,17 +1,19 @@
 @page "/runs"
-@inject TenantService TenantSvc
+@implements IDisposable
+@inject TenantContext Ctx
 @inject RunService RunSvc
 
 <MudText Typo="Typo.h4" Class="mb-4">Pipeline runs</MudText>
 
-<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
-    @foreach (var t in _tenants)
-    {
-        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
-    }
-</MudSelect>
-
-@if (_tenantId is not null)
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
 {
     <MudExpansionPanels>
         @foreach (var run in _runs)
@@ -36,16 +38,23 @@
 }
 
 @code {
-    private List<Tenant> _tenants = [];
     private List<PipelineRun> _runs = [];
-    private Guid? _tenantId;
 
-    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
-
-    private async Task OnTenantChanged(Guid? id)
+    protected override async Task OnInitializedAsync()
     {
-        _tenantId = id;
-        _runs = id is null ? [] : await RunSvc.ListAsync(id.Value);
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        await ReloadAsync();
+        StateHasChanged();
+    });
+
+    private async Task ReloadAsync()
+    {
+        _runs = Ctx.Initialized && Ctx.Active is not null ? await RunSvc.ListAsync(Ctx.Active.Id) : [];
     }
 
     private static Color StatusColor(RunStatus status) => status switch
@@ -65,4 +74,6 @@
         }
         catch { return logJson; }
     }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }

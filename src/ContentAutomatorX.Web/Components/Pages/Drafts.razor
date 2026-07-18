@@ -1,18 +1,20 @@
 @page "/drafts"
-@inject TenantService TenantSvc
+@implements IDisposable
+@inject TenantContext Ctx
 @inject DraftService DraftSvc
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Drafts</MudText>
 
-<MudSelect T="Guid?" Value="_tenantId" ValueChanged="OnTenantChanged" Label="Tenant" Class="mb-4">
-    @foreach (var t in _tenants)
-    {
-        <MudSelectItem T="Guid?" Value="@((Guid?)t.Id)">@t.Name</MudSelectItem>
-    }
-</MudSelect>
-
-@if (_tenantId is not null)
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" />
+}
+else if (Ctx.Active is null)
+{
+    <NoTenantHint />
+}
+else
 {
     <MudExpansionPanels MultiExpansion="false">
         @foreach (var draft in _drafts)
@@ -49,16 +51,23 @@
 }
 
 @code {
-    private List<Tenant> _tenants = [];
     private List<Draft> _drafts = [];
-    private Guid? _tenantId;
 
-    protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
-
-    private async Task OnTenantChanged(Guid? id)
+    protected override async Task OnInitializedAsync()
     {
-        _tenantId = id;
-        _drafts = id is null ? [] : await DraftSvc.ListAsync(id.Value);
+        Ctx.Changed += OnTenantChanged;
+        await ReloadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        await ReloadAsync();
+        StateHasChanged();
+    });
+
+    private async Task ReloadAsync()
+    {
+        _drafts = Ctx.Initialized && Ctx.Active is not null ? await DraftSvc.ListAsync(Ctx.Active.Id) : [];
     }
 
     private void OpenFolder(Draft draft)
@@ -78,6 +87,8 @@
             Snackbar.Add($"Delivered: {delivered.FilePath}", Severity.Success);
         }
         catch (Exception ex) { Snackbar.Add($"Delivery failed again: {ex.Message}", Severity.Error); }
-        _drafts = await DraftSvc.ListAsync(_tenantId!.Value);
+        await ReloadAsync();
     }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }
