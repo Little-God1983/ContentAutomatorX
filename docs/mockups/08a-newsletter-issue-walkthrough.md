@@ -197,3 +197,12 @@ MailerLite 1–2 min ≈ **~15 minutes**, zero waiting on AI (it ran at 07:00).
    (keeps compose fast and its cost predictable).
 4. **Regenerate = overwrite with confirm** in v1 (diff-view of two versions
    is a later nicety).
+
+## Implementation notes (2026-07-18 plan)
+
+- Subjects do NOT ride along in the compose call: compose returns the body
+  (keeps file drafts clean); the subject field prefills with the title and
+  the [✨ subjects] button runs a small dedicated call on demand. Same UX,
+  two cheaper calls instead of one fragile structured one.
+- The dialog's "since last issue" window option ships as fixed day windows
+  (3/7/14/30) in v1.
