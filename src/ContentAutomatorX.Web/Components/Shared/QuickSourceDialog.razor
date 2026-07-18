@@ -13,8 +13,23 @@
         @if (_type == SourceTypes.Reddit)
         {
             <MudTextField @bind-Value="_subreddit" Label="Subreddit (without r/)" />
-            <MudTextField @bind-Value="_sort" Label="Sort (hot|new|top|rising)" />
-            <MudTextField @bind-Value="_timeframe" Label="Timeframe for top (hour|day|week|month|year|all)" />
+            <MudSelect T="string" @bind-Value="_sort" Label="Sort">
+                <MudSelectItem T="string" Value="@("hot")">Hot</MudSelectItem>
+                <MudSelectItem T="string" Value="@("new")">New</MudSelectItem>
+                <MudSelectItem T="string" Value="@("top")">Top</MudSelectItem>
+                <MudSelectItem T="string" Value="@("rising")">Rising</MudSelectItem>
+            </MudSelect>
+            @if (_sort == "top")
+            {
+                <MudSelect T="string" @bind-Value="_timeframe" Label="Top of the last">
+                    <MudSelectItem T="string" Value="@("hour")">Hour</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("day")">Day</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("week")">Week</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("month")">Month</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("year")">Year</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("all")">All time</MudSelectItem>
+                </MudSelect>
+            }
         }
         else if (_type == SourceTypes.Website)
         {

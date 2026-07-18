@@ -24,9 +24,9 @@ public class RedditConnector(HttpClient http) : ISourceConnector
             new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
             ?? throw new InvalidOperationException($"Source {source.Id}: invalid Reddit config");
 
-        var sort = config.Sort ?? "hot";
+        var sort = (config.Sort ?? "hot").ToLowerInvariant();
         var limit = config.Limit ?? 25;
-        var timeframe = config.Timeframe ?? "week";
+        var timeframe = (config.Timeframe ?? "week").ToLowerInvariant();
 
         var url = $"https://www.reddit.com/r/{config.Subreddit}/{sort}.json?limit={limit}&t={timeframe}&raw_json=1";
         using var request = BuildRequest(url);
