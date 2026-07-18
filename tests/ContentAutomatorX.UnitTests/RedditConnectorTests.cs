@@ -1,3 +1,4 @@
+using System.Net;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Infrastructure.Sources;
@@ -49,6 +50,59 @@ public class RedditConnectorTests
         Assert.Contains("/r/x/hot.json", requestUrl);
         Assert.Contains("limit=25", requestUrl);
         Assert.Contains("t=week", requestUrl);
+    }
+
+    [Fact]
+    public async Task Json_403_falls_back_to_atom_feed()
+    {
+        var handler = new StubHttpHandler(req =>
+            req.RequestUri!.AbsolutePath.EndsWith(".json")
+                ? new HttpResponseMessage(HttpStatusCode.Forbidden)
+                : new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(File.ReadAllText("Fixtures/sample-reddit-atom.xml"),
+                        System.Text.Encoding.UTF8, "application/atom+xml")
+                });
+        var connector = new RedditConnector(new HttpClient(handler));
+        var source = new Source
+        {
+            Type = SourceTypes.Reddit, DisplayName = "sd",
+            ConfigJson = """{"subreddit":"StableDiffusion"}"""
+        };
+
+        var items = await connector.FetchAsync(source);
+
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("/r/StableDiffusion/hot/.rss", handler.Requests[1].RequestUri!.ToString());
+        Assert.True(handler.Requests[1].Headers.UserAgent.Count > 0, "fallback must send a User-Agent");
+
+        Assert.Equal(2, items.Count);
+        Assert.Equal("abc123", items[0].ExternalId);           // "t3_" prefix stripped -> dedup matches .json ids
+        Assert.Equal("New model released", items[0].Title);
+        Assert.Equal("https://www.reddit.com/r/StableDiffusion/comments/abc123/new_model_released/", items[0].Url);
+        Assert.Equal("bob", items[0].Author);
+        Assert.Contains("Weights are out now.", items[0].Body); // HTML stripped to text
+        Assert.DoesNotContain("<", items[0].Body);
+        Assert.Contains("\"via\":\"rss\"", items[0].MetadataJson);
+        Assert.Equal(new DateTimeOffset(2026, 7, 15, 15, 16, 29, TimeSpan.Zero), items[0].PublishedAt);
+        Assert.Equal("def456", items[1].ExternalId);
+    }
+
+    [Fact]
+    public async Task Atom_fallback_failure_still_throws()
+    {
+        var handler = new StubHttpHandler(req =>
+            new HttpResponseMessage(req.RequestUri!.AbsolutePath.EndsWith(".json")
+                ? HttpStatusCode.Forbidden
+                : HttpStatusCode.TooManyRequests));
+        var connector = new RedditConnector(new HttpClient(handler));
+        var source = new Source
+        {
+            Type = SourceTypes.Reddit, DisplayName = "sd",
+            ConfigJson = """{"subreddit":"StableDiffusion"}"""
+        };
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => connector.FetchAsync(source));
     }
 
     [Fact]
