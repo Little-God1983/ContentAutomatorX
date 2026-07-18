@@ -13,13 +13,14 @@ public class PostSyncService(IAppDbContext db, PlatformService platforms, IMaile
 
     public async Task<int> TickAsync(DateTimeOffset now, CancellationToken ct = default)
     {
-        var thirtyDaysAgo = now.AddDays(-30);
-        var allCandidates = await db.Posts
-            .Where(p => p.ExternalId != null)
-            .ToListAsync(ct);
-        var candidates = allCandidates
+        // SQLite cannot express "PublishedAt > now.AddDays(-30)" in LINQ-translated SQL with enum comparisons;
+        // filter status server-side (bounded to Pushed|Published posts only), date range client-side.
+        var candidates = (await db.Posts
+                .Where(p => p.ExternalId != null &&
+                    (p.Status == PostStatus.Pushed || p.Status == PostStatus.Published))
+                .ToListAsync(ct))
             .Where(p => p.Status == PostStatus.Pushed ||
-                       (p.Status == PostStatus.Published && p.PublishedAt > thirtyDaysAgo))
+                (p.Status == PostStatus.Published && p.PublishedAt > now.AddDays(-30)))
             .ToList();
 
         var touched = 0;
