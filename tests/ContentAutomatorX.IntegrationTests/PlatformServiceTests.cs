@@ -41,6 +41,34 @@ public sealed class RacingPlatformDbContext(AppDbContext inner, TestDb test, Gui
     }
 }
 
+/// <summary>Wraps a real context and, on the first SaveChangesAsync, throws a DbUpdateException
+/// that is NOT caused by a lost unique-index race — no competing row is ever inserted. Used to
+/// prove GetOrCreateMailerLiteAsync doesn't blindly assume every DbUpdateException is a race.</summary>
+public sealed class FailingSaveDbContext(AppDbContext inner) : IAppDbContext
+{
+    private bool _armed = true;
+
+    public DbSet<Tenant> Tenants => inner.Tenants;
+    public DbSet<Source> Sources => inner.Sources;
+    public DbSet<ContentItem> ContentItems => inner.ContentItems;
+    public DbSet<Recipe> Recipes => inner.Recipes;
+    public DbSet<Draft> Drafts => inner.Drafts;
+    public DbSet<PipelineRun> PipelineRuns => inner.PipelineRuns;
+    public DbSet<PromptTemplate> PromptTemplates => inner.PromptTemplates;
+    public DbSet<Platform> Platforms => inner.Platforms;
+    public DbSet<Post> Posts => inner.Posts;
+
+    public Task<int> SaveChangesAsync(CancellationToken ct = default)
+    {
+        if (_armed)
+        {
+            _armed = false;
+            throw new DbUpdateException("disk I/O error");
+        }
+        return inner.SaveChangesAsync(ct);
+    }
+}
+
 public class PlatformServiceTests
 {
     [Fact]
@@ -79,5 +107,57 @@ public class PlatformServiceTests
         Assert.Equal("Winner", resolved.DisplayName);
         using var verify = test.NewContext();
         Assert.Equal(1, await verify.Platforms.CountAsync(p => p.TenantId == tenant.Id));
+    }
+
+    [Fact]
+    public async Task Non_uniqueness_save_failure_is_rethrown_not_masked_as_a_race()
+    {
+        // The DbUpdateException here isn't a lost unique-index race — no competing row exists.
+        // GetOrCreateMailerLiteAsync must verify a winner actually exists before treating this as
+        // recoverable; otherwise it should surface the real DbUpdateException, not a confusing
+        // InvalidOperationException from SingleAsync finding no rows.
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-platform-save-failure" };
+        test.Db.Tenants.Add(tenant);
+        await test.Db.SaveChangesAsync();
+
+        var failingDb = new FailingSaveDbContext(test.Db);
+        var service = new PlatformService(failingDb, new InMemoryCredentials(), new FakeMailerLite());
+
+        await Assert.ThrowsAsync<DbUpdateException>(() => service.GetOrCreateMailerLiteAsync(tenant.Id));
+    }
+
+    [Fact]
+    public async Task Test_returns_false_when_no_api_key_is_stored()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-platform-test-no-key" };
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "MailerLite" };
+        test.Db.Tenants.Add(tenant);
+        test.Db.Platforms.Add(platform);
+        await test.Db.SaveChangesAsync();
+        var mailerLite = new FakeMailerLite();
+        var service = new PlatformService(test.Db, new InMemoryCredentials(), mailerLite);
+
+        var result = await service.TestAsync(platform);
+
+        Assert.False(result);
+        Assert.Equal(0, mailerLite.TestCalls);
+    }
+
+    [Fact]
+    public async Task List_groups_without_api_key_throws_actionable_message()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-platform-list-groups-no-key" };
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "MailerLite" };
+        test.Db.Tenants.Add(tenant);
+        test.Db.Platforms.Add(platform);
+        await test.Db.SaveChangesAsync();
+        var service = new PlatformService(test.Db, new InMemoryCredentials(), new FakeMailerLite());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ListGroupsAsync(platform));
+
+        Assert.Contains("No API key stored", ex.Message);
     }
 }

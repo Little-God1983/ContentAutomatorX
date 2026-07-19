@@ -52,8 +52,9 @@ public static class ContentXTools
         [Description("New status: New|Selected|Ignored")] string status)
     {
         var parsed = Enum.Parse<ContentItemStatus>(status, ignoreCase: true);
-        await content.MarkAsync(Guid.Parse(itemId), parsed);
-        return ToJson(new { itemId, status = parsed.ToString() });
+        return await content.MarkAsync(Guid.Parse(itemId), parsed)
+            ? ToJson(new { itemId, status = parsed.ToString() })
+            : ToJson("not found");
     }
 
     [McpServerTool(Name = "list_recipes"), Description("List a tenant's recipes (drafting configurations).")]
@@ -112,6 +113,7 @@ public static class ContentXTools
     [McpServerTool(Name = "push_post"), Description("Push a composed newsletter issue to MailerLite as a DRAFT campaign (sending stays human).")]
     public static async Task<string> PushPost(PostService posts, [Description("Post id (GUID)")] string postId)
     {
+        if (await posts.GetAsync(Guid.Parse(postId)) is null) return ToJson("not found");
         var post = await posts.PushAsync(Guid.Parse(postId));
         return ToJson(new { post.Id, Status = post.Status.ToString(), post.ExternalUrl });
     }

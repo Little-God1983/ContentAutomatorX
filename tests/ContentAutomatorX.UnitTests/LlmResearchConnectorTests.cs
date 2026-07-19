@@ -10,9 +10,11 @@ public class QueueLlm(params string[] replies) : ILlmBackend
 {
     private readonly Queue<string> _replies = new(replies);
     public List<string> Prompts { get; } = [];
+    public int Calls { get; private set; }
     public string Name => "fake";
     public Task<LlmResult> GenerateAsync(string prompt, CancellationToken ct = default)
     {
+        Calls++;
         Prompts.Add(prompt);
         return Task.FromResult(new LlmResult(_replies.Dequeue(), "fake-model"));
     }
@@ -77,5 +79,29 @@ public class LlmResearchConnectorTests
         var items = await connector.FetchAsync(Research(maxItems: 2));
         Assert.Equal(2, items.Count);
         Assert.All(items, i => Assert.StartsWith("https://ex.com/", i.ExternalId));
+    }
+
+    [Fact]
+    public async Task Empty_array_reply_yields_no_items_without_retry()
+    {
+        var llm = new QueueLlm("[]");
+        var connector = new LlmResearchConnector(llm);
+
+        var items = await connector.FetchAsync(Research());
+
+        Assert.Empty(items);
+        Assert.Equal(1, llm.Calls);
+    }
+
+    [Fact]
+    public async Task Two_malformed_replies_throw_an_actionable_error()
+    {
+        var llm = new QueueLlm("not json", "still not json");
+        var connector = new LlmResearchConnector(llm);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => connector.FetchAsync(Research()));
+
+        Assert.Contains("did not return valid JSON after retry", ex.Message);
     }
 }

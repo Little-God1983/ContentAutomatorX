@@ -24,8 +24,11 @@ public class FakeMailerLite : IMailerLiteClient
     public List<(MailerLiteDraft Draft, string? ExistingId)> Pushes { get; } = [];
     public bool FailNextPush { get; set; }
     public MailerLiteCampaignStatus NextStatus { get; set; } = new("draft", null, null, null);
+    public List<string> StatusCalls { get; } = [];
+    public string? ThrowForCampaignId { get; set; }
+    public int TestCalls { get; private set; }
 
-    public Task<bool> TestAsync(string apiKey, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<bool> TestAsync(string apiKey, CancellationToken ct = default) { TestCalls++; return Task.FromResult(true); }
     public Task<IReadOnlyList<MailerLiteGroup>> ListGroupsAsync(string apiKey, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<MailerLiteGroup>>([new("g1", "Main")]);
     public Task<string> PushDraftAsync(string apiKey, MailerLiteDraft draft, string? existingCampaignId, CancellationToken ct = default)
@@ -34,8 +37,12 @@ public class FakeMailerLite : IMailerLiteClient
         Pushes.Add((draft, existingCampaignId));
         return Task.FromResult(existingCampaignId ?? "c-100");
     }
-    public Task<MailerLiteCampaignStatus> GetStatusAsync(string apiKey, string campaignId, CancellationToken ct = default) =>
-        Task.FromResult(NextStatus);
+    public Task<MailerLiteCampaignStatus> GetStatusAsync(string apiKey, string campaignId, CancellationToken ct = default)
+    {
+        StatusCalls.Add(campaignId);
+        if (campaignId == ThrowForCampaignId) throw new InvalidOperationException("MailerLite GET /campaigns/{id} failed: 500");
+        return Task.FromResult(NextStatus);
+    }
 }
 
 public class InMemoryCredentials : ICredentialStore
@@ -108,6 +115,23 @@ public class PostServiceTests
 
         var item = Assert.Single(candidates);           // sourceB's item excluded
         Assert.Equal(w.SourceA.Id, item.SourceId);
+    }
+
+    [Fact]
+    public async Task Set_issue_sources_persists_the_id_list()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        var idA = Guid.NewGuid();
+        var idB = Guid.NewGuid();
+
+        await w.Posts.SetIssueSourcesAsync(post, [idA, idB]);
+
+        using var fresh = w.Test.NewContext();
+        var reloaded = await fresh.Posts.SingleAsync(p => p.Id == post.Id);
+        var ids = JsonSerializer.Deserialize<Guid[]>(reloaded.SourceIdsJson!);
+        Assert.Equal(new[] { idA, idB }, ids);
     }
 
     [Fact]
@@ -208,6 +232,26 @@ public class PostServiceTests
     }
 
     [Fact]
+    public async Task Subject_ideas_throws_after_two_unparseable_replies()
+    {
+        // BuildAsync's own PostService always wires SubjectIdeasAsync to a hardcoded-valid FakeLlm
+        // (its `llmReply` builder param only drives the GenerationPipeline's compose path), so a
+        // dedicated PostService with a consistently-unparseable FakeLlm is built here instead —
+        // BuildAsync itself, and the World's own w.Posts, are left untouched.
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        await w.Posts.SaveIssueAsync(post.Id, "t", "body", null, null);
+        var badLlm = new FakeLlm("this is not a JSON array");
+        var postsWithBadSubjectLlm = new PostService(w.Test.Db,
+            new GenerationPipeline(w.Test.Db, badLlm, new FakeDelivery()), badLlm, w.Platforms, w.MailerLite);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => postsWithBadSubjectLlm.SubjectIdeasAsync(post.Id));
+
+        Assert.Contains("did not return subject lines", ex.Message);
+    }
+
+    [Fact]
     public async Task Review_queue_lists_needs_review_and_pushed()
     {
         var w = await BuildAsync();
@@ -223,6 +267,66 @@ public class PostServiceTests
 
         Assert.Equal(2, queue.Count);
         Assert.DoesNotContain(queue, p => p.Title == "done");
+    }
+
+    [Fact]
+    public async Task Review_queue_includes_failed_posts()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        var failed = new Post
+        {
+            TenantId = w.Tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "Broken push", Status = PostStatus.Failed, NeedsReview = false
+        };
+        w.Test.Db.Posts.Add(failed);
+        await w.Test.Db.SaveChangesAsync();
+
+        var queue = await w.Posts.ReviewQueueAsync(w.Tenant.Id);
+
+        Assert.Contains(queue, p => p.Id == failed.Id);
+    }
+
+    [Fact]
+    public async Task Mark_reviewed_clears_the_flag()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        post.NeedsReview = true;
+        await w.Test.Db.SaveChangesAsync();
+
+        await w.Posts.MarkReviewedAsync(post.Id);
+
+        using var fresh = w.Test.NewContext();
+        var reloaded = await fresh.Posts.SingleAsync(p => p.Id == post.Id);
+        Assert.False(reloaded.NeedsReview);
+    }
+
+    [Fact]
+    public async Task List_returns_newest_first()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        var now = DateTimeOffset.UtcNow;
+        var older = new Post
+        {
+            TenantId = w.Tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "Older", CreatedAt = now.AddHours(-1)
+        };
+        var newer = new Post
+        {
+            TenantId = w.Tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "Newer", CreatedAt = now
+        };
+        w.Test.Db.Posts.AddRange(older, newer);
+        await w.Test.Db.SaveChangesAsync();
+
+        var list = await w.Posts.ListAsync(w.Tenant.Id);
+
+        Assert.Equal(new[] { newer.Id, older.Id }, list.Select(p => p.Id));
     }
 
     [Fact]

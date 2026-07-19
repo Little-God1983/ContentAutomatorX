@@ -37,6 +37,8 @@ public static partial class EmailHtmlRenderer
     private static string InlineStyles(string html)
     {
         html = AnchorRegex().Replace(html, StyleAnchor);
+        html = OrderedListRegex().Replace(html, "<ol${attrs} style=\"margin:0 0 14px;padding-left:24px;\">");
+        html = TableCellRegex().Replace(html, StyleTableCell);
         return html
             .Replace("<h1>", "<h1 style=\"font-size:26px;margin:24px 0 12px;color:#111111;\">")
             .Replace("<h2>", "<h2 style=\"font-size:21px;margin:20px 0 10px;color:#111111;\">")
@@ -44,9 +46,28 @@ public static partial class EmailHtmlRenderer
             .Replace("<p>", "<p style=\"margin:0 0 14px;\">")
             .Replace("<ul>", "<ul style=\"margin:0 0 14px;padding-left:24px;\">")
             .Replace("<li>", "<li style=\"margin:0 0 6px;\">")
+            .Replace("<table>", "<table style=\"border-collapse:collapse;width:100%;margin:0 0 14px;\">")
             .Replace("<blockquote>", "<blockquote style=\"margin:0 0 14px;padding:8px 16px;border-left:3px solid #1e88e5;color:#444444;\">")
             .Replace("<hr />", "<hr style=\"border:none;border-top:1px solid #dddddd;margin:20px 0;\" />");
     }
+
+    // Markdig emits bare <th>/<td> for unaligned columns and <th style="text-align: center;">
+    // (etc.) for columns declared with :---:/---: — either shape must still get the email's
+    // border/padding treatment, and any declared alignment must survive into the final style.
+    private static string StyleTableCell(Match m)
+    {
+        var tag = m.Groups["tag"].Value;
+        var align = m.Groups["align"].Success ? m.Groups["align"].Value : null;
+        return tag == "th"
+            ? $"<th style=\"border:1px solid #dddddd;padding:6px 10px;text-align:{align ?? "left"};background:#f7f7f7;\">"
+            : $"<td style=\"border:1px solid #dddddd;padding:6px 10px;{(align is null ? "" : $"text-align:{align};")}\">";
+    }
+
+    [GeneratedRegex("""<(?<tag>th|td)(?: style="text-align: (?<align>left|center|right);")?>""")]
+    private static partial Regex TableCellRegex();
+
+    [GeneratedRegex("<ol(?<attrs>[^>]*)>")]
+    private static partial Regex OrderedListRegex();
 
     // Anchors carrying a non-http(s)/mailto scheme (e.g. javascript:) are rendered inert —
     // the href is dropped entirely rather than passed through to a clickable preview/campaign.

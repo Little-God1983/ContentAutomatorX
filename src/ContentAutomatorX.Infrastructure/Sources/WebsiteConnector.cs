@@ -29,10 +29,12 @@ public class WebsiteConnector(HttpClient http) : ISourceConnector
         var listingHtml = await http.GetStringAsync(config.Url, ct);
         using var doc = await Parser.ParseDocumentAsync(listingHtml, ct);
 
-        var anchors = (config.Mode == "selector" && !string.IsNullOrWhiteSpace(config.ItemSelector)
-                ? doc.QuerySelectorAll(config.ItemSelector).OfType<IHtmlAnchorElement>()
-                    .Concat(doc.QuerySelectorAll(config.ItemSelector)
-                        .SelectMany(e => e.QuerySelectorAll("a").OfType<IHtmlAnchorElement>()))
+        var selectorMatches = config.Mode == "selector" && !string.IsNullOrWhiteSpace(config.ItemSelector)
+            ? doc.QuerySelectorAll(config.ItemSelector).ToList()
+            : null;
+        var anchors = (selectorMatches is not null
+                ? selectorMatches.OfType<IHtmlAnchorElement>()
+                    .Concat(selectorMatches.SelectMany(e => e.QuerySelectorAll("a").OfType<IHtmlAnchorElement>()))
                 : doc.QuerySelectorAll("article a[href], main a[href]").OfType<IHtmlAnchorElement>()
                     .Where(a => (a.TextContent?.Trim().Length ?? 0) >= MinLinkTextLength))
             .Where(a => !string.IsNullOrWhiteSpace(a.GetAttribute("href")))
@@ -48,7 +50,7 @@ public class WebsiteConnector(HttpClient http) : ISourceConnector
             if (url == listingUrl) continue; // skip fragment/self-links back to the listing page itself
             if (!seen.Add(url)) continue;
 
-            var title = a.TextContent.Trim();
+            var title = string.Join(' ', a.TextContent.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             if (title.Length == 0) continue;
             items.Add(new FetchedItem(
                 ExternalId: url, Title: title, Url: url, Author: null,

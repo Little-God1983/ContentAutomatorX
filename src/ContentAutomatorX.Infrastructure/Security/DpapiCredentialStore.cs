@@ -2,13 +2,15 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using ContentAutomatorX.Domain.Abstractions;
+using Microsoft.Extensions.Logging;
 
 namespace ContentAutomatorX.Infrastructure.Security;
 
 /// <summary>DPAPI (CurrentUser) blobs, one file per secret. Windows-only by design for the
 /// local phase; a server deployment later swaps this implementation behind ICredentialStore.</summary>
 [SupportedOSPlatform("windows")]
-public class DpapiCredentialStore(string? rootDir = null) : ICredentialStore
+public class DpapiCredentialStore(string? rootDir = null, ILogger<DpapiCredentialStore>? logger = null)
+    : ICredentialStore
 {
     private readonly string _root = rootDir ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -23,16 +25,40 @@ public class DpapiCredentialStore(string? rootDir = null) : ICredentialStore
 
     public async Task<string?> GetAsync(string name, CancellationToken ct = default)
     {
-        var path = PathFor(name);
-        if (!File.Exists(path)) return null;
-        var blob = await File.ReadAllBytesAsync(path, ct);
-        return Encoding.UTF8.GetString(ProtectedData.Unprotect(blob, null, DataProtectionScope.CurrentUser));
+        byte[] blob;
+        try
+        {
+            blob = await File.ReadAllBytesAsync(PathFor(name), ct);
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            return null; // absent — no Exists pre-check, so a file removed mid-flight is just "not found"
+        }
+
+        try
+        {
+            return Encoding.UTF8.GetString(ProtectedData.Unprotect(blob, null, DataProtectionScope.CurrentUser));
+        }
+        catch (CryptographicException)
+        {
+            // Corrupted blob or written by a different Windows user: treat as absent so the UI's
+            // "no key stored" path prompts for re-entry instead of crashing the page.
+            logger?.LogWarning(
+                "Stored credential {Name} could not be decrypted (corrupted or written by a different Windows user); treating as absent.",
+                name);
+            return null;
+        }
     }
 
     public Task DeleteAsync(string name, CancellationToken ct = default)
     {
-        var path = PathFor(name);
-        if (File.Exists(path)) File.Delete(path);
+        try
+        {
+            File.Delete(PathFor(name)); // no-op when the file is already gone
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
         return Task.CompletedTask;
     }
 

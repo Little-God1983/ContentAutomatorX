@@ -46,12 +46,14 @@ else
                     @foreach (var post in _reviewQueue)
                     {
                         <div class="d-flex align-center mb-1" style="gap:12px">
-                            <MudChip T="string" Size="Size.Small"
-                                     Color="@(post.Status == PostStatus.Pushed ? Color.Info : Color.Warning)">
-                                @(post.Status == PostStatus.Pushed ? "waiting: hit Send in MailerLite" : "review draft")
-                            </MudChip>
+                            <MudChip T="string" Size="Size.Small" Color="@QueueChipColor(post)">@QueueChipLabel(post)</MudChip>
                             <MudText>@post.Title</MudText>
                             <MudSpacer />
+                            @if (post.Status == PostStatus.Failed)
+                            {
+                                <MudButton Size="Size.Small" Color="Color.Warning" Disabled="@_retrying"
+                                           OnClick="@(() => RetryPush(post))">Retry</MudButton>
+                            }
                             <MudButton Size="Size.Small" Href="@($"/issue/{post.Id}")">Open</MudButton>
                             @if (post.ExternalUrl is not null)
                             {
@@ -94,6 +96,7 @@ else
     private int _newItems, _draftCount, _recentErrors;
     private PipelineRun? _lastRun;
     private List<Post> _reviewQueue = [];
+    private bool _retrying;
 
     protected override async Task OnInitializedAsync()
     {
@@ -138,6 +141,36 @@ else
         RunStatus.Failed => Color.Error,
         _ => Color.Info
     };
+
+    private static Color QueueChipColor(Post p) => p.Status switch
+    {
+        PostStatus.Failed => Color.Error,
+        PostStatus.Pushed => Color.Info,
+        _ => Color.Warning
+    };
+
+    private static string QueueChipLabel(Post p) => p.Status switch
+    {
+        PostStatus.Failed => "push failed",
+        PostStatus.Pushed => "waiting: hit Send in MailerLite",
+        _ => "review draft"
+    };
+
+    private async Task RetryPush(Post post)
+    {
+        _retrying = true;
+        try
+        {
+            await PostSvc.PushAsync(post.Id);
+            Snackbar.Add("Pushed to MailerLite ✓", Severity.Success);
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Retry failed: {ex.Message}", Severity.Error);
+        }
+        finally { _retrying = false; }
+    }
 
     public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }

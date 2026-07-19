@@ -114,4 +114,53 @@ public class WebsiteConnectorTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             () => connector.FetchAsync(Site("""{"url":"https://blog.example.com/blog","mode":"auto"}"""), cts.Token));
     }
+
+    [Fact]
+    public async Task Title_internal_whitespace_is_collapsed_to_single_spaces()
+    {
+        // listing anchor text spans lines and runs of spaces: "Big\n        AI   News"
+        const string anchorText = "Big\n        AI   News";
+        var handler = new StubHttpHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            var html = path == "/blog"
+                ? "<!DOCTYPE html><html><body><article><a href=\"/story\">" + anchorText + "</a></article></body></html>"
+                : "<!DOCTYPE html><html><body><main>story body</main></body></html>";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(html, System.Text.Encoding.UTF8, "text/html")
+            };
+        });
+        var connector = new WebsiteConnector(new HttpClient(handler));
+
+        var items = await connector.FetchAsync(Site("""{"url":"https://blog.example.com/blog","mode":"auto"}"""));
+
+        var item = Assert.Single(items);
+        Assert.Equal("Big AI News", item.Title);
+    }
+
+    [Fact]
+    public async Task Selector_matching_both_container_and_anchor_yields_one_item_per_url()
+    {
+        // ".card, .card a" matches the anchor via both the container-descendant branch and
+        // the direct-anchor branch; dedup via the `seen` hash-set must yield a single item.
+        var handler = new StubHttpHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            var html = path == "/blog"
+                ? "<!DOCTYPE html><html><body><div class=\"card\"><a href=\"/one\">Story one headline</a></div></body></html>"
+                : "<!DOCTYPE html><html><body><main>ignored</main></body></html>";
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(html, System.Text.Encoding.UTF8, "text/html")
+            };
+        });
+        var connector = new WebsiteConnector(new HttpClient(handler));
+
+        var items = await connector.FetchAsync(Site(
+            """{"url":"https://blog.example.com/blog","mode":"selector","itemSelector":".card, .card a"}"""));
+
+        var item = Assert.Single(items);
+        Assert.Equal("https://blog.example.com/one", item.ExternalId);
+    }
 }

@@ -146,6 +146,31 @@ public class GenerationPipelineTests : IDisposable
         Assert.Equal(draft!.Id, post.DraftId);
         Assert.Equal(recipe.Id, post.RecipeId);
         Assert.Equal("Weekly", post.Title);
+        Assert.Equal(platform.Id, post.PlatformId);
+    }
+
+    [Fact]
+    public async Task Delivery_failure_with_target_platform_still_creates_the_review_post()
+    {
+        using var test = TestDb.Create();
+        var (tenant, _, recipe) = Seed(test);
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        recipe.TargetPlatformId = platform.Id;
+        test.Db.Platforms.Add(platform);
+        test.Db.SaveChanges();
+        var fresh = test.NewContext();
+        var t = fresh.Tenants.Single();
+        t.OutputFolderPath = "";     // unconfigured folder → delivery throws
+        fresh.SaveChanges();
+        var pipeline = new GenerationPipeline(test.NewContext(), new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+
+        var (run, _) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
+
+        Assert.Equal(RunStatus.Partial, run.Status);
+        var post = await test.Db.Posts.SingleAsync();
+        Assert.True(post.NeedsReview);
+        Assert.Equal(platform.Id, post.PlatformId);
+        Assert.Equal(recipe.Id, post.RecipeId);
     }
 
     [Fact]
