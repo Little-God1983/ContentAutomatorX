@@ -52,6 +52,34 @@ else
                 </MudSelect>
             }
             <MudNumericField T="int" @bind-Value="_limit" Label="Items per fetch" Min="1" Max="20" />
+
+            <MudExpansionPanels Elevation="0" Class="mt-2">
+                <MudExpansionPanel Dense="true">
+                    <TitleContent>
+                        <MudText Typo="Typo.subtitle2">
+                            Reddit API credentials @(_redditConfigured ? "· configured ✓" : "· not configured (public feed, no upvotes)")
+                        </MudText>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudText Typo="Typo.body2" Class="mb-2" Style="opacity:.8">
+                            One-time, global for all Reddit sources and tenants. Without credentials, Reddit is
+                            fetched via its public feed — works, but no upvote counts. Create a free <b>script</b>
+                            app at <MudLink Href="https://www.reddit.com/prefs/apps" Target="_blank">reddit.com/prefs/apps</MudLink>
+                            and paste its values here (stored encrypted on this PC via DPAPI).
+                        </MudText>
+                        <MudTextField @bind-Value="_redditClientId" Label="Client id (under the app name, ~14 chars)" />
+                        <MudTextField @bind-Value="_redditSecret" Label="Client secret" InputType="InputType.Password" />
+                        <div class="mt-2">
+                            <MudButton OnClick="SaveRedditCreds" Variant="Variant.Filled" Color="Color.Primary" Class="mr-2"
+                                       Disabled="@(string.IsNullOrWhiteSpace(_redditClientId) || string.IsNullOrWhiteSpace(_redditSecret))">
+                                Save
+                            </MudButton>
+                            <MudButton OnClick="TestRedditCreds" Class="mr-2" Disabled="@(!_redditConfigured || _redditTesting)">Test</MudButton>
+                            <MudButton OnClick="RemoveRedditCreds" Color="Color.Error" Disabled="@(!_redditConfigured)">Remove</MudButton>
+                        </div>
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
         }
         else if (_type == SourceTypes.Website)
         {
@@ -82,27 +110,6 @@ else
             {
                 <MudButton OnClick="Reset">Cancel</MudButton>
             }
-        </div>
-    </MudPaper>
-
-    <MudPaper Class="pa-4 mb-4">
-        <MudText Typo="Typo.h6">Reddit API (optional)</MudText>
-        <MudText Typo="Typo.body2" Class="mb-2" Style="opacity:.8">
-            Without credentials, Reddit is fetched via its public feed — no upvote counts.
-            Create a free <b>script</b> app at
-            <MudLink Href="https://www.reddit.com/prefs/apps" Target="_blank">reddit.com/prefs/apps</MudLink>
-            and paste its values here. Stored encrypted on this PC (DPAPI), applies to all tenants.
-            @(_redditConfigured ? " Status: configured ✓" : " Status: not configured")
-        </MudText>
-        <MudTextField @bind-Value="_redditClientId" Label="Client id (under the app name, ~14 chars)" />
-        <MudTextField @bind-Value="_redditSecret" Label="Client secret" InputType="InputType.Password" />
-        <div class="mt-2">
-            <MudButton OnClick="SaveRedditCreds" Variant="Variant.Filled" Color="Color.Primary" Class="mr-2"
-                       Disabled="@(string.IsNullOrWhiteSpace(_redditClientId) || string.IsNullOrWhiteSpace(_redditSecret))">
-                Save
-            </MudButton>
-            <MudButton OnClick="TestRedditCreds" Class="mr-2" Disabled="@(!_redditConfigured || _redditTesting)">Test</MudButton>
-            <MudButton OnClick="RemoveRedditCreds" Color="Color.Error" Disabled="@(!_redditConfigured)">Remove</MudButton>
         </div>
     </MudPaper>
 
