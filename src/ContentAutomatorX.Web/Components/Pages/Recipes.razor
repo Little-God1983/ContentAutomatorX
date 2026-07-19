@@ -214,7 +214,6 @@ else
         string.Join(", ", selectedIds.Select(id =>
             _sources.FirstOrDefault(s => s.Id.ToString() == id)?.DisplayName ?? "?"));
 
-
     private static string[] SplitCsv(string csv) =>
         csv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
 
