@@ -154,6 +154,116 @@ namespace ContentAutomatorX.Infrastructure.Migrations
                     b.ToTable("PipelineRuns");
                 });
 
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.Platform", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ColorHex")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ConfigJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("CredentialRef")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DisplayName")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("IsEnabled")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Type")
+                        .IsUnique();
+
+                    b.ToTable("Platforms");
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.Post", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("DraftId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<bool>("NeedsReview")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("PlatformId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PreviewText")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("PublishedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("RecipeId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("ScheduledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SourceIdsJson")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("StatsJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Subject")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("WindowDays")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "Status");
+
+                    b.ToTable("Posts");
+                });
+
             modelBuilder.Entity("ContentAutomatorX.Domain.Entities.PromptTemplate", b =>
                 {
                     b.Property<Guid>("Id")
@@ -218,6 +328,9 @@ namespace ContentAutomatorX.Infrastructure.Migrations
 
                     b.Property<string>("SourceIdsJson")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("TargetPlatformId")
                         .HasColumnType("TEXT");
 
                     b.Property<Guid>("TenantId")

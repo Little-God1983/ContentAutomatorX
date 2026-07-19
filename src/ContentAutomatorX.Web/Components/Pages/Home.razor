@@ -4,6 +4,7 @@
 @inject ContentService ContentSvc
 @inject DraftService DraftSvc
 @inject RunService RunSvc
+@inject PostService PostSvc
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">Today</MudText>
@@ -37,12 +38,36 @@ else
                 <MudText Typo="Typo.h4" Color="@(_recentErrors > 0 ? Color.Error : Color.Default)">@_recentErrors</MudText>
             </MudPaper>
         </MudItem>
+        @if (_reviewQueue.Count > 0)
+        {
+            <MudItem xs="12">
+                <MudPaper Class="pa-4">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Review queue (@_reviewQueue.Count)</MudText>
+                    @foreach (var post in _reviewQueue)
+                    {
+                        <div class="d-flex align-center mb-1" style="gap:12px">
+                            <MudChip T="string" Size="Size.Small"
+                                     Color="@(post.Status == PostStatus.Pushed ? Color.Info : Color.Warning)">
+                                @(post.Status == PostStatus.Pushed ? "waiting: hit Send in MailerLite" : "review draft")
+                            </MudChip>
+                            <MudText>@post.Title</MudText>
+                            <MudSpacer />
+                            <MudButton Size="Size.Small" Href="@($"/issue/{post.Id}")">Open</MudButton>
+                            @if (post.ExternalUrl is not null)
+                            {
+                                <MudButton Size="Size.Small" Href="@post.ExternalUrl" Target="_blank">MailerLite ↗</MudButton>
+                            }
+                        </div>
+                    }
+                </MudPaper>
+            </MudItem>
+        }
         <MudItem xs="12">
             <MudPaper Class="pa-4" Outlined="true" Style="opacity:.7">
                 <MudText Typo="Typo.subtitle2" Class="mb-1">Coming soon on Today</MudText>
                 <MudText Typo="Typo.body2">
                     Needs you (waiting manual publish steps, failures) · Scheduled next 48 h ·
-                    Review queue for automation drafts · Recently published with stats —
+                    Recently published with stats —
                     see docs/mockups/02-today-dashboard.md
                 </MudText>
             </MudPaper>
@@ -68,6 +93,7 @@ else
 @code {
     private int _newItems, _draftCount, _recentErrors;
     private PipelineRun? _lastRun;
+    private List<Post> _reviewQueue = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -93,6 +119,7 @@ else
         if (!Ctx.Initialized || Ctx.Active is null)
         {
             (_newItems, _draftCount, _recentErrors, _lastRun) = (0, 0, 0, null);
+            _reviewQueue = [];
             return;
         }
         var id = Ctx.Active.Id;
@@ -101,6 +128,7 @@ else
         var runs = await RunSvc.ListAsync(id, 10);
         _lastRun = runs.FirstOrDefault();
         _recentErrors = runs.Count(r => r.Status is RunStatus.Failed or RunStatus.Partial);
+        _reviewQueue = await PostSvc.ReviewQueueAsync(id);
     }
 
     private static Color StatusColor(RunStatus status) => status switch

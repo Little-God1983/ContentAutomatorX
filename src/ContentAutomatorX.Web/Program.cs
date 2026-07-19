@@ -8,6 +8,8 @@ using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Infrastructure.Llm;
 using ContentAutomatorX.Infrastructure.Persistence;
+using ContentAutomatorX.Infrastructure.Platforms;
+using ContentAutomatorX.Infrastructure.Security;
 using ContentAutomatorX.Infrastructure.Sources;
 using ContentAutomatorX.Web.Components;
 using ContentAutomatorX.Web.Jobs;
@@ -36,8 +38,15 @@ builder.Services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbConte
 // --- source connectors (HTTP + retry/backoff) ---
 builder.Services.AddHttpClient<RssConnector>().AddStandardResilienceHandler();
 builder.Services.AddHttpClient<RedditConnector>().AddStandardResilienceHandler();
+builder.Services.AddHttpClient<WebsiteConnector>().AddStandardResilienceHandler();
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RssConnector>());
 builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<RedditConnector>());
+builder.Services.AddTransient<ISourceConnector>(sp => sp.GetRequiredService<WebsiteConnector>());
+builder.Services.AddTransient<ISourceConnector, LlmResearchConnector>(); // no HttpClient — rides ILlmBackend
+
+// --- MailerLite connector (HTTP + retry/backoff) ---
+builder.Services.AddHttpClient<MailerLiteClient>().AddStandardResilienceHandler();
+builder.Services.AddTransient<IMailerLiteClient>(sp => sp.GetRequiredService<MailerLiteClient>());
 
 // --- LLM backend ---
 var claudeOptions = new ClaudeCliOptions();
@@ -46,6 +55,11 @@ if (string.IsNullOrWhiteSpace(claudeOptions.Model)) claudeOptions.Model = null;
 builder.Services.AddSingleton(claudeOptions);
 builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
 builder.Services.AddSingleton<ILlmBackend, ClaudeCliBackend>();
+if (OperatingSystem.IsWindows())
+    builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
+else
+    throw new PlatformNotSupportedException(
+        "Secrets storage currently requires Windows (DPAPI). A server deployment swaps in a different ICredentialStore.");
 
 // --- delivery, pipelines, services ---
 builder.Services.AddSingleton<IDraftDelivery, FileShareDraftDelivery>();
@@ -57,12 +71,16 @@ builder.Services.AddScoped<RecipeService>();
 builder.Services.AddScoped<ContentService>();
 builder.Services.AddScoped<DraftService>();
 builder.Services.AddScoped<RunService>();
+builder.Services.AddScoped<PlatformService>();
+builder.Services.AddScoped<PostService>();
+builder.Services.AddScoped<PostSyncService>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.TenantContext>();
 
 // --- scheduler ---
 builder.Services.AddHostedService<SchedulerService>();
+builder.Services.AddHostedService<PlatformSyncJob>();
 
 // --- UI + MCP ---
 builder.Services.AddMudServices();

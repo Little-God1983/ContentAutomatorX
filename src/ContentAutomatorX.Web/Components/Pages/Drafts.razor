@@ -3,6 +3,7 @@
 @implements IDisposable
 @inject TenantContext Ctx
 @inject DraftService DraftSvc
+@inject PostService PostSvc
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-1">Posts</MudText>
@@ -22,6 +23,30 @@ else if (Ctx.Active is null)
 }
 else
 {
+    <MudText Typo="Typo.h6" Class="mb-2">Newsletter issues</MudText>
+    <MudTable T="Post" Items="_posts" Hover="true" Class="mb-6" Dense="true">
+        <HeaderContent>
+            <MudTh>Created</MudTh><MudTh>Title</MudTh><MudTh>Status</MudTh><MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd>@context.CreatedAt.ToLocalTime().ToString("g")</MudTd>
+            <MudTd>@context.Title</MudTd>
+            <MudTd>
+                <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)">
+                    @context.Status@(context.NeedsReview ? " · review" : "")
+                </MudChip>
+            </MudTd>
+            <MudTd>
+                <MudButton Size="Size.Small" Href="@($"/issue/{context.Id}")">Edit</MudButton>
+                @if (context.ExternalUrl is not null)
+                {
+                    <MudButton Size="Size.Small" Href="@context.ExternalUrl" Target="_blank">Open in MailerLite</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+    <MudText Typo="Typo.h6" Class="mb-2">File drafts (Phase 1)</MudText>
+
     <MudExpansionPanels MultiExpansion="false">
         @foreach (var draft in _drafts)
         {
@@ -58,6 +83,7 @@ else
 
 @code {
     private List<Draft> _drafts = [];
+    private List<Post> _posts = [];
 
     protected override async Task OnInitializedAsync()
     {
@@ -81,7 +107,16 @@ else
     private async Task ReloadAsync()
     {
         _drafts = Ctx.Initialized && Ctx.Active is not null ? await DraftSvc.ListAsync(Ctx.Active.Id) : [];
+        _posts = Ctx.Initialized && Ctx.Active is not null ? await PostSvc.ListAsync(Ctx.Active.Id) : [];
     }
+
+    private static Color StatusColor(PostStatus s) => s switch
+    {
+        PostStatus.Published => Color.Success,
+        PostStatus.Pushed => Color.Info,
+        PostStatus.Failed => Color.Error,
+        _ => Color.Default
+    };
 
     private void OpenFolder(Draft draft)
     {

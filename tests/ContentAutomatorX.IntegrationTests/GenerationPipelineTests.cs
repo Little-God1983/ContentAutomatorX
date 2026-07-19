@@ -125,4 +125,59 @@ public class GenerationPipelineTests : IDisposable
         Assert.Equal(DraftStatus.Generated, draft.Status);
         Assert.Null(draft.FilePath);
     }
+
+    [Fact]
+    public async Task Recipe_with_target_platform_creates_a_needs_review_post()
+    {
+        using var test = TestDb.Create();
+        var (tenant, _, recipe) = Seed(test);
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        recipe.TargetPlatformId = platform.Id;
+        test.Db.Platforms.Add(platform);
+        test.Db.SaveChanges();
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+
+        var (run, draft) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        var post = await test.Db.Posts.SingleAsync();
+        Assert.True(post.NeedsReview);
+        Assert.Equal(PostStatus.Draft, post.Status);
+        Assert.Equal(draft!.Id, post.DraftId);
+        Assert.Equal(recipe.Id, post.RecipeId);
+        Assert.Equal("Weekly", post.Title);
+    }
+
+    [Fact]
+    public async Task Recipe_with_target_platform_creates_no_post_when_caller_opts_out()
+    {
+        // PostService.ComposeAsync passes createReviewPost: false — the issue being composed
+        // already IS the Post, so letting RunAsync also park a review-queue post here would
+        // spawn a duplicate.
+        using var test = TestDb.Create();
+        var (tenant, _, recipe) = Seed(test);
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        recipe.TargetPlatformId = platform.Id;
+        test.Db.Platforms.Add(platform);
+        test.Db.SaveChanges();
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+
+        var (run, _) = await pipeline.RunAsync(recipe.Id, createReviewPost: false);
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        Assert.Empty(test.Db.Posts.ToList());
+    }
+
+    [Fact]
+    public async Task Recipe_without_target_platform_creates_no_post()
+    {
+        using var test = TestDb.Create();
+        var (_, _, recipe) = Seed(test);
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery());
+
+        var (run, _) = await pipeline.RunAsync(recipe.Id);
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        Assert.Empty(test.Db.Posts.ToList());
+    }
 }

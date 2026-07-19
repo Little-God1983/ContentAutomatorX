@@ -57,4 +57,31 @@ public class PersistenceTests
         var draft = await fresh.Drafts.SingleAsync();
         Assert.Equal(DraftStatus.Delivered, draft.Status);
     }
+
+    [Fact]
+    public async Task Platform_and_post_round_trip_with_string_status()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-plat" };
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "MailerLite" };
+        var post = new Post
+        {
+            TenantId = tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "AI Weekly #1", Status = PostStatus.Pushed, NeedsReview = true,
+            SourceIdsJson = "[\"" + Guid.NewGuid() + "\"]", WindowDays = 7
+        };
+        test.Db.Tenants.Add(tenant);
+        test.Db.Platforms.Add(platform);
+        test.Db.Posts.Add(post);
+        await test.Db.SaveChangesAsync();
+
+        using var fresh = test.NewContext();
+        var loaded = await fresh.Posts.SingleAsync(p => p.Id == post.Id);
+        Assert.Equal(PostStatus.Pushed, loaded.Status);
+        Assert.True(loaded.NeedsReview);
+        Assert.Equal(7, loaded.WindowDays);
+        var statusText = await fresh.Database.SqlQuery<string>(
+            $"SELECT Status AS Value FROM Posts WHERE Id = {post.Id}").SingleAsync();
+        Assert.Equal("Pushed", statusText); // enum stored as string
+    }
 }

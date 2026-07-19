@@ -36,6 +36,8 @@ public sealed class SaveHookDbContext(AppDbContext inner, Guid targetSourceId, A
     public DbSet<Draft> Drafts => inner.Drafts;
     public DbSet<PipelineRun> PipelineRuns => inner.PipelineRuns;
     public DbSet<PromptTemplate> PromptTemplates => inner.PromptTemplates;
+    public DbSet<Platform> Platforms => inner.Platforms;
+    public DbSet<Post> Posts => inner.Posts;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {

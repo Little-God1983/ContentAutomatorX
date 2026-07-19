@@ -1,7 +1,7 @@
 # ContentAutomatorX — Newsletter-First (Phase 2a) Design
 
 **Date:** 2026-07-18
-**Status:** Draft — awaiting owner review
+**Status:** Implemented 2026-07-18 (plan: docs/superpowers/plans/2026-07-18-newsletter-first.md)
 **Depends on:** Phase 1 (shipped), UI shell mockup (shipped 2026-07-18, uncommitted)
 **Mockups:** `docs/mockups/08-newsletter-flow.md` (flow), `10-platforms-ai-settings.md` (platforms), `README.md` §7–8 (decisions)
 

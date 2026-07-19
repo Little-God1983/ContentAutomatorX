@@ -17,6 +17,21 @@ public class ContentService(IAppDbContext db)
         return list.OrderByDescending(i => i.PublishedAt ?? i.FetchedAt).ToList();
     }
 
+    /// <summary>
+    /// Deletes the given items, except those already used in an issue — Used items carry
+    /// provenance ("exclude already-used" selection) and would be re-ingested if removed.
+    /// Returns how many were deleted and how many were kept because they are in use.
+    /// </summary>
+    public async Task<(int Deleted, int KeptUsed)> DeleteAsync(IReadOnlyCollection<Guid> itemIds)
+    {
+        if (itemIds.Count == 0) return (0, 0);
+        var items = await db.ContentItems.Where(i => itemIds.Contains(i.Id)).ToListAsync();
+        var deletable = items.Where(i => i.Status != ContentItemStatus.Used).ToList();
+        db.ContentItems.RemoveRange(deletable);
+        await db.SaveChangesAsync();
+        return (deletable.Count, items.Count - deletable.Count);
+    }
+
     public async Task MarkAsync(Guid itemId, ContentItemStatus status)
     {
         var item = await db.ContentItems.FirstOrDefaultAsync(i => i.Id == itemId)

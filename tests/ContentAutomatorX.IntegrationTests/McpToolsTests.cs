@@ -1,8 +1,11 @@
 using System.Text.Json;
+using ContentAutomatorX.Application.Newsletter;
 using ContentAutomatorX.Application.Pipelines;
 using ContentAutomatorX.Application.Services;
 using ContentAutomatorX.Domain;
+using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Domain.Models;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Web.Mcp;
 
@@ -127,5 +130,44 @@ public class McpToolsTests : IDisposable
         Assert.Equal(2, doc.RootElement.GetArrayLength());
         Assert.Equal(newest.Id, doc.RootElement[0].GetProperty("id").GetGuid());
         Assert.Equal(middle.Id, doc.RootElement[1].GetProperty("id").GetGuid());
+    }
+
+    [Fact]
+    public async Task List_posts_returns_the_projected_shape()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-posts" };
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        var post = new Post
+        {
+            TenantId = tenant.Id,
+            PlatformId = platform.Id,
+            Kind = DraftKinds.Newsletter,
+            Title = "Issue #1",
+            Status = PostStatus.Pushed,
+            NeedsReview = false,
+            ExternalUrl = "https://example.com/post/1"
+        };
+        test.Db.Tenants.Add(tenant);
+        test.Db.Platforms.Add(platform);
+        test.Db.Posts.Add(post);
+        await test.Db.SaveChangesAsync();
+
+        var ml = new FakeMailerLite();
+        var creds = new InMemoryCredentials();
+        var platforms = new PlatformService(test.Db, creds, ml);
+        var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery());
+        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml);
+
+        var json = await ContentXTools.ListPosts(posts, tenant.Id.ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+        var element = doc.RootElement[0];
+        Assert.Equal(post.Id, element.GetProperty("id").GetGuid());
+        Assert.Equal("Issue #1", element.GetProperty("title").GetString());
+        Assert.Equal("Pushed", element.GetProperty("status").GetString());
+        Assert.False(element.GetProperty("needsReview").GetBoolean());
+        Assert.Equal("https://example.com/post/1", element.GetProperty("externalUrl").GetString());
     }
 }

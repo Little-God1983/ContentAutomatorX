@@ -4,6 +4,8 @@ public static class SourceTypes
 {
     public const string Reddit = "Reddit";
     public const string Rss = "Rss";
+    public const string Website = "Website";
+    public const string LlmResearch = "LlmResearch";
 }
 
 public static class DraftKinds
@@ -25,4 +27,9 @@ public static class RunTriggers
     public const string Scheduled = "Scheduled";
     public const string Manual = "Manual";
     public const string Mcp = "Mcp";
+}
+
+public static class PlatformTypes
+{
+    public const string MailerLite = "MailerLite";
 }

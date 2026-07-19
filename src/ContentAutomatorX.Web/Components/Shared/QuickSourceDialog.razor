@@ -1,0 +1,115 @@
+@inject SourceService SourceSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        <MudSelect T="string" @bind-Value="_type" Label="Type">
+            <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Website">Website (page watch)</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.LlmResearch">LLM research</MudSelectItem>
+        </MudSelect>
+        <MudTextField @bind-Value="_displayName" Label="Display name" />
+        @if (_type == SourceTypes.Reddit)
+        {
+            <MudTextField @bind-Value="_subreddit" Label="Subreddit (without r/)" />
+            <MudSelect T="string" @bind-Value="_sort" Label="Sort">
+                <MudSelectItem T="string" Value="@("hot")">Hot</MudSelectItem>
+                <MudSelectItem T="string" Value="@("new")">New</MudSelectItem>
+                <MudSelectItem T="string" Value="@("top")">Top</MudSelectItem>
+                <MudSelectItem T="string" Value="@("rising")">Rising</MudSelectItem>
+            </MudSelect>
+            @if (_sort == "top")
+            {
+                <MudSelect T="string" @bind-Value="_timeframe" Label="Top of the last">
+                    <MudSelectItem T="string" Value="@("hour")">Hour</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("day")">Day</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("week")">Week</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("month")">Month</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("year")">Year</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("all")">All time</MudSelectItem>
+                </MudSelect>
+            }
+            <MudNumericField T="int" @bind-Value="_limit" Label="Items per fetch" Min="1" Max="20" />
+        }
+        else if (_type == SourceTypes.Website)
+        {
+            <MudTextField @bind-Value="_siteUrl" Label="Page URL (listing/blog index)" />
+            <MudSelect T="string" @bind-Value="_siteMode" Label="Extraction">
+                <MudSelectItem T="string" Value="@("auto")">Auto (articles & main links)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("selector")">CSS selector</MudSelectItem>
+            </MudSelect>
+            @if (_siteMode == "selector")
+            {
+                <MudTextField @bind-Value="_siteSelector" Label="Item selector (e.g. .post-list a)" />
+            }
+        }
+        else if (_type == SourceTypes.LlmResearch)
+        {
+            <MudTextField @bind-Value="_researchPrompt" Label="Research prompt" Lines="3"
+                          HelperText="E.g. 'top AI image-generation news of the past 7 days'. Runs via the LLM with web search (Claude ExtraArgs)." />
+        }
+        else
+        {
+            <MudTextField @bind-Value="_feedUrl" Label="Feed URL" />
+            <MudSwitch T="bool" @bind-Value="_feedSplitLinks" Color="Color.Primary"
+                       Label="Split linked stories into separate items (digest feeds)" />
+            <MudNumericField T="int" @bind-Value="_feedLimit" Label="Items per fetch" Min="1" Max="200" />
+        }
+        <MudText Typo="Typo.caption" Class="mt-2">
+            No schedule — this source only runs when an issue gathers it. Add a schedule later on the Sources page.
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(string.IsNullOrWhiteSpace(_displayName) || _busy)"
+                   OnClick="Create">Create source</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid TenantId { get; set; }
+
+    private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
+        _timeframe = "week", _feedUrl = "";
+    private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
+    private int _limit = 20;
+    private bool _feedSplitLinks;
+    private int _feedLimit = 50;
+    private bool _busy;
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private string BuildConfig() => _type switch
+    {
+        var t when t == SourceTypes.Reddit =>
+            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe, limit = _limit }),
+        var t when t == SourceTypes.Website =>
+            JsonSerializer.Serialize(new { url = _siteUrl, mode = _siteMode,
+                itemSelector = _siteMode == "selector" ? _siteSelector : null }),
+        var t when t == SourceTypes.LlmResearch =>
+            JsonSerializer.Serialize(new { prompt = _researchPrompt }),
+        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl, splitLinkedStories = _feedSplitLinks, limit = _feedLimit })
+    };
+
+    private async Task Create()
+    {
+        if (string.IsNullOrWhiteSpace(_displayName)) return;
+        _busy = true;
+        try
+        {
+            var source = await SourceSvc.CreateAsync(new Source
+            {
+                TenantId = TenantId, Type = _type, DisplayName = _displayName,
+                ConfigJson = BuildConfig(), ScheduleCron = null, IsEnabled = true
+            });
+            MudDialog.Close(DialogResult.Ok(source));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to create source: {ex.Message}", Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+}

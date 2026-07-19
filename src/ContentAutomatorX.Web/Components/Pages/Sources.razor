@@ -1,9 +1,14 @@
 @page "/sources"
 @implements IDisposable
+@using ContentAutomatorX.Domain.Abstractions
+@using ContentAutomatorX.Infrastructure.Sources
 @inject TenantContext Ctx
 @inject SourceService SourceSvc
+@inject ICredentialStore Credentials
+@inject RedditConnector RedditConn
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
+@inject IScrollManager ScrollManager
 
 <MudText Typo="Typo.h4" Class="mb-4">Sources</MudText>
 
@@ -17,22 +22,89 @@ else if (Ctx.Active is null)
 }
 else
 {
-    <MudPaper Class="pa-4 mb-4">
+    <MudPaper Class="pa-4 mb-4" id="source-form">
         <MudText Typo="Typo.h6">@(_editing is null ? "New source" : $"Edit: {_editing.DisplayName}")</MudText>
         <MudSelect T="string" @bind-Value="_type" Label="Type">
             <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
             <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.Website">Website (page watch)</MudSelectItem>
+            <MudSelectItem T="string" Value="@SourceTypes.LlmResearch">LLM research (AI web sweep)</MudSelectItem>
         </MudSelect>
         <MudTextField @bind-Value="_displayName" Label="Display name" />
         @if (_type == SourceTypes.Reddit)
         {
             <MudTextField @bind-Value="_subreddit" Label="Subreddit (without r/)" />
-            <MudTextField @bind-Value="_sort" Label="Sort (hot|new|top|rising)" />
-            <MudTextField @bind-Value="_timeframe" Label="Timeframe for top (hour|day|week|month|year|all)" />
+            <MudSelect T="string" @bind-Value="_sort" Label="Sort">
+                <MudSelectItem T="string" Value="@("hot")">Hot</MudSelectItem>
+                <MudSelectItem T="string" Value="@("new")">New</MudSelectItem>
+                <MudSelectItem T="string" Value="@("top")">Top</MudSelectItem>
+                <MudSelectItem T="string" Value="@("rising")">Rising</MudSelectItem>
+            </MudSelect>
+            @if (_sort == "top")
+            {
+                <MudSelect T="string" @bind-Value="_timeframe" Label="Top of the last">
+                    <MudSelectItem T="string" Value="@("hour")">Hour</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("day")">Day</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("week")">Week</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("month")">Month</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("year")">Year</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("all")">All time</MudSelectItem>
+                </MudSelect>
+            }
+            <MudNumericField T="int" @bind-Value="_limit" Label="Items per fetch" Min="1" Max="20" />
+
+            <MudExpansionPanels Elevation="0" Class="mt-2">
+                <MudExpansionPanel Dense="true">
+                    <TitleContent>
+                        <MudText Typo="Typo.subtitle2">
+                            Reddit API credentials @(_redditConfigured ? "· configured ✓" : "· not configured (public feed, no upvotes)")
+                        </MudText>
+                    </TitleContent>
+                    <ChildContent>
+                        <MudText Typo="Typo.body2" Class="mb-2" Style="opacity:.8">
+                            One-time, global for all Reddit sources and tenants. Without credentials, Reddit is
+                            fetched via its public feed — works, but no upvote counts. Create a free <b>script</b>
+                            app at <MudLink Href="https://www.reddit.com/prefs/apps" Target="_blank">reddit.com/prefs/apps</MudLink>
+                            and paste its values here (stored encrypted on this PC via DPAPI).
+                        </MudText>
+                        <MudTextField @bind-Value="_redditClientId" Label="Client id (under the app name, ~14 chars)" />
+                        <MudTextField @bind-Value="_redditSecret" Label="Client secret" InputType="InputType.Password" />
+                        <div class="mt-2">
+                            <MudButton OnClick="SaveRedditCreds" Variant="Variant.Filled" Color="Color.Primary" Class="mr-2"
+                                       Disabled="@(string.IsNullOrWhiteSpace(_redditClientId) || string.IsNullOrWhiteSpace(_redditSecret))">
+                                Save
+                            </MudButton>
+                            <MudButton OnClick="TestRedditCreds" Class="mr-2" Disabled="@(!_redditConfigured || _redditTesting)">Test</MudButton>
+                            <MudButton OnClick="RemoveRedditCreds" Color="Color.Error" Disabled="@(!_redditConfigured)">Remove</MudButton>
+                        </div>
+                    </ChildContent>
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        }
+        else if (_type == SourceTypes.Website)
+        {
+            <MudTextField @bind-Value="_siteUrl" Label="Page URL (listing/blog index)" />
+            <MudSelect T="string" @bind-Value="_siteMode" Label="Extraction">
+                <MudSelectItem T="string" Value="@("auto")">Auto (articles & main links)</MudSelectItem>
+                <MudSelectItem T="string" Value="@("selector")">CSS selector</MudSelectItem>
+            </MudSelect>
+            @if (_siteMode == "selector")
+            {
+                <MudTextField @bind-Value="_siteSelector" Label="Item selector (e.g. .post-list a)" />
+            }
+        }
+        else if (_type == SourceTypes.LlmResearch)
+        {
+            <MudTextField @bind-Value="_researchPrompt" Label="Research prompt" Lines="3"
+                          HelperText="E.g. 'top AI image-generation news of the past 7 days'. Runs via the LLM with web search (Claude ExtraArgs)." />
         }
         else
         {
             <MudTextField @bind-Value="_feedUrl" Label="Feed URL" />
+            <MudSwitch T="bool" @bind-Value="_feedSplitLinks" Color="Color.Primary"
+                       Label="Split linked stories into separate items (digest feeds: every external link in a post becomes its own item)" />
+            <MudNumericField T="int" @bind-Value="_feedLimit" Label="Items per fetch" Min="1" Max="200"
+                             HelperText="Caps how many items one fetch returns — newest posts first (matters mostly in split mode)" />
         }
         <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; e.g. '0 6 * * *' = daily 06:00; empty = manual only)" />
         <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
@@ -69,11 +141,18 @@ else
     private Source? _editing;
     private string _type = SourceTypes.Reddit, _displayName = "", _subreddit = "", _sort = "hot",
         _timeframe = "week", _feedUrl = "", _cron = "";
+    private int _limit = 20;
+    private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
     private bool _enabled = true;
+    private bool _feedSplitLinks;
+    private int _feedLimit = 50;
+    private string _redditClientId = "", _redditSecret = "";
+    private bool _redditConfigured, _redditTesting;
 
     protected override async Task OnInitializedAsync()
     {
         Ctx.Changed += OnTenantChanged;
+        _redditConfigured = !string.IsNullOrEmpty(await Credentials.GetAsync(RedditConnector.CredentialName));
         await ReloadAsync();
     }
 
@@ -96,21 +175,42 @@ else
         _sources = Ctx.Initialized && Ctx.Active is not null ? await SourceSvc.ListAsync(Ctx.Active.Id) : [];
     }
 
-    private void Edit(Source s)
+    private async Task Edit(Source s)
     {
         _editing = s;
         _type = s.Type; _displayName = s.DisplayName; _cron = s.ScheduleCron ?? ""; _enabled = s.IsEnabled;
+        (_subreddit, _sort, _timeframe, _feedUrl, _siteUrl, _siteMode, _siteSelector, _researchPrompt)
+            = ("", "hot", "week", "", "", "auto", "", "");
+        _limit = 20;
+        _feedSplitLinks = false;
+        _feedLimit = 50;
         using var doc = JsonDocument.Parse(s.ConfigJson);
         if (s.Type == SourceTypes.Reddit)
         {
             _subreddit = doc.RootElement.TryGetProperty("subreddit", out var v) ? v.GetString() ?? "" : "";
-            _sort = doc.RootElement.TryGetProperty("sort", out var so) ? so.GetString() ?? "hot" : "hot";
-            _timeframe = doc.RootElement.TryGetProperty("timeframe", out var tf) ? tf.GetString() ?? "week" : "week";
+            // normalize legacy free-text values ("Hot") so they match the dropdown options
+            _sort = (doc.RootElement.TryGetProperty("sort", out var so) ? so.GetString() ?? "hot" : "hot").ToLowerInvariant();
+            _timeframe = (doc.RootElement.TryGetProperty("timeframe", out var tf) ? tf.GetString() ?? "week" : "week").ToLowerInvariant();
+            _limit = Math.Clamp(doc.RootElement.TryGetProperty("limit", out var li) && li.TryGetInt32(out var lim) ? lim : 20, 1, 20);
+        }
+        else if (s.Type == SourceTypes.Website)
+        {
+            _siteUrl = doc.RootElement.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+            _siteMode = doc.RootElement.TryGetProperty("mode", out var m) ? m.GetString() ?? "auto" : "auto";
+            _siteSelector = doc.RootElement.TryGetProperty("itemSelector", out var sel) ? sel.GetString() ?? "" : "";
+        }
+        else if (s.Type == SourceTypes.LlmResearch)
+        {
+            _researchPrompt = doc.RootElement.TryGetProperty("prompt", out var p) ? p.GetString() ?? "" : "";
         }
         else
         {
             _feedUrl = doc.RootElement.TryGetProperty("feedUrl", out var f) ? f.GetString() ?? "" : "";
+            _feedSplitLinks = doc.RootElement.TryGetProperty("splitLinkedStories", out var sl) && sl.ValueKind == JsonValueKind.True;
+            _feedLimit = Math.Clamp(doc.RootElement.TryGetProperty("limit", out var fl) && fl.TryGetInt32(out var flv) ? flv : 50, 1, 200);
         }
+        // the form sits above the table — without this, Edit appears to do nothing
+        await ScrollManager.ScrollToTopAsync("html", ScrollBehavior.Smooth);
     }
 
     private void Reset()
@@ -118,11 +218,23 @@ else
         _editing = null;
         (_type, _displayName, _subreddit, _sort, _timeframe, _feedUrl, _cron, _enabled)
             = (SourceTypes.Reddit, "", "", "hot", "week", "", "", true);
+        (_siteUrl, _siteMode, _siteSelector, _researchPrompt) = ("", "auto", "", "");
+        _limit = 20;
+        _feedSplitLinks = false;
+        _feedLimit = 50;
     }
 
-    private string BuildConfig() => _type == SourceTypes.Reddit
-        ? JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe })
-        : JsonSerializer.Serialize(new { feedUrl = _feedUrl });
+    private string BuildConfig() => _type switch
+    {
+        var t when t == SourceTypes.Reddit =>
+            JsonSerializer.Serialize(new { subreddit = _subreddit, sort = _sort, timeframe = _timeframe, limit = _limit }),
+        var t when t == SourceTypes.Website =>
+            JsonSerializer.Serialize(new { url = _siteUrl, mode = _siteMode,
+                itemSelector = _siteMode == "selector" ? _siteSelector : null }),
+        var t when t == SourceTypes.LlmResearch =>
+            JsonSerializer.Serialize(new { prompt = _researchPrompt }),
+        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl, splitLinkedStories = _feedSplitLinks, limit = _feedLimit })
+    };
 
     private async Task Save()
     {
@@ -149,8 +261,48 @@ else
 
     private async Task Delete(Source s)
     {
-        await SourceSvc.DeleteAsync(s.Id);
+        try
+        {
+            var removedItems = await SourceSvc.DeleteAsync(s.Id);
+            Snackbar.Add(removedItems > 0
+                ? $"Deleted '{s.DisplayName}' and {removedItems} inbox item(s)"
+                : $"Deleted '{s.DisplayName}'", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Warning);
+        }
         await ReloadAsync();
+    }
+
+    private async Task SaveRedditCreds()
+    {
+        await Credentials.SetAsync(RedditConnector.CredentialName,
+            JsonSerializer.Serialize(new { clientId = _redditClientId.Trim(), clientSecret = _redditSecret.Trim() }));
+        (_redditClientId, _redditSecret, _redditConfigured) = ("", "", true);
+        Snackbar.Add("Saved — Reddit fetches now use the official API. Hit Test to verify.", Severity.Success);
+    }
+
+    private async Task TestRedditCreds()
+    {
+        _redditTesting = true;
+        try
+        {
+            await RedditConn.TestCredentialsAsync();
+            Snackbar.Add("Reddit API OK — token issued.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _redditTesting = false; }
+    }
+
+    private async Task RemoveRedditCreds()
+    {
+        await Credentials.DeleteAsync(RedditConnector.CredentialName);
+        _redditConfigured = false;
+        Snackbar.Add("Removed — Reddit fetches fall back to the public feed.", Severity.Info);
     }
 
     private async Task FetchNow(Source s)

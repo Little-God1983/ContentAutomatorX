@@ -1,4 +1,6 @@
 @inject ISnackbar Snackbar
+@inject TenantContext Ctx
+@inject IDialogService DialogService
 
 <MudMenu AnchorOrigin="Origin.BottomLeft" TransformOrigin="Origin.TopLeft">
     <ActivatorContent>
@@ -8,8 +10,7 @@
                    OnClick="@(e => context.ToggleAsync(e))">New</MudButton>
     </ActivatorContent>
     <ChildContent>
-        <MudMenuItem Icon="@Icons.Material.Filled.Email"
-                     OnClick="@(() => Soon("Newsletter issue", "the newsletter vertical is the first real feature, in progress"))">
+        <MudMenuItem Icon="@Icons.Material.Filled.Email" OnClick="NewIssue">
             Newsletter issue…
         </MudMenuItem>
         <MudMenuItem Icon="@Icons.Material.Filled.Image"
@@ -39,4 +40,15 @@
 @code {
     private void Soon(string what, string note) =>
         Snackbar.Add($"{what}: coming soon — {note}.", Severity.Info);
+
+    private async Task NewIssue()
+    {
+        if (!Ctx.Initialized || Ctx.Active is null)
+        {
+            Snackbar.Add("Create a tenant first (top-right).", Severity.Info);
+            return;
+        }
+        await DialogService.ShowAsync<NewIssueDialog>("New newsletter issue",
+            new DialogParameters<NewIssueDialog> { { d => d.TenantId, Ctx.Active.Id } });
+    }
 }

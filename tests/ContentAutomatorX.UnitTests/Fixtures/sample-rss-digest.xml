@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+<channel>
+<title>AI Search</title>
+<link>https://aisearch.example.com</link>
+<item>
+<title><![CDATA[HUGE AI NEWS: LongCat 2.0, Sonnet 5]]></title>
+<link>https://aisearch.example.com/p/digest-1</link>
+<pubDate>Mon, 13 Jul 2026 21:12:54 GMT</pubDate>
+<description><![CDATA[Short summary blurb only.]]></description>
+<content:encoded><![CDATA[<p><strong>LongCat 2.0 released.</strong><span> Agentic coding model with 1M-token context and native tool calling. </span><a href="https://longcat.example/blog/2.0/">Read more</a></p><div><hr/></div><p><strong>Anthropic launched Sonnet 5.</strong><span> Now the default model for Free and Pro plans. </span><a href="https://anthropic.example/news/sonnet-5">Read more</a></p><p><a href="https://aisearch.example.com/subscribe">Subscribe to my newsletter</a></p><p><a class="image-link" href="https://substackcdn.example/image/fetch/f_auto,q_auto/https%3A%2F%2Fbucket%2Fad_1920x1447.jpeg"><img src="https://substackcdn.example/image/fetch/w_720/ad.jpeg" alt=""/></a></p><p><a href="https://sponsor.example/deal?ref=x">Try SponsorTool for free today!</a></p><noscript><a href="https://enable-javascript.example/">turn on JavaScript</a></noscript>]]></content:encoded>
+</item>
+</channel>
+</rss>
