@@ -1,7 +1,7 @@
 # ContentAutomatorX — Structured Issue Composer (Phase 2b) Design
 
 **Date:** 2026-07-19
-**Status:** Approved in brainstorming 2026-07-19; not yet implemented
+**Status:** Implemented 2026-07-19 (plan: docs/superpowers/plans/2026-07-19-issue-composer.md)
 **Depends on:** Phase 2a (newsletter-first, shipped 2026-07-18)
 **Mockups:** `docs/mockups/12-issue-composer.md`
 **Supersedes:** the free-markdown Issue editor (`IssueEditor.razor`) and the
