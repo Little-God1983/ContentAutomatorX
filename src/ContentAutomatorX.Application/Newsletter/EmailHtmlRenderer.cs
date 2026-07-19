@@ -44,6 +44,10 @@ public static partial class EmailHtmlRenderer
             .Replace("<p>", "<p style=\"margin:0 0 14px;\">")
             .Replace("<ul>", "<ul style=\"margin:0 0 14px;padding-left:24px;\">")
             .Replace("<li>", "<li style=\"margin:0 0 6px;\">")
+            .Replace("<ol>", "<ol style=\"margin:0 0 14px;padding-left:24px;\">")
+            .Replace("<table>", "<table style=\"border-collapse:collapse;width:100%;margin:0 0 14px;\">")
+            .Replace("<th>", "<th style=\"border:1px solid #dddddd;padding:6px 10px;text-align:left;background:#f7f7f7;\">")
+            .Replace("<td>", "<td style=\"border:1px solid #dddddd;padding:6px 10px;\">")
             .Replace("<blockquote>", "<blockquote style=\"margin:0 0 14px;padding:8px 16px;border-left:3px solid #1e88e5;color:#444444;\">")
             .Replace("<hr />", "<hr style=\"border:none;border-top:1px solid #dddddd;margin:20px 0;\" />");
     }

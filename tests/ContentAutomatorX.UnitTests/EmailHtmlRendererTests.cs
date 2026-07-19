@@ -53,4 +53,43 @@ public class EmailHtmlRendererTests
         Assert.Contains("<a style=\"color:#1e88e5;\" href=\"https://ex.com\">", html);
         Assert.Contains("<a style=\"color:#1e88e5;\" href=\"mailto:a@ex.com\">", html);
     }
+
+    [Fact]
+    public void Styles_ordered_lists_like_unordered_ones()
+    {
+        var html = EmailHtmlRenderer.Render("1. first\n2. second", "t");
+
+        Assert.Contains("<ol style=\"margin:0 0 14px;padding-left:24px;\">", html);
+        Assert.Contains("<li style=\"margin:0 0 6px;\">", html);
+    }
+
+    [Fact]
+    public void Styles_tables_with_borders_and_padding()
+    {
+        var html = EmailHtmlRenderer.Render("| A | B |\n| --- | --- |\n| 1 | 2 |", "t");
+
+        Assert.Contains("<table style=\"border-collapse:collapse;width:100%;margin:0 0 14px;\">", html);
+        Assert.Contains("<th style=\"border:1px solid #dddddd;padding:6px 10px;text-align:left;background:#f7f7f7;\">", html);
+        Assert.Contains("<td style=\"border:1px solid #dddddd;padding:6px 10px;\">", html);
+    }
+
+    [Fact]
+    public void Styles_horizontal_rules()
+    {
+        var html = EmailHtmlRenderer.Render("above\n\n---\n\nbelow", "t");
+
+        Assert.Contains("<hr style=\"border:none;border-top:1px solid #dddddd;margin:20px 0;\" />", html);
+    }
+
+    [Fact]
+    public void Null_and_empty_markdown_render_the_shell_without_crashing()
+    {
+        foreach (var md in new[] { null, "", "   " })
+        {
+            var html = EmailHtmlRenderer.Render(md!, "Empty");
+
+            Assert.Contains("<html", html);
+            Assert.Contains("Empty", html);
+        }
+    }
 }
