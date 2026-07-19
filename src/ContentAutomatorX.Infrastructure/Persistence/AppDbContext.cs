@@ -15,6 +15,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<Platform> Platforms => Set<Platform>();
     public DbSet<Post> Posts => Set<Post>();
+    public DbSet<IssueSection> IssueSections => Set<IssueSection>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -28,5 +29,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<Post>().Property(p => p.Status).HasConversion<string>();
         b.Entity<Post>().HasIndex(p => new { p.TenantId, p.Status });
         b.Entity<Platform>().HasIndex(p => new { p.TenantId, p.Type }).IsUnique();
+        b.Entity<IssueSection>().HasIndex(s => new { s.PostId, s.Position });
+        b.Entity<IssueSection>()
+            .HasOne<Post>().WithMany().HasForeignKey(s => s.PostId).OnDelete(DeleteBehavior.Cascade);
     }
 }

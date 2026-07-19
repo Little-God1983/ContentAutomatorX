@@ -14,5 +14,6 @@ public interface IAppDbContext
     DbSet<PromptTemplate> PromptTemplates { get; }
     DbSet<Platform> Platforms { get; }
     DbSet<Post> Posts { get; }
+    DbSet<IssueSection> IssueSections { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }
