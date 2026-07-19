@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 
 namespace ContentAutomatorX.Infrastructure.Llm;
 
@@ -7,6 +8,12 @@ public class ProcessRunner : IProcessRunner
     public async Task<ProcessResult> RunAsync(string fileName, string arguments, string? stdin,
         TimeSpan timeout, CancellationToken ct = default)
     {
+        // On Windows, resolve npm-style .cmd/.bat shims (e.g. the "claude" CLI) the way
+        // a shell would — a raw CreateProcess only finds .exe on PATH and cannot launch
+        // batch files, so those get routed through cmd.exe. See WindowsCommandResolver.
+        if (OperatingSystem.IsWindows())
+            (fileName, arguments) = WindowsCommandResolver.Resolve(fileName, arguments, File.Exists, PathDirs(), PathExts());
+
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
@@ -44,4 +51,12 @@ public class ProcessRunner : IProcessRunner
 
         return new ProcessResult(process.ExitCode, await stdoutTask, await stderrTask);
     }
+
+    private static IEnumerable<string> PathDirs() =>
+        (Environment.GetEnvironmentVariable("PATH") ?? "")
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static IEnumerable<string> PathExts() =>
+        (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 }
