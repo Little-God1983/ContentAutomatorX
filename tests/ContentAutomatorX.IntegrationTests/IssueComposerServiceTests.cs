@@ -341,4 +341,90 @@ public class IssueComposerServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => composer.RegenerateSectionAsync(sections[^1].Id, null));  // footer is not regenerable
     }
+
+    private static async Task ConfigureMailerLiteAsync(World w)
+    {
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        await w.Platforms.SetApiKeyAsync(platform, "KEY");
+        await w.Platforms.SaveConfigAsync(platform, new MailerLiteConfig("g1", "Main", "Acme", "n@x.com"));
+    }
+
+    [Fact]
+    public async Task Push_renders_sections_with_the_mailerlite_unsubscribe_variable_and_needs_no_draft()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        await ConfigureMailerLiteAsync(w);
+        var llm = new SequenceLlm(TopicsJson(w.Items.Take(1)));
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Sectioned issue");
+        await composer.GenerateTopicsAsync(post.Id, null);
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery()),
+            llm, w.Platforms, w.MailerLite);
+
+        var pushed = await posts.PushAsync(post.Id);
+
+        Assert.Equal(PostStatus.Pushed, pushed.Status);
+        Assert.Null(pushed.DraftId);                                        // no Draft row was ever needed
+        var html = w.MailerLite.Pushes.Single().Draft.Html;
+        Assert.Contains("Blurb for Item 1.", html);
+        Assert.Contains("Hi friends!", html);                               // tenant default header
+        Assert.Contains("{$unsubscribe}", html);
+        Assert.DoesNotContain(SectionHtmlRenderer.UnsubscribeToken, html);
+    }
+
+    [Fact]
+    public async Task Push_rejects_an_overlong_subject_before_calling_mailerlite()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        await ConfigureMailerLiteAsync(w);
+        var composer = Composer(w, new FakeLlm());
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery()),
+            new FakeLlm(), w.Platforms, w.MailerLite);
+        await posts.SaveIssueMetaAsync(post.Id, "t", new string('x', 256), null);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => posts.PushAsync(post.Id));
+
+        Assert.Contains("255", ex.Message);
+        Assert.Empty(w.MailerLite.Pushes);
+    }
+
+    [Fact]
+    public async Task SaveIssueMeta_persists_title_subject_preview_without_touching_sections()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Old");
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery()),
+            new FakeLlm(), w.Platforms, w.MailerLite);
+
+        await posts.SaveIssueMetaAsync(post.Id, "New title", "Subj", "Pv");
+
+        using var fresh = w.Test.NewContext();
+        var reloaded = await fresh.Posts.SingleAsync(p => p.Id == post.Id);
+        Assert.Equal(("New title", "Subj", "Pv"), (reloaded.Title, reloaded.Subject, reloaded.PreviewText));
+        Assert.Null(reloaded.DraftId);                                      // meta save never creates a Draft
+        Assert.Equal(3, await fresh.IssueSections.CountAsync(s => s.PostId == post.Id));
+    }
+
+    [Fact]
+    public async Task SubjectIdeas_reads_section_markdown_for_sectioned_issues()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm(TopicsJson(w.Items.Take(1)), "[\"s1\",\"s2\",\"s3\",\"s4\",\"s5\"]");
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        await composer.GenerateTopicsAsync(post.Id, null);
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery()),
+            llm, w.Platforms, w.MailerLite);
+
+        var ideas = await posts.SubjectIdeasAsync(post.Id);
+
+        Assert.Equal(5, ideas.Count);
+        Assert.Contains("Blurb for Item 1.", llm.Prompts[^1]);              // section markdown reached the prompt
+    }
 }

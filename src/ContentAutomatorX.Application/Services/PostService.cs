@@ -158,12 +158,35 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Title/subject/preview for a sectioned issue — body lives in IssueSections,
+    /// so unlike SaveIssueAsync this never creates or touches a Draft.</summary>
+    public async Task SaveIssueMetaAsync(Guid postId, string title, string? subject,
+        string? previewText, CancellationToken ct = default)
+    {
+        var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
+        post.Title = title;
+        post.Subject = subject;
+        post.PreviewText = previewText;
+        await db.SaveChangesAsync(ct);
+    }
+
     public async Task<IReadOnlyList<string>> SubjectIdeasAsync(Guid postId, CancellationToken ct = default)
     {
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
-        var draft = post.DraftId is Guid id ? await db.Drafts.SingleAsync(d => d.Id == id, ct)
-            : throw new InvalidOperationException("Nothing to write subjects for yet.");
-        var excerpt = draft.Body.Length <= 4000 ? draft.Body : draft.Body[..4000];
+        var sections = await db.IssueSections.Where(s => s.PostId == postId)
+            .OrderBy(s => s.Position).ToListAsync(ct);
+        string body;
+        if (sections.Count > 0)
+        {
+            body = SectionHtmlRenderer.ToMarkdown(sections);
+        }
+        else
+        {
+            var draft = post.DraftId is Guid id ? await db.Drafts.SingleAsync(d => d.Id == id, ct)
+                : throw new InvalidOperationException("Nothing to write subjects for yet.");
+            body = draft.Body;
+        }
+        var excerpt = body.Length <= 4000 ? body : body[..4000];
         var prompt = $"""
             Write 5 email subject lines for this newsletter issue. Punchy, concrete, <60 chars, no clickbait.
             Respond with ONLY a JSON array of 5 strings, no prose, no markdown fences.
@@ -185,19 +208,37 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
         if (post.Status == PostStatus.Published)
             throw new InvalidOperationException("This issue was already sent — create a new issue instead.");
-        var draft = post.DraftId is Guid id ? await db.Drafts.SingleAsync(d => d.Id == id, ct)
-            : throw new InvalidOperationException("Compose or write the issue first.");
         var platform = await db.Platforms.SingleAsync(p => p.Id == post.PlatformId, ct);
         var config = platforms.GetConfig(platform);
         var apiKey = await platforms.GetApiKeyAsync(platform, ct);
         if (apiKey is null || config.GroupId is null || config.FromName is null || config.FromEmail is null)
             throw new InvalidOperationException("MailerLite is not fully configured — finish setup on the Platforms page.");
 
-        var html = EmailHtmlRenderer.Render(draft.Body, post.Title);
+        var subject = post.Subject ?? post.Title;
+        if (string.IsNullOrWhiteSpace(subject))
+            throw new InvalidOperationException("Set a subject (or title) before pushing.");
+        if (subject.Length > 255)
+            throw new InvalidOperationException("Subject must be 255 characters or fewer (MailerLite limit).");
+
+        var sections = await db.IssueSections.Where(s => s.PostId == postId)
+            .OrderBy(s => s.Position).ToListAsync(ct);
+        string html;
+        if (sections.Count > 0)
+        {
+            var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
+            html = SectionHtmlRenderer.Render(sections, tenant, post.Title)
+                .Replace(SectionHtmlRenderer.UnsubscribeToken, "{$unsubscribe}"); // MailerLite's variable
+        }
+        else // legacy free-markdown issue
+        {
+            var draft = post.DraftId is Guid id ? await db.Drafts.SingleAsync(d => d.Id == id, ct)
+                : throw new InvalidOperationException("Compose or write the issue first.");
+            html = EmailHtmlRenderer.Render(draft.Body, post.Title);
+        }
         try
         {
             var campaignId = await mailerLite.PushDraftAsync(apiKey, new MailerLiteDraft(
-                Name: post.Title, Subject: post.Subject ?? post.Title, PreviewText: post.PreviewText,
+                Name: post.Title, Subject: subject, PreviewText: post.PreviewText,
                 FromName: config.FromName, FromEmail: config.FromEmail, GroupId: config.GroupId, Html: html),
                 post.ExternalId, ct);
             post.ExternalId = campaignId;
