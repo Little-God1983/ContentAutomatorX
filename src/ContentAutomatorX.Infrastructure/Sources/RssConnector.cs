@@ -16,7 +16,7 @@ public class RssConnector(HttpClient http) : ISourceConnector
 
     private static readonly HtmlParser HtmlParser = new();
 
-    private record RssConfig(string FeedUrl, bool SplitLinkedStories = false);
+    private record RssConfig(string FeedUrl, bool SplitLinkedStories = false, int? Limit = null);
 
     public async Task<IReadOnlyList<FetchedItem>> FetchAsync(Source source, CancellationToken ct = default)
     {
@@ -28,9 +28,14 @@ public class RssConnector(HttpClient http) : ISourceConnector
         using var reader = XmlReader.Create(stream);
         var feed = SyndicationFeed.Load(reader);
 
-        return config.SplitLinkedStories
+        var items = config.SplitLinkedStories
             ? ExtractLinkedStories(feed, config.FeedUrl)
-            : feed.Items.Select(item => new FetchedItem(
+            : PlainItems(feed);
+        return config.Limit is int limit && limit > 0 ? items.Take(Math.Min(limit, 500)).ToList() : items;
+    }
+
+    private static List<FetchedItem> PlainItems(SyndicationFeed feed) =>
+        feed.Items.Select(item => new FetchedItem(
                 ExternalId: item.Id ?? item.Links.FirstOrDefault()?.Uri.ToString() ?? item.Title.Text,
                 Title: item.Title?.Text ?? "(untitled)",
                 Url: item.Links.FirstOrDefault()?.Uri.ToString(),
@@ -38,7 +43,6 @@ public class RssConnector(HttpClient http) : ISourceConnector
                 Body: (item.Summary?.Text ?? (item.Content as TextSyndicationContent)?.Text ?? "").Trim(),
                 MetadataJson: "{}",
                 PublishedAt: item.PublishDate == default ? null : item.PublishDate)).ToList();
-    }
 
     /// <summary>
     /// Digest/aggregator mode: every external link inside a post's body becomes its own
@@ -67,11 +71,17 @@ public class RssConnector(HttpClient http) : ISourceConnector
                 if (!Uri.TryCreate(href, UriKind.Absolute, out var uri)) continue;
                 if (uri.Scheme is not ("http" or "https")) continue;
                 if (uri.Host.Equals(feedHost, StringComparison.OrdinalIgnoreCase)) continue; // post-internal link
+
+                var anchorText = anchor.TextContent.Trim();
+                // image embeds / ad banners: a text-less anchor wrapping an <img>, or a
+                // link straight to an image file / image CDN — not a story
+                if (anchorText.Length == 0) continue;
+                if (IsImageUrl(uri)) continue;
+
                 if (!seen.Add(href)) continue;
 
                 var paragraph = anchor.Closest("p") ?? anchor.ParentElement;
                 var heading = paragraph?.QuerySelector("strong,b,h1,h2,h3")?.TextContent.Trim();
-                var anchorText = anchor.TextContent.Trim();
                 var paragraphText = paragraph?.TextContent.Trim() ?? "";
 
                 var title = !string.IsNullOrWhiteSpace(heading) ? heading
@@ -92,6 +102,14 @@ public class RssConnector(HttpClient http) : ISourceConnector
         }
         return results;
     }
+
+    private static bool IsImageUrl(Uri uri) =>
+        uri.Host.Contains("substackcdn", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsoluteUri.TrimEnd('/').EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsoluteUri.TrimEnd('/').EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsoluteUri.TrimEnd('/').EndsWith(".png", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsoluteUri.TrimEnd('/').EndsWith(".gif", StringComparison.OrdinalIgnoreCase) ||
+        uri.AbsoluteUri.TrimEnd('/').EndsWith(".webp", StringComparison.OrdinalIgnoreCase);
 
     private static bool IsGenericLinkText(string text) =>
         text.Length > 60 ||

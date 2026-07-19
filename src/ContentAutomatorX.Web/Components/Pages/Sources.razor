@@ -103,6 +103,8 @@ else
             <MudTextField @bind-Value="_feedUrl" Label="Feed URL" />
             <MudSwitch T="bool" @bind-Value="_feedSplitLinks" Color="Color.Primary"
                        Label="Split linked stories into separate items (digest feeds: every external link in a post becomes its own item)" />
+            <MudNumericField T="int" @bind-Value="_feedLimit" Label="Items per fetch" Min="1" Max="200"
+                             HelperText="Caps how many items one fetch returns — newest posts first (matters mostly in split mode)" />
         }
         <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; e.g. '0 6 * * *' = daily 06:00; empty = manual only)" />
         <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
@@ -143,6 +145,7 @@ else
     private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
     private bool _enabled = true;
     private bool _feedSplitLinks;
+    private int _feedLimit = 50;
     private string _redditClientId = "", _redditSecret = "";
     private bool _redditConfigured, _redditTesting;
 
@@ -180,6 +183,7 @@ else
             = ("", "hot", "week", "", "", "auto", "", "");
         _limit = 20;
         _feedSplitLinks = false;
+        _feedLimit = 50;
         using var doc = JsonDocument.Parse(s.ConfigJson);
         if (s.Type == SourceTypes.Reddit)
         {
@@ -203,6 +207,7 @@ else
         {
             _feedUrl = doc.RootElement.TryGetProperty("feedUrl", out var f) ? f.GetString() ?? "" : "";
             _feedSplitLinks = doc.RootElement.TryGetProperty("splitLinkedStories", out var sl) && sl.ValueKind == JsonValueKind.True;
+            _feedLimit = Math.Clamp(doc.RootElement.TryGetProperty("limit", out var fl) && fl.TryGetInt32(out var flv) ? flv : 50, 1, 200);
         }
         // the form sits above the table — without this, Edit appears to do nothing
         await ScrollManager.ScrollToTopAsync("html", ScrollBehavior.Smooth);
@@ -216,6 +221,7 @@ else
         (_siteUrl, _siteMode, _siteSelector, _researchPrompt) = ("", "auto", "", "");
         _limit = 20;
         _feedSplitLinks = false;
+        _feedLimit = 50;
     }
 
     private string BuildConfig() => _type switch
@@ -227,7 +233,7 @@ else
                 itemSelector = _siteMode == "selector" ? _siteSelector : null }),
         var t when t == SourceTypes.LlmResearch =>
             JsonSerializer.Serialize(new { prompt = _researchPrompt }),
-        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl, splitLinkedStories = _feedSplitLinks })
+        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl, splitLinkedStories = _feedSplitLinks, limit = _feedLimit })
     };
 
     private async Task Save()
