@@ -101,6 +101,8 @@ else
         else
         {
             <MudTextField @bind-Value="_feedUrl" Label="Feed URL" />
+            <MudSwitch T="bool" @bind-Value="_feedSplitLinks" Color="Color.Primary"
+                       Label="Split linked stories into separate items (digest feeds: every external link in a post becomes its own item)" />
         }
         <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; e.g. '0 6 * * *' = daily 06:00; empty = manual only)" />
         <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
@@ -140,6 +142,7 @@ else
     private int _limit = 20;
     private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
     private bool _enabled = true;
+    private bool _feedSplitLinks;
     private string _redditClientId = "", _redditSecret = "";
     private bool _redditConfigured, _redditTesting;
 
@@ -176,6 +179,7 @@ else
         (_subreddit, _sort, _timeframe, _feedUrl, _siteUrl, _siteMode, _siteSelector, _researchPrompt)
             = ("", "hot", "week", "", "", "auto", "", "");
         _limit = 20;
+        _feedSplitLinks = false;
         using var doc = JsonDocument.Parse(s.ConfigJson);
         if (s.Type == SourceTypes.Reddit)
         {
@@ -198,6 +202,7 @@ else
         else
         {
             _feedUrl = doc.RootElement.TryGetProperty("feedUrl", out var f) ? f.GetString() ?? "" : "";
+            _feedSplitLinks = doc.RootElement.TryGetProperty("splitLinkedStories", out var sl) && sl.ValueKind == JsonValueKind.True;
         }
         // the form sits above the table — without this, Edit appears to do nothing
         await ScrollManager.ScrollToTopAsync("html", ScrollBehavior.Smooth);
@@ -210,6 +215,7 @@ else
             = (SourceTypes.Reddit, "", "", "hot", "week", "", "", true);
         (_siteUrl, _siteMode, _siteSelector, _researchPrompt) = ("", "auto", "", "");
         _limit = 20;
+        _feedSplitLinks = false;
     }
 
     private string BuildConfig() => _type switch
@@ -221,7 +227,7 @@ else
                 itemSelector = _siteMode == "selector" ? _siteSelector : null }),
         var t when t == SourceTypes.LlmResearch =>
             JsonSerializer.Serialize(new { prompt = _researchPrompt }),
-        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl })
+        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl, splitLinkedStories = _feedSplitLinks })
     };
 
     private async Task Save()

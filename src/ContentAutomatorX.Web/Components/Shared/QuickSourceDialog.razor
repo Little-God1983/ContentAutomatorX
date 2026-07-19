@@ -52,6 +52,8 @@
         else
         {
             <MudTextField @bind-Value="_feedUrl" Label="Feed URL" />
+            <MudSwitch T="bool" @bind-Value="_feedSplitLinks" Color="Color.Primary"
+                       Label="Split linked stories into separate items (digest feeds)" />
         }
         <MudText Typo="Typo.caption" Class="mt-2">
             No schedule — this source only runs when an issue gathers it. Add a schedule later on the Sources page.
@@ -72,6 +74,7 @@
         _timeframe = "week", _feedUrl = "";
     private string _siteUrl = "", _siteMode = "auto", _siteSelector = "", _researchPrompt = "";
     private int _limit = 20;
+    private bool _feedSplitLinks;
     private bool _busy;
 
     private void Cancel() => MudDialog.Cancel();
@@ -85,7 +88,7 @@
                 itemSelector = _siteMode == "selector" ? _siteSelector : null }),
         var t when t == SourceTypes.LlmResearch =>
             JsonSerializer.Serialize(new { prompt = _researchPrompt }),
-        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl })
+        _ => JsonSerializer.Serialize(new { feedUrl = _feedUrl, splitLinkedStories = _feedSplitLinks })
     };
 
     private async Task Create()
