@@ -26,7 +26,10 @@ public sealed class TestDb : IDisposable
     public void Dispose()
     {
         Db.Dispose();
-        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        // Clear only this instance's pool — ClearAllPools() is process-global and, under xUnit's
+        // parallel test classes, can race and clear another test's pool mid-flight.
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_path}"))
+            Microsoft.Data.Sqlite.SqliteConnection.ClearPool(conn);
         try { File.Delete(_path); } catch { /* best effort */ }
     }
 }
