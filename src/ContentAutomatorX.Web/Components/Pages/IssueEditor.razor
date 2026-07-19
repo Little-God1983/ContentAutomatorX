@@ -300,8 +300,8 @@ else
                 RunStatus.Partial => Severity.Warning,
                 _ => Severity.Error
             };
-            Snackbar.Add(run.Status == RunStatus.Succeeded ? "Composed." : $"Compose {run.Status}: {run.LogJson}",
-                severity);
+            Snackbar.Add(run.Status == RunStatus.Succeeded ? "Composed."
+                : $"Compose {run.Status}: {LastLogLine(run.LogJson)} — full log on the Runs page", severity);
         }
         catch (Exception ex)
         {
@@ -312,6 +312,16 @@ else
             _composing = false;
             StateHasChanged();
         }
+    }
+
+    private static string LastLogLine(string logJson)
+    {
+        try
+        {
+            var lines = JsonSerializer.Deserialize<string[]>(logJson);
+            return lines is { Length: > 0 } ? lines[^1] : "no details logged";
+        }
+        catch (JsonException) { return "no details logged"; }
     }
 
     // Shared by Save/Compose/Subjects/Push so none of them can act on stale text —

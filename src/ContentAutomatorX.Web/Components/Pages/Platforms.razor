@@ -34,6 +34,12 @@ else
                 <MudSelectItem T="string" Value="@g.Id">@g.Name</MudSelectItem>
             }
         </MudSelect>
+        @if (!_verified && _groups.Count > 0)
+        {
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Showing the saved group from config — not verified yet. "Test &amp; load groups" checks the key and loads all groups.
+            </MudText>
+        }
         <MudTextField @bind-Value="_fromName" Label="From name" />
         <MudTextField @bind-Value="_fromEmail" Label="From email" />
         <MudTextField @bind-Value="_colorHex" Label="Platform color (hex)" />
@@ -92,6 +98,7 @@ else
     private List<MailerLiteGroup> _groups = [];
     private string? _storedGroupId;
     private string? _storedGroupName;
+    private bool _verified;
 
     protected override async Task OnInitializedAsync()
     {
@@ -131,6 +138,11 @@ else
         _fromName = config.FromName ?? "";
         _fromEmail = config.FromEmail ?? "";
         _colorHex = _platform.ColorHex;
+
+        _verified = false;
+        if (_groups.Count == 0 && !string.IsNullOrEmpty(_storedGroupId))
+            _groups = [new MailerLiteGroup(_storedGroupId,
+                string.IsNullOrWhiteSpace(_storedGroupName) ? _storedGroupId : _storedGroupName)];
     }
 
     private async Task SaveKey()
@@ -165,6 +177,7 @@ else
             if (ok)
             {
                 _groups = [.. await PlatformSvc.ListGroupsAsync(_platform)];
+                _verified = true;
             }
         }
         catch (Exception ex)

@@ -27,10 +27,10 @@
                 }
             </MudSelect>
             <MudSelect T="int" @bind-Value="_windowDays" Label="Material window">
-                <MudSelectItem T="int" Value="3">Last 3 days</MudSelectItem>
-                <MudSelectItem T="int" Value="7">Last 7 days</MudSelectItem>
-                <MudSelectItem T="int" Value="14">Last 14 days</MudSelectItem>
-                <MudSelectItem T="int" Value="30">Last 30 days</MudSelectItem>
+                @foreach (var d in WindowOptions())
+                {
+                    <MudSelectItem T="int" Value="@d">Last @d days</MudSelectItem>
+                }
             </MudSelect>
             <MudTextField @bind-Value="_title" Label="Title" />
 
@@ -69,10 +69,14 @@
     private HashSet<Guid> _checked = [];
     private Guid _recipeId;
     private int _windowDays = 7;
+    private static readonly int[] DefaultWindows = [3, 7, 14, 30];
     private string _title = "";
     private bool _saveAsDefault;
     private bool _loading = true;
     private bool _busy;
+
+    private IEnumerable<int> WindowOptions() =>
+        DefaultWindows.Contains(_windowDays) ? DefaultWindows : DefaultWindows.Append(_windowDays).OrderBy(d => d);
 
     private void Cancel()
     {
@@ -101,6 +105,10 @@
         {
             _recipeId = id;
             var recipe = _recipes.Single(r => r.Id == id);
+            int? configured = null;
+            try { configured = JsonSerializer.Deserialize<SelectionRules>(recipe.SelectionJson)?.TimeWindowDays; }
+            catch (JsonException) { /* malformed SelectionJson — keep the default */ }
+            _windowDays = configured.HasValue && configured.Value > 0 ? configured.Value : 7;
             var ids = JsonSerializer.Deserialize<Guid[]>(recipe.SourceIdsJson) ?? [];
             _checked = ids.Length == 0 ? _sources.Select(s => s.Id).ToHashSet() : ids.ToHashSet();
             _title = await PostSvc.SuggestTitleAsync(id);
