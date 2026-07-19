@@ -4,8 +4,8 @@ using MudBlazor;
 namespace ContentAutomatorX.Web;
 
 /// <summary>
-/// Single home for how a source type is shown in the UI (icon + friendly name),
-/// shared by the Recipes source picker and the Inbox table.
+/// Single home for how a source type is presented across the UI: icon, friendly
+/// name, create-flow hint, and the canonical ordering the type dropdowns render from.
 /// </summary>
 public static class SourceTypeDisplay
 {
