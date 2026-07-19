@@ -15,10 +15,23 @@ public static partial class EmailHtmlRenderer
 
     private static readonly string[] AllowedHrefSchemes = ["http://", "https://", "mailto:"];
 
-    public static string Render(string markdown, string title)
+    public const string DefaultAccent = "#1e88e5";
+
+    /// <summary>Markdown → inline-styled HTML fragment (no document wrapper). The default
+    /// accent (#1e88e5) baked into InlineStyles is recolored when a custom accent is given.</summary>
+    public static string RenderFragment(string markdown, string accentHex = DefaultAccent)
     {
         var body = Markdown.ToHtml(markdown ?? "", Pipeline);
         body = InlineStyles(body);
+        return accentHex == DefaultAccent
+            ? body
+            : body.Replace($"color:{DefaultAccent};", $"color:{accentHex};")
+                  .Replace($"border-left:3px solid {DefaultAccent};", $"border-left:3px solid {accentHex};");
+    }
+
+    public static string Render(string markdown, string title)
+    {
+        var body = RenderFragment(markdown);
         var safeTitle = System.Net.WebUtility.HtmlEncode(title);
         return $"""
         <!DOCTYPE html>
