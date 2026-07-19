@@ -8,6 +8,7 @@
 @inject RedditConnector RedditConn
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
+@inject IScrollManager ScrollManager
 
 <MudText Typo="Typo.h4" Class="mb-4">Sources</MudText>
 
@@ -21,7 +22,7 @@ else if (Ctx.Active is null)
 }
 else
 {
-    <MudPaper Class="pa-4 mb-4">
+    <MudPaper Class="pa-4 mb-4" id="source-form">
         <MudText Typo="Typo.h6">@(_editing is null ? "New source" : $"Edit: {_editing.DisplayName}")</MudText>
         <MudSelect T="string" @bind-Value="_type" Label="Type">
             <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
@@ -161,7 +162,7 @@ else
         _sources = Ctx.Initialized && Ctx.Active is not null ? await SourceSvc.ListAsync(Ctx.Active.Id) : [];
     }
 
-    private void Edit(Source s)
+    private async Task Edit(Source s)
     {
         _editing = s;
         _type = s.Type; _displayName = s.DisplayName; _cron = s.ScheduleCron ?? ""; _enabled = s.IsEnabled;
@@ -191,6 +192,8 @@ else
         {
             _feedUrl = doc.RootElement.TryGetProperty("feedUrl", out var f) ? f.GetString() ?? "" : "";
         }
+        // the form sits above the table — without this, Edit appears to do nothing
+        await ScrollManager.ScrollToTopAsync("html", ScrollBehavior.Smooth);
     }
 
     private void Reset()

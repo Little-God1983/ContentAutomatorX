@@ -7,6 +7,7 @@
 @inject PlatformService PlatformSvc
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
+@inject IScrollManager ScrollManager
 
 <MudText Typo="Typo.h4" Class="mb-4">Automations</MudText>
 
@@ -20,7 +21,7 @@ else if (Ctx.Active is null)
 }
 else
 {
-    <MudPaper Class="pa-4 mb-4">
+    <MudPaper Class="pa-4 mb-4" id="recipe-form">
         <MudText Typo="Typo.h6">@(_editing is null ? "New recipe" : $"Edit: {_editing.Name}")</MudText>
         <MudTextField @bind-Value="_name" Label="Name (e.g. 'Weekly AI News Newsletter')" />
         <MudSelect T="string" @bind-Value="_kind" Label="Kind" Disabled="@(_editing is not null)">
@@ -171,6 +172,8 @@ else
         _subfolder = output.Subfolder ?? ""; _filenamePattern = output.FilenamePattern ?? "";
         _targetPlatform = output.TargetPlatform ?? "";
         _template = await RecipeSvc.GetTemplateAsync(r.PromptTemplateId);
+        // the form sits above the table — without this, Edit appears to do nothing
+        await ScrollManager.ScrollToTopAsync("html", ScrollBehavior.Smooth);
     }
 
     private void Reset()
