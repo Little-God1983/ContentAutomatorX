@@ -95,6 +95,7 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
     db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+    await NormalizedUrlBackfill.RunAsync(db);
     foreach (var kind in DraftKinds.All)
         if (!db.PromptTemplates.Any(p => p.TenantId == null && p.Kind == kind))
             db.PromptTemplates.Add(new PromptTemplate { TenantId = null, Kind = kind, Template = DefaultTemplates.GetFor(kind) });

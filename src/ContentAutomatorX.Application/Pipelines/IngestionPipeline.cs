@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ContentAutomatorX.Application.Persistence;
+using ContentAutomatorX.Application.Services;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
@@ -53,17 +54,55 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
 
                 var existingIds = existing.Select(i => i.ExternalId).ToHashSet();
                 var fresh = items.Where(f => !existingIds.Contains(f.ExternalId)).ToList();
-                added = fresh.Select(f => new ContentItem
+
+                // tenant-wide duplicate-link check on normalized URLs (cross-source; null = exempt)
+                var normalized = fresh.Select(f => (Item: f, Norm: UrlNormalizer.Normalize(f.Url))).ToList();
+                var norms = normalized.Where(x => x.Norm != null).Select(x => x.Norm!).Distinct().ToList();
+                var owners = await db.ContentItems
+                    .Where(i => i.TenantId == tenantId && i.NormalizedUrl != null && norms.Contains(i.NormalizedUrl))
+                    .Select(i => new { i.NormalizedUrl, i.FetchedAt, i.SourceId })
+                    .ToListAsync(ct);
+                var ownerSourceIds = owners.Select(o => o.SourceId).Distinct().ToList();
+                var ownerNames = await db.Sources
+                    .Where(s => ownerSourceIds.Contains(s.Id))
+                    .ToDictionaryAsync(s => s.Id, s => s.DisplayName, ct);
+                // NormalizedUrl is unique per tenant via the filtered unique index, so first-match
+                // semantics are safe; ToDictionary is used directly rather than GroupBy+First.
+                var ownerByNorm = owners.ToDictionary(o => o.NormalizedUrl!);
+
+                var skipped = new List<string>();
+                var seen = new HashSet<string>();
+                var toAdd = new List<(Domain.Models.FetchedItem Item, string? Norm)>();
+                foreach (var (f, norm) in normalized)
                 {
-                    TenantId = tenantId, SourceId = source.Id, ExternalId = f.ExternalId,
-                    Title = f.Title, Url = f.Url, Author = f.Author, Body = f.Body,
-                    MetadataJson = f.MetadataJson, PublishedAt = f.PublishedAt
+                    if (norm == null) { toAdd.Add((f, null)); continue; }
+                    if (ownerByNorm.TryGetValue(norm, out var owner))
+                    {
+                        var via = ownerNames.GetValueOrDefault(owner.SourceId, "unknown source");
+                        skipped.Add($"  duplicate: {f.Url} (already imported {owner.FetchedAt:yyyy-MM-dd} via {via})");
+                        continue;
+                    }
+                    if (!seen.Add(norm))
+                    {
+                        skipped.Add($"  duplicate: {f.Url} (duplicate within this fetch)");
+                        continue;
+                    }
+                    toAdd.Add((f, norm));
+                }
+
+                added = toAdd.Select(x => new ContentItem
+                {
+                    TenantId = tenantId, SourceId = source.Id, ExternalId = x.Item.ExternalId,
+                    Title = x.Item.Title, Url = x.Item.Url, Author = x.Item.Author, Body = x.Item.Body,
+                    MetadataJson = x.Item.MetadataJson, PublishedAt = x.Item.PublishedAt,
+                    NormalizedUrl = x.Norm
                 }).ToList();
                 foreach (var item in added) db.ContentItems.Add(item);
 
                 source.LastFetchedAt = DateTimeOffset.UtcNow;
                 await db.SaveChangesAsync(ct);
-                log.Add($"{source.DisplayName}: fetched {fetched.Count}, new {fresh.Count}");
+                log.Add($"{source.DisplayName}: fetched {fetched.Count}, new {added.Count}, skipped {skipped.Count} duplicate link(s)");
+                log.AddRange(skipped);
             }
             catch (Exception ex)
             {

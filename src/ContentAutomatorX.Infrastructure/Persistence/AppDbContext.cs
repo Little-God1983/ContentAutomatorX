@@ -20,6 +20,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     {
         b.Entity<Tenant>().HasIndex(t => t.Slug).IsUnique();
         b.Entity<ContentItem>().HasIndex(i => new { i.SourceId, i.ExternalId }).IsUnique();
+        b.Entity<ContentItem>().HasIndex(i => new { i.TenantId, i.NormalizedUrl }).IsUnique()
+            .HasFilter("\"NormalizedUrl\" IS NOT NULL");
         b.Entity<ContentItem>().Property(i => i.Status).HasConversion<string>();
         b.Entity<Draft>().Property(d => d.Status).HasConversion<string>();
         b.Entity<PipelineRun>().Property(r => r.Status).HasConversion<string>();

@@ -192,4 +192,90 @@ public class IngestionPipelineTests
         var reloadedGood = await verify.Sources.SingleAsync(s => s.Id == goodSource.Id);
         Assert.NotNull(reloadedGood.LastFetchedAt);
     }
+
+    [Fact]
+    public async Task Same_link_from_second_source_is_skipped_and_logged()
+    {
+        using var test = TestDb.Create();
+        var (tenant, rssSource) = Seed(test);
+        var redditSource = new Source { TenantId = tenant.Id, Type = SourceTypes.Reddit, DisplayName = "sub" };
+        test.Db.Sources.Add(redditSource);
+        test.Db.SaveChanges();
+
+        var rss = new FakeConnector(SourceTypes.Rss, _ =>
+            [new FetchedItem("rss-1", "Post", "https://example.com/post", null, "b", "{}", null)]);
+        var reddit = new FakeConnector(SourceTypes.Reddit, _ =>
+            [new FetchedItem("red-1", "Post", "https://example.com/post/?utm_source=reddit", null, "b", "{}", null)]);
+        var pipeline = new IngestionPipeline(test.Db, [rss, reddit]);
+
+        var run = await pipeline.RunAsync(tenant.Id);
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        var item = Assert.Single(await test.Db.ContentItems.ToListAsync());
+        Assert.Equal("rss-1", item.ExternalId);
+        Assert.Equal("https://example.com/post", item.NormalizedUrl);
+
+        var log = JsonSerializer.Deserialize<List<string>>(run.LogJson)!;
+        Assert.Contains("feed: fetched 1, new 1, skipped 0 duplicate link(s)", log);
+        Assert.Contains("sub: fetched 1, new 0, skipped 1 duplicate link(s)", log);
+        Assert.Contains(log, l => l.Contains("duplicate: https://example.com/post/?utm_source=reddit")
+                               && l.Contains("via feed"));
+    }
+
+    [Fact]
+    public async Task Refetch_with_rotated_tracking_params_is_skipped()
+    {
+        using var test = TestDb.Create();
+        var (tenant, source) = Seed(test);
+        var call = 0;
+        var connector = new FakeConnector(SourceTypes.Rss, _ => ++call == 1
+            ? [new FetchedItem("https://ex.com/p?utm_s=1", "P", "https://ex.com/p?utm_s=1", null, "b", "{}", null)]
+            : [new FetchedItem("https://ex.com/p?utm_s=2", "P", "https://ex.com/p?utm_s=2", null, "b", "{}", null)]);
+        var pipeline = new IngestionPipeline(test.Db, [connector]);
+
+        await pipeline.RunAsync(tenant.Id);
+        var run2 = await pipeline.RunAsync(tenant.Id);
+
+        Assert.Equal(1, await test.Db.ContentItems.CountAsync());
+        Assert.Contains("skipped 1 duplicate link(s)", run2.LogJson);
+    }
+
+    [Fact]
+    public async Task Same_link_twice_in_one_fetch_keeps_first_occurrence()
+    {
+        using var test = TestDb.Create();
+        var (tenant, source) = Seed(test);
+        var connector = new FakeConnector(SourceTypes.Rss, _ =>
+        [
+            new FetchedItem("a", "First", "https://ex.com/p", null, "b", "{}", null),
+            new FetchedItem("b", "Second", "https://ex.com/p#comments", null, "b", "{}", null)
+        ]);
+        var pipeline = new IngestionPipeline(test.Db, [connector]);
+
+        var run = await pipeline.RunAsync(tenant.Id);
+
+        var item = Assert.Single(await test.Db.ContentItems.ToListAsync());
+        Assert.Equal("a", item.ExternalId);
+        Assert.Contains("duplicate within this fetch", run.LogJson);
+    }
+
+    [Fact]
+    public async Task Items_without_urls_are_not_treated_as_duplicates_of_each_other()
+    {
+        using var test = TestDb.Create();
+        var (tenant, source) = Seed(test);
+        var connector = new FakeConnector(SourceTypes.Rss, _ =>
+        [
+            new FetchedItem("a", "One", null, null, "b", "{}", null),
+            new FetchedItem("b", "Two", null, null, "b", "{}", null),
+            new FetchedItem("c", "Three", "not a url", null, "b", "{}", null)
+        ]);
+        var pipeline = new IngestionPipeline(test.Db, [connector]);
+
+        var run = await pipeline.RunAsync(tenant.Id);
+
+        Assert.Equal(RunStatus.Succeeded, run.Status);
+        Assert.Equal(3, await test.Db.ContentItems.CountAsync());
+        Assert.Contains("skipped 0 duplicate link(s)", run.LogJson);
+    }
 }
