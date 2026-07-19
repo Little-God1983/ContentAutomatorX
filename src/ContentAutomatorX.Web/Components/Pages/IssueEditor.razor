@@ -154,7 +154,7 @@ else
     // stripping the query params before running keeps an F5 reload from re-triggering ingestion/LLM.
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || (!_autoGenerate && !_autoGather)) return;
+        if (!_autoGenerate && !_autoGather) return;
 
         var generate = _autoGenerate;
         var gather = _autoGather;
