@@ -73,6 +73,7 @@ builder.Services.AddScoped<DraftService>();
 builder.Services.AddScoped<RunService>();
 builder.Services.AddScoped<PlatformService>();
 builder.Services.AddScoped<PostService>();
+builder.Services.AddScoped<IssueComposerService>();
 builder.Services.AddScoped<PostSyncService>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();

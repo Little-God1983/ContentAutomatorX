@@ -50,4 +50,172 @@ public class IssueComposerServiceTests
         var b = new TenantBranding("#7C3AED", "https://ex.com/logo.png", "georgia");
         Assert.Equal(b, TenantBranding.Parse(b.ToJson()));
     }
+
+    private sealed record World(TestDb Test, PlatformService Platforms, FakeMailerLite MailerLite,
+        Tenant Tenant, Recipe Recipe, Source Source, List<ContentItem> Items);
+
+    private static async Task<World> BuildAsync()
+    {
+        var test = TestDb.Create();
+        var tenant = new Tenant
+        {
+            Name = "T", Slug = "t-composer",
+            DefaultHeaderMd = "Hi friends!", DefaultFooterMd = "Bye! — Chris",
+            SenderIdentity = "Acme Media, Musterstr. 1, Berlin, DE"
+        };
+        var source = new Source { TenantId = tenant.Id, Type = SourceTypes.Rss, DisplayName = "feed" };
+        var template = new PromptTemplate { TenantId = null, Kind = DraftKinds.Newsletter, Template = "{items}" };
+        var recipe = new Recipe
+        {
+            TenantId = tenant.Id, Name = "AI Weekly", Kind = DraftKinds.Newsletter,
+            PromptTemplateId = template.Id, ToneModifiers = "punchy"
+        };
+        test.Db.AddRange(tenant, source, template, recipe);
+        var items = new List<ContentItem>();
+        for (var n = 1; n <= 3; n++)
+        {
+            var item = new ContentItem
+            {
+                TenantId = tenant.Id, SourceId = source.Id, ExternalId = $"e{n}",
+                Title = $"Item {n}", Url = $"https://ex.com/{n}", Body = $"body {n}",
+                PublishedAt = DateTimeOffset.UtcNow.AddDays(-1)
+            };
+            items.Add(item);
+            test.Db.ContentItems.Add(item);
+        }
+        await test.Db.SaveChangesAsync();
+        var ml = new FakeMailerLite();
+        var platforms = new PlatformService(test.Db, new InMemoryCredentials(), ml);
+        return new World(test, platforms, ml, tenant, recipe, source, items);
+    }
+
+    private static IssueComposerService Composer(World w, ILlmBackend llm) =>
+        new(w.Test.Db, llm,
+            new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery()),
+                llm, w.Platforms, w.MailerLite));
+
+    [Fact]
+    public async Task CreateFromItems_builds_header_topics_footer_with_contiguous_positions()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
+            w.Items.Select(i => i.Id).ToList(), "AI Weekly #1");
+        var sections = await composer.GetSectionsAsync(post.Id);
+
+        Assert.Equal(5, sections.Count);
+        Assert.Equal(SectionTypes.Header, sections[0].Type);
+        Assert.Equal("Hi friends!", sections[0].BodyMd);
+        Assert.Equal(SectionTypes.Footer, sections[^1].Type);
+        Assert.Equal(Enumerable.Range(0, 5), sections.Select(s => s.Position));
+        var topic = sections[1];
+        Assert.Equal(SectionTypes.Topic, topic.Type);
+        Assert.Equal("Item 1", topic.Title);
+        Assert.Equal("https://ex.com/1", topic.LinkUrl);
+        Assert.Equal(w.Items[0].Id, topic.SourceItemId);
+        Assert.True(string.IsNullOrEmpty(topic.BodyMd)); // skeleton until generation
+    }
+
+    [Fact]
+    public async Task EnsureSections_wraps_a_legacy_draft_body_and_is_idempotent()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        var draft = new Draft { TenantId = w.Tenant.Id, RecipeId = w.Recipe.Id, Kind = DraftKinds.Newsletter, Title = "Old", Body = "old markdown body" };
+        var post = new Post { TenantId = w.Tenant.Id, PlatformId = platform.Id, DraftId = draft.Id, Kind = DraftKinds.Newsletter, Title = "Old issue" };
+        w.Test.Db.AddRange(draft, post);
+        await w.Test.Db.SaveChangesAsync();
+
+        await composer.EnsureSectionsAsync(post.Id);
+        await composer.EnsureSectionsAsync(post.Id); // idempotent
+
+        var sections = await composer.GetSectionsAsync(post.Id);
+        Assert.Equal(3, sections.Count);
+        Assert.Equal(new[] { SectionTypes.Header, SectionTypes.LegacyBody, SectionTypes.Footer },
+            sections.Select(s => s.Type));
+        Assert.Equal("old markdown body", sections[1].BodyMd);
+    }
+
+    [Fact]
+    public async Task AddSection_inserts_above_footer_and_rejects_header_footer()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+
+        var sponsor = await composer.AddSectionAsync(post.Id, SectionTypes.Sponsor);
+
+        var sections = await composer.GetSectionsAsync(post.Id);
+        Assert.Equal(sponsor.Id, sections[^2].Id);                 // directly above the footer
+        Assert.Equal(SectionTypes.Footer, sections[^1].Type);
+        Assert.Equal(Enumerable.Range(0, sections.Count), sections.Select(s => s.Position));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.AddSectionAsync(post.Id, SectionTypes.Header));
+    }
+
+    [Fact]
+    public async Task Move_swaps_within_bounds_and_never_crosses_header_or_footer()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
+            w.Items.Select(i => i.Id).ToList(), "t");
+        var sections = await composer.GetSectionsAsync(post.Id);
+        var first = sections[1];   // topic "Item 1"
+        var second = sections[2];  // topic "Item 2"
+
+        await composer.MoveSectionAsync(second.Id, -1);            // swap 1 and 2
+        var after = await composer.GetSectionsAsync(post.Id);
+        Assert.Equal(new[] { second.Id, first.Id }, after.Skip(1).Take(2).Select(s => s.Id));
+
+        await composer.MoveSectionAsync(second.Id, -1);            // would cross the header — no-op
+        Assert.Equal(second.Id, (await composer.GetSectionsAsync(post.Id))[1].Id);
+        await composer.MoveSectionAsync(sections[3].Id, 1);        // would cross the footer — no-op
+        Assert.Equal(SectionTypes.Footer, (await composer.GetSectionsAsync(post.Id))[^1].Type);
+    }
+
+    [Fact]
+    public async Task Update_and_remove_persist_and_renumber_but_protect_header_footer()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
+            w.Items.Select(i => i.Id).ToList(), "t");
+        var sections = await composer.GetSectionsAsync(post.Id);
+
+        await composer.UpdateSectionAsync(sections[1].Id, "New title", "new body", null, "https://ex.com/new", null);
+        await composer.RemoveSectionAsync(sections[2].Id);
+
+        var after = await composer.GetSectionsAsync(post.Id);
+        Assert.Equal(4, after.Count);
+        Assert.Equal("New title", after[1].Title);
+        Assert.Equal("new body", after[1].BodyMd);
+        Assert.Equal(Enumerable.Range(0, 4), after.Select(s => s.Position));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.RemoveSectionAsync(after[0].Id));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.RemoveSectionAsync(after[^1].Id));
+    }
+
+    [Fact]
+    public async Task Export_and_preview_render_the_sections()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new FakeLlm());
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "My issue");
+
+        var md = await composer.ExportMarkdownAsync(post.Id);
+        Assert.Contains("## Item 1", md);
+        Assert.Contains("Hi friends!", md);
+
+        var html = await composer.RenderPreviewAsync(post.Id, "My issue");
+        Assert.Contains("My issue", html);
+        Assert.Contains("href=\"#\"", html);                                    // token replaced for preview
+        Assert.DoesNotContain(SectionHtmlRenderer.UnsubscribeToken, html);
+    }
 }
