@@ -170,6 +170,7 @@ LLM is editing one binding cell. Details in
 | [09-patreon-flow.md](09-patreon-flow.md) | Prepare-kit pattern for API-less platforms |
 | [10-platforms-ai-settings.md](10-platforms-ai-settings.md) | Platform config, capability badges, AI providers & job bindings |
 | [11-folder-structure.md](11-folder-structure.md) | On-disk layout: projects, posts-per-platform, patron-only case |
+| [12-issue-composer.md](12-issue-composer.md) | Issue Composer v2: typed sections, sponsor/CTA blocks, branding, one renderer for preview/push/export |
 
 ---
 
