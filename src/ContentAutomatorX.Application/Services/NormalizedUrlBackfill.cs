@@ -16,6 +16,7 @@ public static class NormalizedUrlBackfill
             .Where(i => i.NormalizedUrl == null && i.Url != null)
             .ToListAsync(ct))
             .OrderBy(i => i.FetchedAt)
+            .ThenBy(i => i.Id)
             .ToList();
         if (pending.Count == 0) return;
 

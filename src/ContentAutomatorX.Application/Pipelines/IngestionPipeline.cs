@@ -66,6 +66,9 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
                 var ownerNames = await db.Sources
                     .Where(s => ownerSourceIds.Contains(s.Id))
                     .ToDictionaryAsync(s => s.Id, s => s.DisplayName, ct);
+                // NormalizedUrl is unique per tenant via the filtered unique index, so first-match
+                // semantics are safe; ToDictionary is used directly rather than GroupBy+First.
+                var ownerByNorm = owners.ToDictionary(o => o.NormalizedUrl!);
 
                 var skipped = new List<string>();
                 var seen = new HashSet<string>();
@@ -73,7 +76,7 @@ public class IngestionPipeline(IAppDbContext db, IEnumerable<ISourceConnector> c
                 foreach (var (f, norm) in normalized)
                 {
                     if (norm == null) { toAdd.Add((f, null)); continue; }
-                    if (owners.FirstOrDefault(o => o.NormalizedUrl == norm) is { } owner)
+                    if (ownerByNorm.TryGetValue(norm, out var owner))
                     {
                         var via = ownerNames.GetValueOrDefault(owner.SourceId, "unknown source");
                         skipped.Add($"  duplicate: {f.Url} (already imported {owner.FetchedAt:yyyy-MM-dd} via {via})");
