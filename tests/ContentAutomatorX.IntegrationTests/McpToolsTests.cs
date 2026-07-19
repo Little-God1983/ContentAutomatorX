@@ -64,6 +64,138 @@ public class McpToolsTests : IDisposable
         var json = await ContentXTools.MarkItem(new ContentService(test.Db), item.Id.ToString(), "Selected");
 
         Assert.Contains("Selected", json);
+        using var fresh = test.NewContext();
+        Assert.Equal(ContentItemStatus.Selected, fresh.ContentItems.Single(i => i.Id == item.Id).Status);
+    }
+
+    [Fact]
+    public async Task Mark_item_unknown_id_returns_not_found()
+    {
+        using var test = TestDb.Create();
+
+        var json = await ContentXTools.MarkItem(new ContentService(test.Db), Guid.NewGuid().ToString(), "Selected");
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.String, doc.RootElement.ValueKind);
+        Assert.Equal("not found", doc.RootElement.GetString());
+    }
+
+    [Fact]
+    public async Task Push_post_unknown_id_returns_not_found()
+    {
+        using var test = TestDb.Create();
+        var ml = new FakeMailerLite();
+        var creds = new InMemoryCredentials();
+        var platforms = new PlatformService(test.Db, creds, ml);
+        var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery());
+        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml);
+
+        var json = await ContentXTools.PushPost(posts, Guid.NewGuid().ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.String, doc.RootElement.ValueKind);
+        Assert.Equal("not found", doc.RootElement.GetString());
+    }
+
+    [Fact]
+    public async Task List_sources_returns_the_tenants_sources()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-sources" };
+        var source = new Source { TenantId = tenant.Id, Type = SourceTypes.Rss, DisplayName = "feed" };
+        test.Db.Tenants.Add(tenant); test.Db.Sources.Add(source);
+        await test.Db.SaveChangesAsync();
+
+        var json = await ContentXTools.ListSources(new SourceService(test.Db), tenant.Id.ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+        var element = doc.RootElement[0];
+        Assert.Equal(source.Id, element.GetProperty("id").GetGuid());
+        Assert.Equal(SourceTypes.Rss, element.GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task List_content_items_filters_by_status()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-items" };
+        var source = new Source { TenantId = tenant.Id, Type = SourceTypes.Rss, DisplayName = "feed" };
+        var newItem = new ContentItem { TenantId = tenant.Id, SourceId = source.Id, ExternalId = "n", Title = "New Item", Status = ContentItemStatus.New };
+        var selectedItem = new ContentItem { TenantId = tenant.Id, SourceId = source.Id, ExternalId = "s", Title = "Selected Item", Status = ContentItemStatus.Selected };
+        test.Db.Tenants.Add(tenant); test.Db.Sources.Add(source);
+        test.Db.ContentItems.AddRange(newItem, selectedItem);
+        await test.Db.SaveChangesAsync();
+
+        var json = await ContentXTools.ListContentItems(new ContentService(test.Db), tenant.Id.ToString(), "Selected");
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+        Assert.Equal(selectedItem.Id, doc.RootElement[0].GetProperty("id").GetGuid());
+    }
+
+    [Fact]
+    public async Task List_recipes_returns_the_tenants_recipes()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-recipes" };
+        var recipe = new Recipe { TenantId = tenant.Id, Name = "My Recipe", Kind = DraftKinds.SocialPost };
+        test.Db.Tenants.Add(tenant); test.Db.Recipes.Add(recipe);
+        await test.Db.SaveChangesAsync();
+
+        var json = await ContentXTools.ListRecipes(new RecipeService(test.Db), tenant.Id.ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(1, doc.RootElement.GetArrayLength());
+        Assert.Equal("My Recipe", doc.RootElement[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Get_recipe_returns_not_found_for_unknown_and_json_for_real()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-getrecipe" };
+        var recipe = new Recipe { TenantId = tenant.Id, Name = "R1", Kind = DraftKinds.SocialPost };
+        test.Db.Tenants.Add(tenant); test.Db.Recipes.Add(recipe);
+        await test.Db.SaveChangesAsync();
+        var service = new RecipeService(test.Db);
+
+        var notFoundJson = await ContentXTools.GetRecipe(service, Guid.NewGuid().ToString());
+        using var notFoundDoc = JsonDocument.Parse(notFoundJson);
+        Assert.Equal(JsonValueKind.String, notFoundDoc.RootElement.ValueKind);
+        Assert.Equal("not found", notFoundDoc.RootElement.GetString());
+
+        var foundJson = await ContentXTools.GetRecipe(service, recipe.Id.ToString());
+        using var foundDoc = JsonDocument.Parse(foundJson);
+        Assert.Equal("R1", foundDoc.RootElement.GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Get_draft_returns_not_found_for_unknown_id()
+    {
+        using var test = TestDb.Create();
+
+        var json = await ContentXTools.GetDraft(new DraftService(test.Db, new FileShareDraftDelivery()), Guid.NewGuid().ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.String, doc.RootElement.ValueKind);
+        Assert.Equal("not found", doc.RootElement.GetString());
+    }
+
+    [Fact]
+    public async Task Trigger_ingestion_reports_run_status()
+    {
+        using var test = TestDb.Create();
+        var tenant = new Tenant { Name = "T", Slug = "t-trigger" };
+        test.Db.Tenants.Add(tenant);
+        await test.Db.SaveChangesAsync();
+
+        var pipeline = new IngestionPipeline(test.Db, []);
+        var json = await ContentXTools.TriggerIngestion(pipeline, tenant.Id.ToString());
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.TryGetProperty("runStatus", out var runStatus));
+        Assert.Equal("Succeeded", runStatus.GetString());
     }
 
     [Fact]

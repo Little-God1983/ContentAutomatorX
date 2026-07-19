@@ -32,11 +32,13 @@ public class ContentService(IAppDbContext db)
         return (deletable.Count, items.Count - deletable.Count);
     }
 
-    public async Task MarkAsync(Guid itemId, ContentItemStatus status)
+    /// <summary>Sets the item's curation status. Returns false when the item no longer exists.</summary>
+    public async Task<bool> MarkAsync(Guid itemId, ContentItemStatus status)
     {
-        var item = await db.ContentItems.FirstOrDefaultAsync(i => i.Id == itemId)
-            ?? throw new InvalidOperationException($"Content item {itemId} not found");
+        var item = await db.ContentItems.FirstOrDefaultAsync(i => i.Id == itemId);
+        if (item is null) return false;
         item.Status = status;
         await db.SaveChangesAsync();
+        return true;
     }
 }
