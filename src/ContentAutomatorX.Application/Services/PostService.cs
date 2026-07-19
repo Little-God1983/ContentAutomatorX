@@ -69,7 +69,8 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
     public async Task<List<Post>> ReviewQueueAsync(Guid tenantId, CancellationToken ct = default)
     {
         var list = await db.Posts.Where(p => p.TenantId == tenantId &&
-                (p.NeedsReview || p.Status == PostStatus.Pushed) && p.Status != PostStatus.Published)
+                (p.NeedsReview || p.Status == PostStatus.Pushed || p.Status == PostStatus.Failed) &&
+                p.Status != PostStatus.Published)
             .ToListAsync(ct);
         return list.OrderBy(p => p.CreatedAt).ToList();
     }

@@ -226,6 +226,25 @@ public class PostServiceTests
     }
 
     [Fact]
+    public async Task Review_queue_includes_failed_posts()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        var failed = new Post
+        {
+            TenantId = w.Tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "Broken push", Status = PostStatus.Failed, NeedsReview = false
+        };
+        w.Test.Db.Posts.Add(failed);
+        await w.Test.Db.SaveChangesAsync();
+
+        var queue = await w.Posts.ReviewQueueAsync(w.Tenant.Id);
+
+        Assert.Contains(queue, p => p.Id == failed.Id);
+    }
+
+    [Fact]
     public async Task Compose_of_an_existing_issue_does_not_spawn_a_duplicate_review_post_when_the_recipe_targets_a_platform()
     {
         var w = await BuildAsync();
