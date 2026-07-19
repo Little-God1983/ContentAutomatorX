@@ -74,6 +74,31 @@ public class EmailHtmlRendererTests
     }
 
     [Fact]
+    public void Styles_table_cells_with_alignment_and_borders()
+    {
+        var html = EmailHtmlRenderer.Render("| A | B |\n| :---: | ---: |\n| 1 | 2 |", "t");
+
+        Assert.Contains(
+            "<th style=\"border:1px solid #dddddd;padding:6px 10px;text-align:center;background:#f7f7f7;\">A</th>",
+            html);
+        Assert.Contains(
+            "<th style=\"border:1px solid #dddddd;padding:6px 10px;text-align:right;background:#f7f7f7;\">B</th>",
+            html);
+        Assert.Contains(
+            "<td style=\"border:1px solid #dddddd;padding:6px 10px;text-align:center;\">1</td>", html);
+        Assert.Contains(
+            "<td style=\"border:1px solid #dddddd;padding:6px 10px;text-align:right;\">2</td>", html);
+    }
+
+    [Fact]
+    public void Styles_ordered_list_with_a_start_offset()
+    {
+        var html = EmailHtmlRenderer.Render("3. third\n4. fourth", "t");
+
+        Assert.Contains("<ol start=\"3\" style=\"margin:0 0 14px;padding-left:24px;\">", html);
+    }
+
+    [Fact]
     public void Styles_horizontal_rules()
     {
         var html = EmailHtmlRenderer.Render("above\n\n---\n\nbelow", "t");
