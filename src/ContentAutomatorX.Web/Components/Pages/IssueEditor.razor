@@ -91,6 +91,7 @@ else
                 <MudMenu Label="Add section" StartIcon="@Icons.Material.Filled.Add"
                          Variant="Variant.Outlined" Class="mt-2" Disabled="@AnyBusy">
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Topic))">Topic (write manually)</MudMenuItem>
+                    <MudMenuItem OnClick="OpenItemPickerAsync">Topic from inbox…</MudMenuItem>
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Sponsor))">Sponsor block</MudMenuItem>
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Button))">Button / CTA</MudMenuItem>
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Divider))">Divider</MudMenuItem>
@@ -118,9 +119,9 @@ else
     private string _previewHtml = "";
     private string _title = "", _subject = "", _preview = "", _extraInstructions = "";
     private IReadOnlyList<string> _subjectIdeas = [];
-    private bool _generating, _generateFailed, _pushing, _subjectsLoading, _mutating;
+    private bool _generating, _generateFailed, _pushing, _subjectsLoading, _mutating, _gathering;
 
-    private bool AnyBusy => _generating || _pushing || _subjectsLoading || _mutating;
+    private bool AnyBusy => _generating || _pushing || _subjectsLoading || _mutating || _gathering;
     private int SkeletonCount => _sections.Count(s =>
         s.Type == SectionTypes.Topic && string.IsNullOrWhiteSpace(s.BodyMd) && s.SourceItemId is not null);
 
@@ -141,6 +142,11 @@ else
         var query = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query);
         _extraInstructions = query["instructions"] ?? "";
         if (query["generate"] == "1" && SkeletonCount > 0) await GenerateAsync();
+        if (query["gather"] == "1") // "+ New → Create & gather": fetch fresh material, then pick
+        {
+            await GatherAsync();
+            await OpenItemPickerAsync();
+        }
     }
 
     // Every composer call runs in a fresh DI scope: LLM calls are long-running, and cross-scope
@@ -352,6 +358,47 @@ else
         PostStatus.Failed => Color.Error,
         _ => Color.Default
     };
+
+    private async Task OpenItemPickerAsync()
+    {
+        if (_post is null) return;
+        var parameters = new DialogParameters<InboxItemPickerDialog> { { d => d.TenantId, _post.TenantId } };
+        var dialog = await DialogService.ShowAsync<InboxItemPickerDialog>("Add topics from inbox", parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not List<Guid> itemIds || itemIds.Count == 0) return;
+        await RunMutationAsync(c => c.AddTopicsFromItemsAsync(PostId, itemIds), "Add topics");
+        if (SkeletonCount > 0) await GenerateAsync(); // picked topics get their blurbs immediately
+    }
+
+    private async Task GatherAsync()
+    {
+        if (_post is null || _gathering) return;
+        _gathering = true;
+        StateHasChanged();
+        try
+        {
+            var sourceIds = await PostSvc.GetIssueSourceIdsAsync(_post);
+            using var scope = ScopeFactory.CreateScope();
+            var pipeline = scope.ServiceProvider.GetRequiredService<IngestionPipeline>();
+            var failed = 0;
+            foreach (var id in sourceIds)
+            {
+                var run = await pipeline.RunAsync(_post.TenantId, id);
+                if (run.Status == RunStatus.Failed) failed++;
+            }
+            Snackbar.Add(failed > 0 ? $"Gathered — {failed} source(s) failed." : "Gathered.",
+                failed > 0 ? Severity.Warning : Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Gather failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _gathering = false;
+            StateHasChanged();
+        }
+    }
 
     public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }
