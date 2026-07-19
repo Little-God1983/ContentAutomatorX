@@ -163,13 +163,13 @@ else
         {
             await PostSvc.PushAsync(post.Id);
             Snackbar.Add("Pushed to MailerLite ✓", Severity.Success);
+            await ReloadAsync();
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Retry failed: {ex.Message}", Severity.Error);
         }
         finally { _retrying = false; }
-        await ReloadAsync();
     }
 
     public void Dispose() => Ctx.Changed -= OnTenantChanged;

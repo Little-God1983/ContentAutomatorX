@@ -164,7 +164,7 @@ public class GenerationPipelineTests : IDisposable
         fresh.SaveChanges();
         var pipeline = new GenerationPipeline(test.NewContext(), new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
 
-        var (run, draft) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
+        var (run, _) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
 
         Assert.Equal(RunStatus.Partial, run.Status);
         var post = await test.Db.Posts.SingleAsync();
