@@ -1,0 +1,29 @@
+using ContentAutomatorX.Domain;
+using MudBlazor;
+
+namespace ContentAutomatorX.Web;
+
+/// <summary>
+/// Single home for how a source type is shown in the UI (icon + friendly name),
+/// shared by the Recipes source picker and the Inbox table.
+/// </summary>
+public static class SourceTypeDisplay
+{
+    public static string Icon(string type) => type switch
+    {
+        SourceTypes.Reddit => Icons.Custom.Brands.Reddit,
+        SourceTypes.Rss => Icons.Material.Filled.RssFeed,
+        SourceTypes.Website => Icons.Material.Filled.Language,
+        SourceTypes.LlmResearch => Icons.Material.Filled.AutoAwesome,
+        _ => Icons.Material.Filled.Source
+    };
+
+    public static string Label(string type) => type switch
+    {
+        SourceTypes.Reddit => "Reddit",
+        SourceTypes.Rss => "RSS/Atom feed",
+        SourceTypes.Website => "Website",
+        SourceTypes.LlmResearch => "LLM research",
+        _ => type
+    };
+}
