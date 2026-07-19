@@ -24,6 +24,6 @@ public static class SourceTypeDisplay
         SourceTypes.Rss => "RSS/Atom feed",
         SourceTypes.Website => "Website",
         SourceTypes.LlmResearch => "LLM research",
-        _ => type
+        _ => string.IsNullOrEmpty(type) ? "Unknown source" : type
     };
 }
