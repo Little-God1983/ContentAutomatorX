@@ -29,10 +29,13 @@ public class PlatformService(IAppDbContext db, ICredentialStore credentials, IMa
         }
         catch (DbUpdateException)
         {
-            // Lost a race against another circuit that created the same tenant/type row first —
-            // the unique index rejected our insert. Fall back to the row that won.
+            // Probably lost a race against another circuit that created the same tenant/type row first —
+            // but verify: if no winning row exists, this wasn't the unique index. Surface the real failure.
             db.Platforms.Remove(platform);
-            return await db.Platforms.SingleAsync(p => p.TenantId == tenantId && p.Type == PlatformTypes.MailerLite, ct);
+            var winner = await db.Platforms.SingleOrDefaultAsync(
+                p => p.TenantId == tenantId && p.Type == PlatformTypes.MailerLite, ct);
+            if (winner is null) throw;
+            return winner;
         }
     }
 

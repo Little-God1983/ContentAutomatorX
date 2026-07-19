@@ -26,8 +26,9 @@ public class FakeMailerLite : IMailerLiteClient
     public MailerLiteCampaignStatus NextStatus { get; set; } = new("draft", null, null, null);
     public List<string> StatusCalls { get; } = [];
     public string? ThrowForCampaignId { get; set; }
+    public int TestCalls { get; private set; }
 
-    public Task<bool> TestAsync(string apiKey, CancellationToken ct = default) => Task.FromResult(true);
+    public Task<bool> TestAsync(string apiKey, CancellationToken ct = default) { TestCalls++; return Task.FromResult(true); }
     public Task<IReadOnlyList<MailerLiteGroup>> ListGroupsAsync(string apiKey, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<MailerLiteGroup>>([new("g1", "Main")]);
     public Task<string> PushDraftAsync(string apiKey, MailerLiteDraft draft, string? existingCampaignId, CancellationToken ct = default)
