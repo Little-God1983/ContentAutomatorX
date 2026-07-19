@@ -9,6 +9,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.Application.Services;
 
+public record TopicBlurb(Guid ItemId, string Title, string Blurb);
+
 /// <summary>Owns the structured-issue composer: section lifecycle (Task 4) and AI topic
 /// generation (Task 5). An issue always has exactly one Header (first) and one Footer (last);
 /// positions stay 0-based and contiguous after every mutation.</summary>
@@ -151,5 +153,136 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
             return doc.RootElement.TryGetProperty("image", out var v) ? v.GetString() : null;
         }
         catch (JsonException) { return null; }
+    }
+
+    public async Task<int> GenerateTopicsAsync(Guid postId, string? extraInstructions, CancellationToken ct = default)
+    {
+        var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
+        var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
+        var recipe = post.RecipeId is Guid recipeId
+            ? await db.Recipes.SingleAsync(r => r.Id == recipeId, ct) : null;
+        var skeletons = (await GetSectionsAsync(postId, ct))
+            .Where(s => s.Type == SectionTypes.Topic && string.IsNullOrWhiteSpace(s.BodyMd) && s.SourceItemId is not null)
+            .ToList();
+        if (skeletons.Count == 0) return 0;
+
+        var itemIds = skeletons.Select(s => s.SourceItemId!.Value).ToList();
+        var items = await db.ContentItems.Where(i => itemIds.Contains(i.Id)).ToListAsync(ct);
+        var prompt = BuildTopicsPrompt(tenant, recipe, items, extraInstructions);
+
+        List<TopicBlurb>? topics = null;
+        for (var attempt = 1; attempt <= 2 && topics is null; attempt++)
+        {
+            var reply = await llm.GenerateAsync(attempt == 1 ? prompt
+                : prompt + "\nYour previous reply was not valid JSON. Respond with ONLY the JSON array.", ct);
+            TryParseTopics(reply.Text, out topics);
+        }
+        if (topics is null)
+            throw new InvalidOperationException("The model did not return topic blurbs as JSON — try again.");
+
+        var byItem = topics.ToDictionary(t => t.ItemId);
+        var filled = 0;
+        foreach (var section in skeletons)
+        {
+            if (!byItem.TryGetValue(section.SourceItemId!.Value, out var topic)) continue;
+            section.BodyMd = topic.Blurb;
+            if (!string.IsNullOrWhiteSpace(topic.Title)) section.Title = topic.Title;
+            filled++;
+        }
+        foreach (var item in items) item.Status = ContentItemStatus.Used;
+        await db.SaveChangesAsync(ct);
+        return filled;
+    }
+
+    public async Task RegenerateSectionAsync(Guid sectionId, string? instruction, CancellationToken ct = default)
+    {
+        var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
+        var post = await db.Posts.SingleAsync(p => p.Id == section.PostId, ct);
+        var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
+        var voice = string.IsNullOrWhiteSpace(tenant.VoiceProfile) ? "" : $"Voice: {tenant.VoiceProfile}\n";
+        var extra = string.IsNullOrWhiteSpace(instruction) ? "" : $"Extra instructions: {instruction}\n";
+        string prompt;
+        if (section.Type == SectionTypes.Header)
+        {
+            var topicTitles = (await GetSectionsAsync(section.PostId, ct))
+                .Where(s => s.Type == SectionTypes.Topic && !string.IsNullOrWhiteSpace(s.Title))
+                .Select(s => $"- {s.Title}");
+            prompt = $"""
+                Write a 2-3 sentence newsletter intro greeting the readers and teasing these topics.
+                {voice}{extra}Topics:
+                {string.Join("\n", topicTitles)}
+                Respond with ONLY the intro markdown, no heading, no fences.
+                """;
+        }
+        else if (section.Type == SectionTypes.Topic)
+        {
+            var item = section.SourceItemId is Guid itemId
+                ? await db.ContentItems.FirstOrDefaultAsync(i => i.Id == itemId, ct) : null;
+            var material = item is null ? section.BodyMd ?? ""
+                : item.Body.Length > 2000 ? item.Body[..2000] : item.Body;
+            prompt = $"""
+                Rewrite this newsletter topic blurb (2-4 sentences, markdown, no heading).
+                {voice}{extra}Topic: {section.Title}
+                Material:
+                {material}
+                Respond with ONLY the blurb markdown, no fences.
+                """;
+        }
+        else
+        {
+            throw new InvalidOperationException("Only topics and the header can be regenerated.");
+        }
+        var reply = await llm.GenerateAsync(prompt, ct);
+        section.BodyMd = reply.Text.Trim();
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static string BuildTopicsPrompt(Tenant tenant, Recipe? recipe,
+        IReadOnlyList<ContentItem> items, string? extraInstructions)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("You write newsletter topic blurbs.");
+        if (!string.IsNullOrWhiteSpace(tenant.VoiceProfile)) sb.AppendLine($"Voice: {tenant.VoiceProfile}");
+        if (!string.IsNullOrWhiteSpace(recipe?.ToneModifiers)) sb.AppendLine($"Tone: {recipe.ToneModifiers}");
+        if (!string.IsNullOrWhiteSpace(recipe?.Language)) sb.AppendLine($"Write in: {recipe.Language}");
+        if (!string.IsNullOrWhiteSpace(extraInstructions)) sb.AppendLine($"Extra instructions: {extraInstructions}");
+        sb.AppendLine();
+        sb.AppendLine("Write one short markdown blurb (2-4 sentences) per item below. Improve the title when it helps.");
+        sb.AppendLine("""Respond with ONLY a JSON array, no prose, no markdown fences: [{"itemId":"<id>","title":"...","blurb":"..."}]""");
+        foreach (var item in items)
+        {
+            sb.AppendLine($"--- itemId: {item.Id} ---");
+            sb.AppendLine($"Title: {item.Title}");
+            if (item.Url is not null) sb.AppendLine($"URL: {item.Url}");
+            var body = item.Body.Length > 2000 ? item.Body[..2000] + " [truncated]" : item.Body;
+            if (body.Length > 0) sb.AppendLine(body);
+        }
+        return sb.ToString();
+    }
+
+    // Public because the unit-test project asserts the contract directly (no InternalsVisibleTo in this repo).
+    public static bool TryParseTopics(string text, out List<TopicBlurb>? topics)
+    {
+        topics = null;
+        var trimmed = text.Trim();
+        if (trimmed.StartsWith("```"))
+        {
+            var firstNewline = trimmed.IndexOf('\n');
+            var lastFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+            if (firstNewline >= 0 && lastFence > firstNewline)
+                trimmed = trimmed[(firstNewline + 1)..lastFence].Trim();
+        }
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<List<TopicBlurb>>(trimmed, JsonOpts);
+            if (parsed is { Count: > 0 } &&
+                parsed.All(t => t.ItemId != Guid.Empty && !string.IsNullOrWhiteSpace(t.Blurb)))
+            {
+                topics = parsed;
+                return true;
+            }
+            return false;
+        }
+        catch (JsonException) { return false; }
     }
 }

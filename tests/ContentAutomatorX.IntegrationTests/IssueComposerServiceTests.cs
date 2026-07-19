@@ -10,6 +10,19 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.IntegrationTests;
 
+public class SequenceLlm(params string[] replies) : ILlmBackend
+{
+    private int _n;
+    public string Name => "seq";
+    public List<string> Prompts { get; } = [];
+    public Task<LlmResult> GenerateAsync(string prompt, CancellationToken ct = default)
+    {
+        Prompts.Add(prompt);
+        var reply = replies[Math.Min(_n++, replies.Length - 1)];
+        return Task.FromResult(new LlmResult(reply, "seq-model"));
+    }
+}
+
 public class IssueComposerServiceTests
 {
     [Fact]
@@ -217,5 +230,115 @@ public class IssueComposerServiceTests
         Assert.Contains("My issue", html);
         Assert.Contains("href=\"#\"", html);                                    // token replaced for preview
         Assert.DoesNotContain(SectionHtmlRenderer.UnsubscribeToken, html);
+    }
+
+    private static string TopicsJson(IEnumerable<ContentItem> items) =>
+        "[" + string.Join(",", items.Select(i =>
+            $$"""{"itemId":"{{i.Id}}","title":"{{i.Title}} improved","blurb":"Blurb for {{i.Title}}."}""")) + "]";
+
+    [Fact]
+    public async Task GenerateTopics_fills_only_empty_topics_and_marks_items_used()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm(TopicsJson(w.Items));
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
+            w.Items.Select(i => i.Id).ToList(), "t");
+        var sections = await composer.GetSectionsAsync(post.Id);
+        await composer.UpdateSectionAsync(sections[1].Id, sections[1].Title, "HAND EDITED", null, sections[1].LinkUrl, null);
+
+        var filled = await composer.GenerateTopicsAsync(post.Id, "keep it short");
+
+        Assert.Equal(2, filled);                                            // topic 1 was hand-edited
+        var after = await composer.GetSectionsAsync(post.Id);
+        Assert.Equal("HAND EDITED", after[1].BodyMd);                       // bulk never overwrites edits
+        Assert.Equal("Blurb for Item 2.", after[2].BodyMd);
+        Assert.Equal("Item 2 improved", after[2].Title);
+        Assert.Contains("keep it short", llm.Prompts.Single());
+        Assert.Contains("punchy", llm.Prompts.Single());                    // recipe tone reached the prompt
+        Assert.Equal(2, await w.Test.Db.ContentItems.CountAsync(i => i.Status == ContentItemStatus.Used));
+    }
+
+    [Fact]
+    public async Task GenerateTopics_retries_once_then_succeeds()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm("garbage", TopicsJson(w.Items.Take(1)));
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+
+        var filled = await composer.GenerateTopicsAsync(post.Id, null);
+
+        Assert.Equal(1, filled);
+        Assert.Equal(2, llm.Prompts.Count);
+        Assert.Contains("was not valid JSON", llm.Prompts[1]);
+    }
+
+    [Fact]
+    public async Task GenerateTopics_throws_after_two_bad_replies_and_keeps_skeletons()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var composer = Composer(w, new SequenceLlm("garbage", "more garbage"));
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.GenerateTopicsAsync(post.Id, null));
+
+        var sections = await composer.GetSectionsAsync(post.Id);
+        Assert.True(string.IsNullOrEmpty(sections[1].BodyMd));              // skeleton intact for retry
+        Assert.Equal(0, await w.Test.Db.ContentItems.CountAsync(i => i.Status == ContentItemStatus.Used));
+    }
+
+    [Fact]
+    public async Task GenerateTopics_with_no_empty_topics_is_a_noop_without_llm_calls()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm("should never be used");
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var sections = await composer.GetSectionsAsync(post.Id);
+        await composer.UpdateSectionAsync(sections[1].Id, "T", "done", null, null, null);
+
+        Assert.Equal(0, await composer.GenerateTopicsAsync(post.Id, null));
+        Assert.Empty(llm.Prompts);
+    }
+
+    [Fact]
+    public async Task RegenerateSection_rewrites_a_topic_blurb_from_its_source_item()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm("A fresh new blurb.");
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id))[1];
+
+        await composer.RegenerateSectionAsync(topic.Id, "shorter");
+
+        Assert.Equal("A fresh new blurb.", (await composer.GetSectionsAsync(post.Id))[1].BodyMd);
+        Assert.Contains("body 1", llm.Prompts.Single());                    // source item material in prompt
+        Assert.Contains("shorter", llm.Prompts.Single());
+    }
+
+    [Fact]
+    public async Task RegenerateSection_writes_a_header_intro_referencing_topics_and_rejects_other_types()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm("Welcome! This week: things.");
+        var composer = Composer(w, llm);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
+            w.Items.Select(i => i.Id).ToList(), "t");
+        var sections = await composer.GetSectionsAsync(post.Id);
+
+        await composer.RegenerateSectionAsync(sections[0].Id, null);
+
+        Assert.Equal("Welcome! This week: things.", (await composer.GetSectionsAsync(post.Id))[0].BodyMd);
+        Assert.Contains("Item 1", llm.Prompts.Single());                    // topic titles in prompt
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => composer.RegenerateSectionAsync(sections[^1].Id, null));  // footer is not regenerable
     }
 }
