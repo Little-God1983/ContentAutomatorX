@@ -2,13 +2,15 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using ContentAutomatorX.Domain.Abstractions;
+using Microsoft.Extensions.Logging;
 
 namespace ContentAutomatorX.Infrastructure.Security;
 
 /// <summary>DPAPI (CurrentUser) blobs, one file per secret. Windows-only by design for the
 /// local phase; a server deployment later swaps this implementation behind ICredentialStore.</summary>
 [SupportedOSPlatform("windows")]
-public class DpapiCredentialStore(string? rootDir = null) : ICredentialStore
+public class DpapiCredentialStore(string? rootDir = null, ILogger<DpapiCredentialStore>? logger = null)
+    : ICredentialStore
 {
     private readonly string _root = rootDir ?? Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -41,6 +43,9 @@ public class DpapiCredentialStore(string? rootDir = null) : ICredentialStore
         {
             // Corrupted blob or written by a different Windows user: treat as absent so the UI's
             // "no key stored" path prompts for re-entry instead of crashing the page.
+            logger?.LogWarning(
+                "Stored credential {Name} could not be decrypted (corrupted or written by a different Windows user); treating as absent.",
+                name);
             return null;
         }
     }

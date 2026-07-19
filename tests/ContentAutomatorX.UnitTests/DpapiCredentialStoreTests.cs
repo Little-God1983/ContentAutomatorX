@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using ContentAutomatorX.Infrastructure.Security;
+using Microsoft.Extensions.Logging;
 
 namespace ContentAutomatorX.UnitTests;
 
@@ -68,6 +69,35 @@ public class DpapiCredentialStoreTests : IDisposable
         await File.WriteAllBytesAsync(file, [1, 2, 3, 4, 5]); // garbage — Unprotect will fail
 
         Assert.Null(await store.GetAsync("mailerlite:abc"));
+    }
+
+    [WindowsOnlyFact]
+    public async Task Corrupted_blob_logs_a_warning_naming_the_credential()
+    {
+        var logger = new FakeLogger();
+        var store = new DpapiCredentialStore(_dir, logger);
+        await store.SetAsync("mailerlite:abc", "s3cret");
+        var file = Directory.GetFiles(_dir).Single();
+        await File.WriteAllBytesAsync(file, [1, 2, 3, 4, 5]); // garbage — Unprotect will fail
+
+        Assert.Null(await store.GetAsync("mailerlite:abc"));
+
+        var warning = Assert.Single(logger.Entries, e => e.Level == LogLevel.Warning);
+        Assert.Contains("mailerlite:abc", warning.Message);
+    }
+
+    private sealed class FakeLogger : ILogger<DpapiCredentialStore>
+    {
+        public List<(LogLevel Level, string Message)> Entries { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) =>
+            Entries.Add((logLevel, formatter(state, exception)));
     }
 
     [WindowsOnlyFact]
