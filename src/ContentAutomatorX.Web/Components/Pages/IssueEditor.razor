@@ -59,7 +59,7 @@ else
         <MudAlert Severity="Severity.Error" Class="mb-2">
             Topic generation failed — the drafted topics are untouched.
             <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Error"
-                       Class="ml-2" OnClick="GenerateAsync">Retry generation</MudButton>
+                       Class="ml-2" OnClick="GenerateAsync" Disabled="@AnyBusy">Retry generation</MudButton>
         </MudAlert>
     }
     else if (!_generating && SkeletonCount > 0)
@@ -67,7 +67,7 @@ else
         <MudAlert Severity="Severity.Info" Class="mb-2">
             @SkeletonCount topic(s) have no text yet.
             <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
-                       Class="ml-2" OnClick="GenerateAsync">Generate ✨</MudButton>
+                       Class="ml-2" OnClick="GenerateAsync" Disabled="@AnyBusy">Generate ✨</MudButton>
         </MudAlert>
     }
 
