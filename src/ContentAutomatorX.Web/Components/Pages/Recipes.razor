@@ -37,7 +37,7 @@ else
             {
                 <MudSelectItem T="Guid" Value="@s.Id">
                     <div class="d-flex align-center" style="gap:8px">
-                        <MudIcon Icon="@SourceIcon(s.Type)" Size="Size.Small" />
+                        <MudIcon Icon="@SourceTypeDisplay.Icon(s.Type)" Size="Size.Small" />
                         @s.DisplayName
                     </div>
                 </MudSelectItem>
@@ -213,15 +213,6 @@ else
     private string SelectedSourceNames(IReadOnlyList<string> selectedIds) =>
         string.Join(", ", selectedIds.Select(id =>
             _sources.FirstOrDefault(s => s.Id.ToString() == id)?.DisplayName ?? "?"));
-
-    private static string SourceIcon(string type) => type switch
-    {
-        SourceTypes.Reddit => Icons.Custom.Brands.Reddit,
-        SourceTypes.Rss => Icons.Material.Filled.RssFeed,
-        SourceTypes.Website => Icons.Material.Filled.Language,
-        SourceTypes.LlmResearch => Icons.Material.Filled.AutoAwesome,
-        _ => Icons.Material.Filled.Source
-    };
 
     private static string[] SplitCsv(string csv) =>
         csv.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);

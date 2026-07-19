@@ -30,10 +30,14 @@ else
         </MudSelect>
         <MudSelect T="string" Value="_typeFilter" ValueChanged="OnTypeFilterChanged" Label="Source type" Style="min-width:160px">
             <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.Website">Website</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.LlmResearch">LLM research</MudSelectItem>
+            @foreach (var t in SourceTypeDisplay.All)
+            {
+                <MudSelectItem T="string" Value="@t">
+                    <div class="d-flex align-center" style="gap:8px">
+                        <MudIcon Icon="@SourceTypeDisplay.Icon(t)" Size="Size.Small" />@SourceTypeDisplay.Label(t)
+                    </div>
+                </MudSelectItem>
+            }
         </MudSelect>
         <MudDatePicker Label="From" Date="_from" DateChanged="@(d => { _from = d; ApplyFilters(); })"
                        Clearable="true" Style="min-width:150px" />
@@ -79,7 +83,14 @@ else
                     @context.Title
                 }
             </MudTd>
-            <MudTd>@(SourceNameOf(context.SourceId))</MudTd>
+            <MudTd>
+                <div class="d-flex align-center" style="gap:6px">
+                    <MudTooltip Text="@SourceTypeDisplay.Label(TypeOf(context.SourceId))">
+                        <MudIcon Icon="@SourceTypeDisplay.Icon(TypeOf(context.SourceId))" Size="Size.Small" />
+                    </MudTooltip>
+                    @(SourceNameOf(context.SourceId))
+                </div>
+            </MudTd>
             <MudTd>@(ScoreOf(context)?.ToString("N0") ?? "—")</MudTd>
             <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
             <MudTd>@context.Status</MudTd>
@@ -202,6 +213,7 @@ else
 
     private string SourceNameOf(Guid sourceId) => _sourcesById.GetValueOrDefault(sourceId)?.DisplayName ?? "?";
     private string SourceNameOf0(ContentItem item) => SourceNameOf(item.SourceId);
+    private string TypeOf(Guid sourceId) => _sourcesById.GetValueOrDefault(sourceId)?.Type ?? "";
 
     private static int RankOf(ContentItem item)
     {
