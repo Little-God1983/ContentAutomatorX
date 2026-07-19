@@ -23,7 +23,7 @@ else
         <MudButton OnClick="ExportAsync" Variant="Variant.Outlined" Disabled="@AnyBusy">Export .md</MudButton>
         @if (_post.Status != PostStatus.Published)
         {
-            <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_pushing">
+            <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@AnyBusy">
                 @(_post.Status == PostStatus.Pushed ? "Re-push" : "Push ⚡")
             </MudButton>
         }
@@ -42,7 +42,7 @@ else
     <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
         <MudTextField @bind-Value="_subject" Label="Subject" Class="flex-grow-1" Style="min-width:240px" />
         <MudTextField @bind-Value="_preview" Label="Preview text" Class="flex-grow-1" Style="min-width:240px" />
-        <MudButton OnClick="SubjectsAsync" Disabled="@_subjectsLoading">✨ Subjects</MudButton>
+        <MudButton OnClick="SubjectsAsync" Disabled="@AnyBusy">✨ Subjects</MudButton>
     </div>
     @if (_subjectIdeas.Count > 0)
     {
@@ -81,7 +81,7 @@ else
                     var index = n;
                     var section = _sections[index];
                     if (section.Type == SectionTypes.Topic) { topicNumber++; }
-                    <SectionCard Section="@section" TopicNumber="@topicNumber" Busy="@AnyBusy"
+                    <SectionCard @key="section.Id" Section="@section" TopicNumber="@topicNumber" Busy="@AnyBusy"
                                  CanMoveUp="@(index > 1)" CanMoveDown="@(index < _sections.Count - 2)"
                                  OnMove="@(dir => MoveAsync(section, dir))"
                                  OnDelete="@(() => DeleteAsync(section))"
@@ -120,6 +120,7 @@ else
     private string _title = "", _subject = "", _preview = "", _extraInstructions = "";
     private IReadOnlyList<string> _subjectIdeas = [];
     private bool _generating, _generateFailed, _pushing, _subjectsLoading, _mutating, _gathering;
+    private bool _autoGenerate, _autoGather;
 
     private bool AnyBusy => _generating || _pushing || _subjectsLoading || _mutating || _gathering;
     private int SkeletonCount => _sections.Count(s =>
@@ -141,8 +142,36 @@ else
 
         var query = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query);
         _extraInstructions = query["instructions"] ?? "";
-        if (query["generate"] == "1" && SkeletonCount > 0) await GenerateAsync();
-        if (query["gather"] == "1") // "+ New → Create & gather": fetch fresh material, then pick
+        _autoGenerate = query["generate"] == "1";
+        _autoGather = query["gather"] == "1";
+    }
+
+    // generate=1/gather=1/instructions are only ever meant to auto-run once, driven by
+    // interactive user actions upstream (e.g. Content.razor's "Create newsletter"). Running them
+    // from OnInitializedAsync would fire during prerender too — awaiting a dialog result there
+    // (OpenItemPickerAsync) can never complete, hanging the initial page load. OnAfterRender(Async)
+    // never runs during prerender, so gating on firstRender here makes this interactive-only, and
+    // stripping the query params before running keeps an F5 reload from re-triggering ingestion/LLM.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || (!_autoGenerate && !_autoGather)) return;
+
+        var generate = _autoGenerate;
+        var gather = _autoGather;
+        _autoGenerate = false;
+        _autoGather = false;
+
+        var uri = new Uri(Nav.Uri);
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        query.Remove("generate");
+        query.Remove("gather");
+        query.Remove("instructions");
+        var cleanQuery = query.ToString();
+        var cleanUri = uri.GetLeftPart(UriPartial.Path) + (string.IsNullOrEmpty(cleanQuery) ? "" : $"?{cleanQuery}");
+        Nav.NavigateTo(cleanUri, replace: true);
+
+        if (generate && SkeletonCount > 0) await GenerateAsync();
+        if (gather) // "+ New → Create & gather": fetch fresh material, then pick
         {
             await GatherAsync();
             await OpenItemPickerAsync();
@@ -363,7 +392,13 @@ else
     {
         if (_post is null) return;
         var parameters = new DialogParameters<InboxItemPickerDialog> { { d => d.TenantId, _post.TenantId } };
-        var dialog = await DialogService.ShowAsync<InboxItemPickerDialog>("Add topics from inbox", parameters);
+        // CloseOnNavigation defaults such that MudDialog auto-cancels on any NavigationManager
+        // location change — including our own same-page NavigateTo(replace:true) that strips the
+        // gather=1 query param right before this dialog opens. Without this, the picker would
+        // close itself before the user ever sees it. false here so our own URL-cleanup doesn't
+        // eat the dialog we're about to show.
+        var options = new DialogOptions { CloseOnNavigation = false };
+        var dialog = await DialogService.ShowAsync<InboxItemPickerDialog>("Add topics from inbox", parameters, options);
         var result = await dialog.Result;
         if (result is null || result.Canceled || result.Data is not List<Guid> itemIds || itemIds.Count == 0) return;
         await RunMutationAsync(c => c.AddTopicsFromItemsAsync(PostId, itemIds), "Add topics");

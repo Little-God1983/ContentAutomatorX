@@ -214,7 +214,7 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
         if (apiKey is null || config.GroupId is null || config.FromName is null || config.FromEmail is null)
             throw new InvalidOperationException("MailerLite is not fully configured — finish setup on the Platforms page.");
 
-        var subject = post.Subject ?? post.Title;
+        var subject = string.IsNullOrWhiteSpace(post.Subject) ? post.Title : post.Subject;
         if (string.IsNullOrWhiteSpace(subject))
             throw new InvalidOperationException("Set a subject (or title) before pushing.");
         if (subject.Length > 255)

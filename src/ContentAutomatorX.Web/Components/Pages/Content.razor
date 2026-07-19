@@ -264,12 +264,13 @@ else
         _running = true;
         try
         {
+            var tenantId = Ctx.Active!.Id;
             var itemIds = _selectedItems.Select(i => i.Id).ToList();
             using var scope = ScopeFactory.CreateScope();
             var composer = scope.ServiceProvider.GetRequiredService<IssueComposerService>();
             var postSvc = scope.ServiceProvider.GetRequiredService<PostService>();
             var title = await postSvc.SuggestTitleAsync(_recipeId!.Value);
-            var post = await composer.CreateFromItemsAsync(Ctx.Active!.Id, _recipeId!.Value, itemIds, title);
+            var post = await composer.CreateFromItemsAsync(tenantId, _recipeId!.Value, itemIds, title);
             var instructions = string.IsNullOrWhiteSpace(_extraInstructions) ? ""
                 : $"&instructions={Uri.EscapeDataString(_extraInstructions)}";
             Nav.NavigateTo($"/issue/{post.Id}?generate=1{instructions}");

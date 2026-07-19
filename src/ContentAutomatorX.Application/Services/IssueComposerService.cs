@@ -182,14 +182,16 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
 
         var byItem = topics.ToDictionary(t => t.ItemId);
         var filled = 0;
+        var filledItemIds = new HashSet<Guid>();
         foreach (var section in skeletons)
         {
             if (!byItem.TryGetValue(section.SourceItemId!.Value, out var topic)) continue;
             section.BodyMd = topic.Blurb;
             if (!string.IsNullOrWhiteSpace(topic.Title)) section.Title = topic.Title;
             filled++;
+            filledItemIds.Add(section.SourceItemId!.Value);
         }
-        foreach (var item in items) item.Status = ContentItemStatus.Used;
+        foreach (var item in items.Where(i => filledItemIds.Contains(i.Id))) item.Status = ContentItemStatus.Used;
         await db.SaveChangesAsync(ct);
         return filled;
     }
