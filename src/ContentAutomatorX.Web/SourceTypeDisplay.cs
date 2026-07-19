@@ -26,4 +26,15 @@ public static class SourceTypeDisplay
         SourceTypes.LlmResearch => "LLM research",
         _ => string.IsNullOrEmpty(type) ? "Unknown source" : type
     };
+
+    public static readonly IReadOnlyList<string> All =
+        [SourceTypes.Reddit, SourceTypes.Rss, SourceTypes.Website, SourceTypes.LlmResearch];
+
+    /// <summary>Extra wording for create flows, e.g. "Website (page watch)". Null when the label stands alone.</summary>
+    public static string? Hint(string type) => type switch
+    {
+        SourceTypes.Website => "page watch",
+        SourceTypes.LlmResearch => "AI web sweep",
+        _ => null
+    };
 }

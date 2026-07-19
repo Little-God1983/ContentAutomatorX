@@ -4,10 +4,14 @@
 <MudDialog>
     <DialogContent>
         <MudSelect T="string" @bind-Value="_type" Label="Type">
-            <MudSelectItem T="string" Value="@SourceTypes.Reddit">Reddit</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.Rss">RSS/Atom feed</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.Website">Website (page watch)</MudSelectItem>
-            <MudSelectItem T="string" Value="@SourceTypes.LlmResearch">LLM research</MudSelectItem>
+            @foreach (var t in SourceTypeDisplay.All)
+            {
+                <MudSelectItem T="string" Value="@t">
+                    <div class="d-flex align-center" style="gap:8px">
+                        <MudIcon Icon="@SourceTypeDisplay.Icon(t)" Size="Size.Small" />@SourceTypeDisplay.Label(t)@(SourceTypeDisplay.Hint(t) is { } h ? $" ({h})" : "")
+                    </div>
+                </MudSelectItem>
+            }
         </MudSelect>
         <MudTextField @bind-Value="_displayName" Label="Display name" />
         @if (_type == SourceTypes.Reddit)
