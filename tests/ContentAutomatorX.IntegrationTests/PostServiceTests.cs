@@ -117,6 +117,23 @@ public class PostServiceTests
     }
 
     [Fact]
+    public async Task Set_issue_sources_persists_the_id_list()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        var idA = Guid.NewGuid();
+        var idB = Guid.NewGuid();
+
+        await w.Posts.SetIssueSourcesAsync(post, [idA, idB]);
+
+        using var fresh = w.Test.NewContext();
+        var reloaded = await fresh.Posts.SingleAsync(p => p.Id == post.Id);
+        var ids = JsonSerializer.Deserialize<Guid[]>(reloaded.SourceIdsJson!);
+        Assert.Equal(new[] { idA, idB }, ids);
+    }
+
+    [Fact]
     public async Task Compose_links_draft_and_prefills_subject()
     {
         var w = await BuildAsync();
@@ -214,6 +231,26 @@ public class PostServiceTests
     }
 
     [Fact]
+    public async Task Subject_ideas_throws_after_two_unparseable_replies()
+    {
+        // BuildAsync's own PostService always wires SubjectIdeasAsync to a hardcoded-valid FakeLlm
+        // (its `llmReply` builder param only drives the GenerationPipeline's compose path), so a
+        // dedicated PostService with a consistently-unparseable FakeLlm is built here instead —
+        // BuildAsync itself, and the World's own w.Posts, are left untouched.
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        await w.Posts.SaveIssueAsync(post.Id, "t", "body", null, null);
+        var badLlm = new FakeLlm("this is not a JSON array");
+        var postsWithBadSubjectLlm = new PostService(w.Test.Db,
+            new GenerationPipeline(w.Test.Db, badLlm, new FakeDelivery()), badLlm, w.Platforms, w.MailerLite);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => postsWithBadSubjectLlm.SubjectIdeasAsync(post.Id));
+
+        Assert.Contains("did not return subject lines", ex.Message);
+    }
+
+    [Fact]
     public async Task Review_queue_lists_needs_review_and_pushed()
     {
         var w = await BuildAsync();
@@ -248,6 +285,47 @@ public class PostServiceTests
         var queue = await w.Posts.ReviewQueueAsync(w.Tenant.Id);
 
         Assert.Contains(queue, p => p.Id == failed.Id);
+    }
+
+    [Fact]
+    public async Task Mark_reviewed_clears_the_flag()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        post.NeedsReview = true;
+        await w.Test.Db.SaveChangesAsync();
+
+        await w.Posts.MarkReviewedAsync(post.Id);
+
+        using var fresh = w.Test.NewContext();
+        var reloaded = await fresh.Posts.SingleAsync(p => p.Id == post.Id);
+        Assert.False(reloaded.NeedsReview);
+    }
+
+    [Fact]
+    public async Task List_returns_newest_first()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
+        var now = DateTimeOffset.UtcNow;
+        var older = new Post
+        {
+            TenantId = w.Tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "Older", CreatedAt = now.AddHours(-1)
+        };
+        var newer = new Post
+        {
+            TenantId = w.Tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter,
+            Title = "Newer", CreatedAt = now
+        };
+        w.Test.Db.Posts.AddRange(older, newer);
+        await w.Test.Db.SaveChangesAsync();
+
+        var list = await w.Posts.ListAsync(w.Tenant.Id);
+
+        Assert.Equal(new[] { newer.Id, older.Id }, list.Select(p => p.Id));
     }
 
     [Fact]
