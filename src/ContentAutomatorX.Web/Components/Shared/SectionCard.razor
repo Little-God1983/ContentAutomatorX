@@ -1,0 +1,126 @@
+@using ContentAutomatorX.Domain
+@using ContentAutomatorX.Domain.Entities
+
+<MudPaper Outlined="true" Class="pa-2 mb-2">
+    <div class="d-flex align-center" style="gap:4px">
+        <MudIcon Icon="@TypeIcon()" Size="Size.Small" Class="mx-1" />
+        <MudText Typo="Typo.subtitle2" Class="flex-grow-1"
+                 Style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@Label()</MudText>
+        @if (Movable())
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                           Disabled="@(!CanMoveUp || Busy)" OnClick="@(() => OnMove.InvokeAsync(-1))" />
+            <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small"
+                           Disabled="@(!CanMoveDown || Busy)" OnClick="@(() => OnMove.InvokeAsync(1))" />
+        }
+        @if (Section.Type is SectionTypes.Topic or SectionTypes.Header)
+        {
+            <MudTooltip Text="Rewrite with AI (uses the extra-instructions field)">
+                <MudIconButton Icon="@Icons.Material.Filled.AutoAwesome" Size="Size.Small"
+                               Disabled="@Busy" OnClick="@(() => OnRegenerate.InvokeAsync())" />
+            </MudTooltip>
+        }
+        @if (Section.Type != SectionTypes.Divider)
+        {
+            <MudIconButton Icon="@(_expanded ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.Edit)"
+                           Size="Size.Small" OnClick="ToggleExpand" />
+        }
+        @if (Movable())
+        {
+            <MudIconButton Icon="@Icons.Material.Filled.Delete" Size="Size.Small" Color="Color.Error"
+                           Disabled="@Busy" OnClick="@(() => OnDelete.InvokeAsync())" />
+        }
+    </div>
+    @if (_expanded)
+    {
+        <div class="mt-2">
+            @if (HasTitle())
+            {
+                <MudTextField @bind-Value="_title" Label="@(Section.Type == SectionTypes.Sponsor ? "Sponsor name" : "Title")" />
+            }
+            @if (HasBody())
+            {
+                <MudTextField @bind-Value="_body" Label="Text (markdown)" Lines="6" Style="font-family:monospace" />
+            }
+            @if (HasImage())
+            {
+                <MudTextField @bind-Value="_image" Label="@(Section.Type == SectionTypes.Sponsor ? "Logo URL (https)" : "Image URL (https)")" />
+            }
+            @if (HasLink())
+            {
+                <MudTextField @bind-Value="_link" Label="Link URL (https)" />
+            }
+            @if (HasLinkText())
+            {
+                <MudTextField @bind-Value="_linkText" Label="Button label" />
+            }
+            <div class="mt-2">
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                           Disabled="@Busy" OnClick="Apply">Apply</MudButton>
+                <MudButton Size="Size.Small" OnClick="@(() => _expanded = false)">Close</MudButton>
+            </div>
+        </div>
+    }
+</MudPaper>
+
+@code {
+    public record SectionEdit(string? Title, string? BodyMd, string? ImageUrl, string? LinkUrl, string? LinkText);
+
+    [Parameter, EditorRequired] public IssueSection Section { get; set; } = default!;
+    [Parameter] public int TopicNumber { get; set; }
+    [Parameter] public bool CanMoveUp { get; set; }
+    [Parameter] public bool CanMoveDown { get; set; }
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public EventCallback<int> OnMove { get; set; }
+    [Parameter] public EventCallback OnDelete { get; set; }
+    [Parameter] public EventCallback OnRegenerate { get; set; }
+    [Parameter] public EventCallback<SectionEdit> OnApply { get; set; }
+
+    private bool _expanded;
+    private string _title = "", _body = "", _image = "", _link = "", _linkText = "";
+
+    private void ToggleExpand()
+    {
+        _expanded = !_expanded;
+        if (_expanded)
+            (_title, _body, _image, _link, _linkText) = (Section.Title ?? "", Section.BodyMd ?? "",
+                Section.ImageUrl ?? "", Section.LinkUrl ?? "", Section.LinkText ?? "");
+    }
+
+    private async Task Apply()
+    {
+        await OnApply.InvokeAsync(new SectionEdit(NullIfEmpty(_title), NullIfEmpty(_body),
+            NullIfEmpty(_image), NullIfEmpty(_link), NullIfEmpty(_linkText)));
+        _expanded = false;
+    }
+
+    private static string? NullIfEmpty(string s) => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    private bool Movable() => Section.Type is not (SectionTypes.Header or SectionTypes.Footer);
+    private bool HasTitle() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor;
+    private bool HasBody() => Section.Type is not (SectionTypes.Button or SectionTypes.Divider);
+    private bool HasImage() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor;
+    private bool HasLink() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor or SectionTypes.Button;
+    private bool HasLinkText() => Section.Type is SectionTypes.Sponsor or SectionTypes.Button;
+
+    private string Label() => Section.Type switch
+    {
+        SectionTypes.Header => "Header",
+        SectionTypes.Footer => "Footer",
+        SectionTypes.LegacyBody => "Body (from the old editor)",
+        SectionTypes.Divider => "— Divider —",
+        SectionTypes.Button => $"Button: {Section.LinkText ?? "(set label)"}",
+        SectionTypes.Sponsor => $"Sponsor: {Section.Title ?? "(set name)"}",
+        _ => $"{TopicNumber}. {Section.Title ?? "(untitled topic)"}"
+    };
+
+    private string TypeIcon() => Section.Type switch
+    {
+        SectionTypes.Header => Icons.Material.Filled.VerticalAlignTop,
+        SectionTypes.Footer => Icons.Material.Filled.VerticalAlignBottom,
+        SectionTypes.Sponsor => Icons.Material.Filled.Campaign,
+        SectionTypes.Button => Icons.Material.Filled.SmartButton,
+        SectionTypes.Divider => Icons.Material.Filled.HorizontalRule,
+        _ => Icons.Material.Filled.Article
+    };
+}
