@@ -64,6 +64,11 @@ public class PostSyncService(IAppDbContext db, PlatformService platforms, IMaile
             return !doc.RootElement.TryGetProperty("refreshedAt", out var r)
                 || r.GetDateTimeOffset() < now.AddHours(-24);
         }
-        catch (JsonException) { return true; }
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidOperationException)
+        {
+            // Unreadable stats (malformed JSON or a refreshedAt that isn't a date) count as stale:
+            // the sync tick simply refreshes them.
+            return true;
+        }
     }
 }

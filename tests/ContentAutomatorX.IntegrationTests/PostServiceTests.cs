@@ -24,6 +24,8 @@ public class FakeMailerLite : IMailerLiteClient
     public List<(MailerLiteDraft Draft, string? ExistingId)> Pushes { get; } = [];
     public bool FailNextPush { get; set; }
     public MailerLiteCampaignStatus NextStatus { get; set; } = new("draft", null, null, null);
+    public List<string> StatusCalls { get; } = [];
+    public string? ThrowForCampaignId { get; set; }
 
     public Task<bool> TestAsync(string apiKey, CancellationToken ct = default) => Task.FromResult(true);
     public Task<IReadOnlyList<MailerLiteGroup>> ListGroupsAsync(string apiKey, CancellationToken ct = default) =>
@@ -34,8 +36,12 @@ public class FakeMailerLite : IMailerLiteClient
         Pushes.Add((draft, existingCampaignId));
         return Task.FromResult(existingCampaignId ?? "c-100");
     }
-    public Task<MailerLiteCampaignStatus> GetStatusAsync(string apiKey, string campaignId, CancellationToken ct = default) =>
-        Task.FromResult(NextStatus);
+    public Task<MailerLiteCampaignStatus> GetStatusAsync(string apiKey, string campaignId, CancellationToken ct = default)
+    {
+        StatusCalls.Add(campaignId);
+        if (campaignId == ThrowForCampaignId) throw new InvalidOperationException("MailerLite GET /campaigns/{id} failed: 500");
+        return Task.FromResult(NextStatus);
+    }
 }
 
 public class InMemoryCredentials : ICredentialStore
