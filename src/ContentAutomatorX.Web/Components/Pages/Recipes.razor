@@ -58,8 +58,12 @@ else
 
         <MudText Typo="Typo.subtitle1" Class="mt-3">Output</MudText>
         <MudTextField @bind-Value="_subfolder" Label="Subfolder in tenant output folder (optional)" />
-        <MudTextField @bind-Value="_filenamePattern" Label="Filename pattern (default {date}-{kind}-{slug}.md)" />
-        <MudTextField @bind-Value="_targetPlatform" Label="Target platform label (optional, e.g. Patreon, Ko-fi)" />
+        <MudTextField @bind-Value="_filenamePattern" Label="Filename pattern"
+                      HelperText="Supported placeholders: {date} → run date (2026-07-19) · {kind} → newsletter · {slug} → title as filename-safe slug. Empty = default {date}-{kind}-{slug}.md; duplicates get -2, -3, …" />
+        <MudAutocomplete T="string" @bind-Value="_targetPlatform" Clearable="true"
+                         Label="Target platform label (optional — tags the file draft, no connection)"
+                         SearchFunc="SearchLabels" CoerceValue="true"
+                         HelperText="Free text; suggestions are labels already used by your automations" />
         <MudTextField @bind-Value="_cron" Label="Schedule (cron, UTC; empty = manual only). Scheduled runs ingest sources first." />
         <MudSelect T="Guid?" @bind-Value="_targetPlatformId"
                    Label="Create post for platform (optional — parks in Today's review queue)">
@@ -112,6 +116,7 @@ else
     private Recipe? _editing;
     private PromptTemplate? _template;
     private bool _running;
+    private string[] _labelSuggestions = [];
 
     private string _name = "", _kind = DraftKinds.Newsletter, _includeKeywords = "", _excludeKeywords = "",
         _tone = "", _length = "", _language = "", _subfolder = "", _filenamePattern = "", _targetPlatform = "", _cron = "";
@@ -155,7 +160,26 @@ else
         _sources = await SourceSvc.ListAsync(Ctx.Active.Id);
         _platforms = [await PlatformSvc.GetOrCreateMailerLiteAsync(Ctx.Active.Id)];
         _recipes = await RecipeSvc.ListAsync(Ctx.Active.Id);
+        _labelSuggestions = _recipes
+            .Select(r => TryParseOutput(r.OutputJson)?.TargetPlatform)
+            .Where(l => !string.IsNullOrWhiteSpace(l))
+            .Select(l => l!)
+            .Concat(["Patreon", "Ko-fi", "YouTube", "Civitai"])
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(l => l, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
     }
+
+    private static RecipeOutput? TryParseOutput(string json)
+    {
+        try { return JsonSerializer.Deserialize<RecipeOutput>(json, JsonOpts); }
+        catch (JsonException) { return null; }
+    }
+
+    private Task<IEnumerable<string>> SearchLabels(string value, CancellationToken _) =>
+        Task.FromResult<IEnumerable<string>>(string.IsNullOrWhiteSpace(value)
+            ? _labelSuggestions
+            : _labelSuggestions.Where(l => l.Contains(value, StringComparison.OrdinalIgnoreCase)));
 
     private async Task Edit(Recipe r)
     {
