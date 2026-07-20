@@ -87,10 +87,11 @@ Tenancy follows the codebase's existing convention exactly: a plain `TenantId` c
 | Entity | Column | Type | Meaning |
 |---|---|---|---|
 | `Recipe` | `NewsletterTemplateId` | `Guid?` | Which template this automation's issues use. Null = built-in renderer. |
-| `Post` | `NewsletterTemplateId` | `Guid?` | Stamped at issue creation. Null = fall back per §5.1. |
 | `IssueSection` | `Category` | `string?` | Free text — "Tutorial", "News". Topic sections only. |
 
-`Post` needs its own column because neither render call site has a recipe in hand — `PostService.PushAsync` and `IssueComposerService.PreviewHtmlAsync` both receive only `(sections, tenant, title)`. Walking `Post → Draft → Recipe` was rejected: manually created posts have no draft.
+**`Post` needs no column.** `Post.RecipeId` already exists (`Post.cs:10`, "the automation this issue is based on") and `IssueChatService.RunTurnAsync` and `IssueComposerService.GenerateTopicsAsync` both already resolve a recipe through it. The render path walks `Post → Recipe → NewsletterTemplateId`.
+
+Consequence to accept knowingly: changing a recipe's template retroactively changes issues already composed under it. That matches how editing the template's HTML behaves, and per-issue override is deferred (§1.3).
 
 ### 3.3 New section type
 
@@ -107,7 +108,7 @@ Tenancy follows the codebase's existing convention exactly: a plain `TenantId` c
 
 ### 3.4 Migration
 
-One migration, `NewsletterTemplates`, adding the table and the three columns. All three columns are nullable, so every existing row is valid without backfill and every existing recipe keeps today's rendering behaviour.
+One migration, `NewsletterTemplates`, adding the table plus `Recipe.NewsletterTemplateId` and `IssueSection.Category`. Both columns are nullable, so every existing row is valid without backfill and every existing recipe keeps today's rendering behaviour.
 
 ## 4. Template format
 
@@ -193,11 +194,11 @@ No loops, no `ELSE`, no expressions, no arithmetic, no filters, no includes, no 
 
 At render time, in order:
 
-1. `Post.NewsletterTemplateId` is set and the template exists and belongs to the post's tenant → use it.
+1. `Post.RecipeId` resolves to a recipe whose `NewsletterTemplateId` is set, and that template exists and belongs to the post's tenant → use it.
 2. Otherwise the tenant has a template with `IsDefault` → use it.
 3. Otherwise → `SectionHtmlRenderer`, byte-identical to today.
 
-A post's template id is stamped at creation from `Recipe.NewsletterTemplateId` when the post came from an automation. A dangling id — template deleted, or belonging to another tenant — falls through to step 2, not to an error.
+A dangling id — template deleted, or belonging to another tenant — falls through to step 2, not to an error. A post with no `RecipeId` (created by hand) starts at step 2.
 
 Issues with no sections at all (legacy free-markdown drafts) continue to use `EmailHtmlRenderer.Render` and never consult a template.
 
@@ -395,7 +396,7 @@ Adding `Category` and `Video` creates new editable surface, which propagates thr
 
 **Generation prompts** — `GenerateTopicsAsync` and `RegenerateSectionAsync` ask for a short category label per topic. Video sections are added manually and are not generated.
 
-**Undo** — `IssueHistoryService` snapshots whole sections as JSON, so `Category` is covered with no change, provided the snapshot serializes the entity rather than an explicit field list. **This must be verified during implementation**, not assumed.
+**Undo** — verified during planning, and the optimistic reading was wrong: `IssueHistoryService.SectionSnapshot` is an **explicit nine-field record**, not entity serialization. `Category` must be added in three places — the `SectionSnapshot` record, the projection in `CaptureAsync`, and the assignment loop in `RestoreAsync`. Missing any one silently drops the category on every undo.
 
 ## 10. Error handling
 
