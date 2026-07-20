@@ -92,6 +92,55 @@ public class IssueChatServiceTests
     }
 
     [Fact]
+    public async Task Two_edits_for_one_section_merge_into_one_proposal()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        // The model split one change across two edit objects instead of merging them itself.
+        var reply = $$"""
+            {"reply":"Both.","edits":[
+              {"sectionId":"{{sections[1].Id}}","title":"New title"},
+              {"sectionId":"{{sections[1].Id}}","bodyMd":"New body"}
+            ]}
+            """;
+
+        var result = await Chat(test, new SequenceLlm(reply)).SendAsync(post.Id, "change both");
+
+        Assert.Equal(1, result.ProposalCount);
+        Assert.Equal(0, result.DroppedEdits);
+        var proposal = await test.Db.IssueSectionProposals.SingleAsync();
+        Assert.Equal("New title", proposal.ProposedTitle);
+        Assert.Equal("New body", proposal.ProposedBodyMd);
+    }
+
+    [Fact]
+    public async Task An_edit_naming_a_section_of_another_post_is_dropped()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var other = new Post
+        {
+            TenantId = post.TenantId, PlatformId = post.PlatformId,
+            Kind = DraftKinds.Newsletter, Title = "Other issue"
+        };
+        var foreign = new IssueSection
+        {
+            PostId = other.Id, Position = 0, Type = SectionTypes.Topic, Title = "Theirs", BodyMd = "theirs"
+        };
+        test.Db.Add(other);
+        test.Db.IssueSections.Add(foreign);
+        await test.Db.SaveChangesAsync();
+
+        var result = await Chat(test, new SequenceLlm(ReplyJson("Reaching.", (foreign.Id, "hijacked"))))
+            .SendAsync(post.Id, "edit the other issue");
+
+        Assert.Equal(0, result.ProposalCount);
+        Assert.Equal(1, result.DroppedEdits);
+        Assert.Empty(await test.Db.IssueSectionProposals.ToListAsync());
+        Assert.Equal("theirs", (await test.Db.IssueSections.SingleAsync(s => s.Id == foreign.Id)).BodyMd);
+    }
+
+    [Fact]
     public async Task A_second_turn_replaces_the_proposal_for_the_same_section()
     {
         var (test, post, sections) = await SeedAsync();

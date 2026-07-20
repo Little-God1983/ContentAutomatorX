@@ -173,13 +173,22 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         IReadOnlyList<ChatEdit> edits, HashSet<Guid>? restrictTo, CancellationToken ct)
     {
         if (edits.Count == 0) return (0, 0);
+        // One reply can name the same section twice — a title change and a body change emitted as
+        // two objects instead of one. Merge them per field, latest set wins. Without this both
+        // stage an INSERT, the unique index on SectionId rejects the second, and the
+        // DbUpdateException takes down the whole turn including every other valid proposal in it.
+        var merged = edits.GroupBy(e => e.SectionId)
+            .Select(g => new ChatEdit(g.Key,
+                g.Select(e => e.Title).LastOrDefault(t => t is not null),
+                g.Select(e => e.BodyMd).LastOrDefault(b => b is not null)))
+            .ToList();
         var sections = (await db.IssueSections.Where(s => s.PostId == postId).ToListAsync(ct))
             .ToDictionary(s => s.Id);
         var existing = await db.IssueSectionProposals.Where(p => p.PostId == postId).ToListAsync(ct);
 
         var stored = 0;
         var dropped = 0;
-        foreach (var edit in edits)
+        foreach (var edit in merged)
         {
             if (!sections.TryGetValue(edit.SectionId, out var section) ||
                 (restrictTo is not null && !restrictTo.Contains(edit.SectionId)))
