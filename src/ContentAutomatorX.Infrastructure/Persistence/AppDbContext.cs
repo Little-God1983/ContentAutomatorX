@@ -49,7 +49,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<IssueSectionProposal>().HasIndex(p => p.PostId);
         b.Entity<IssueSectionProposal>()
             .HasOne<Post>().WithMany().HasForeignKey(p => p.PostId).OnDelete(DeleteBehavior.Cascade);
-        b.Entity<IssueRevision>().HasIndex(r => new { r.PostId, r.Stack, r.Ordinal });
+        // Unique so a concurrent second circuit computing the same ordinal fails loudly instead of
+        // silently producing two rows that tie for "top of stack" — where which one pops first is
+        // decided by index scan order, not by anything we specify.
+        b.Entity<IssueRevision>().HasIndex(r => new { r.PostId, r.Stack, r.Ordinal }).IsUnique();
         b.Entity<IssueRevision>()
             .HasOne<Post>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
     }

@@ -248,19 +248,29 @@ else
 
     private async Task ReloadSectionsAsync()
     {
-        _sections = await WithComposerAsync(c => c.GetSectionsAsync(PostId));
-        _previewHtml = await WithComposerAsync(c => c.RenderPreviewAsync(PostId, _title));
-        _chat = await WithChatAsync(c => c.GetThreadAsync(PostId));
-        _history = await WithHistoryAsync(h => h.GetStateAsync(PostId));
-        if (_post is not null)
+        // Every mutating handler awaits this from its finally block. An exception escaping here
+        // would replace that handler's own error snackbar and, with no ErrorBoundary in the app,
+        // tear down the whole circuit — losing the page instead of reporting one failed refresh.
+        try
         {
-            using var scope = ScopeFactory.CreateScope();
-            var settings = await scope.ServiceProvider.GetRequiredService<ILlmSettingsProvider>()
-                .GetAsync(_post.TenantId);
-            // The resolved model, not the stored one: the question this badge answers is "what
-            // wrote this text". When nothing names a model the CLI picks and we genuinely do not
-            // know which, so say that rather than guessing a name.
-            _modelLabel = settings.Model.Length > 0 ? settings.Model : "CLI default";
+            _sections = await WithComposerAsync(c => c.GetSectionsAsync(PostId));
+            _previewHtml = await WithComposerAsync(c => c.RenderPreviewAsync(PostId, _title));
+            _chat = await WithChatAsync(c => c.GetThreadAsync(PostId));
+            _history = await WithHistoryAsync(h => h.GetStateAsync(PostId));
+            if (_post is not null)
+            {
+                using var scope = ScopeFactory.CreateScope();
+                var settings = await scope.ServiceProvider.GetRequiredService<ILlmSettingsProvider>()
+                    .GetAsync(_post.TenantId);
+                // The resolved model, not the stored one: the question this badge answers is "what
+                // wrote this text". When nothing names a model the CLI picks and we genuinely do not
+                // know which, so say that rather than guessing a name.
+                _modelLabel = settings.Model.Length > 0 ? settings.Model : "CLI default";
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not refresh the issue: {ex.Message}", Severity.Error);
         }
         StateHasChanged();
     }

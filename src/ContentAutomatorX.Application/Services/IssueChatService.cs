@@ -83,7 +83,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             await db.SaveChangesAsync(ct);
             throw new InvalidOperationException("That section no longer exists — the suggestion was discarded.");
         }
-        if (!force && (section.BodyMd ?? "") != proposal.BaselineBodyMd)
+        if (!force && IsStale(section, proposal))
             throw new StaleProposalException("This section changed after the suggestion was made.");
 
         await history.SnapshotAsync(section.PostId, "Accept suggestion", ct);
@@ -92,6 +92,13 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         db.IssueSectionProposals.Remove(proposal);
         await db.SaveChangesAsync(ct);
     }
+
+    /// <summary>Stale only in the fields this proposal actually writes: a proposal that changes
+    /// just the title has no quarrel with a rewritten body, and blocking on it would train the
+    /// user to click through the confirm.</summary>
+    private static bool IsStale(IssueSection section, IssueSectionProposal proposal) =>
+        (proposal.ProposedBodyMd is not null && (section.BodyMd ?? "") != proposal.BaselineBodyMd)
+        || (proposal.ProposedTitle is not null && (section.Title ?? "") != (proposal.BaselineTitle ?? ""));
 
     public async Task RejectAsync(Guid proposalId, CancellationToken ct = default)
     {
@@ -135,8 +142,11 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
                 .Concat(proposalTimes.Where(p => p.PostId == post.Id).Select(p => p.CreatedAt))
                 .DefaultIfEmpty(post.CreatedAt).Max();
 
+            // A published issue is usually finished, but the composer stays editable — so recent
+            // work has to reset this clock too. Without it the sweep deletes proposals and undo
+            // history the user created minutes ago on an issue published a month earlier.
             var due = post is { Status: PostStatus.Published, PublishedAt: DateTimeOffset published }
-                ? published.AddDays(30)
+                ? (published > lastActivity ? published : lastActivity).AddDays(30)
                 : lastActivity.AddDays(90);
             if (now < due) continue;
 
@@ -259,7 +269,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             {
                 PostId = postId, SectionId = section.Id,
                 ProposedTitle = edit.Title, ProposedBodyMd = edit.BodyMd,
-                BaselineBodyMd = section.BodyMd ?? ""
+                BaselineBodyMd = section.BodyMd ?? "", BaselineTitle = section.Title
             });
             stored++;
         }

@@ -67,6 +67,25 @@ public class ChatReplyParsingTests
         Assert.Equal(2, reply.DroppedEdits);      // empty guid, and neither field set
     }
 
+    [Fact]
+    public void Tolerates_a_placeholder_sectionId_echoed_from_the_prompt_template()
+    {
+        // The prompt hands the model a literal example containing "sectionId":"<id>". A model that
+        // echoes the placeholder instead of a real id must not sink the good edit alongside it.
+        var ok = ChatReplyParser.TryParse(
+            $$"""
+            {"reply":"One real edit, one echoed placeholder.","edits":[
+              {"sectionId":"{{S1}}","bodyMd":"Good"},
+              {"sectionId":"<id>","bodyMd":"Echoed placeholder"}
+            ]}
+            """, out var reply);
+        Assert.True(ok);
+        var edit = Assert.Single(reply!.Edits);
+        Assert.Equal(S1, edit.SectionId);
+        Assert.Equal("Good", edit.BodyMd);
+        Assert.Equal(1, reply.DroppedEdits);
+    }
+
     [Theory]
     [InlineData("not json at all")]
     [InlineData("[]")]                                       // an array is the topics shape, not this one

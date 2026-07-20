@@ -285,4 +285,68 @@ public class IssueChatServiceTests
         Assert.Equal([ChatRoles.User, ChatRoles.Assistant], thread.Messages.Select(m => m.Role));
         Assert.Single(thread.Proposals);
     }
+
+    [Fact]
+    public async Task Removing_a_section_deletes_its_pending_proposal_too()
+    {
+        var w = await IssueComposerServiceTests.BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = IssueComposerServiceTests.ComposerWith(w, new SequenceLlm("unused"), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id))[1];
+        // No FK ties this row to the section — only RemoveSectionAsync's own cleanup does.
+        w.Test.Db.IssueSectionProposals.Add(new IssueSectionProposal
+        {
+            PostId = post.Id, SectionId = topic.Id, ProposedBodyMd = "x", BaselineBodyMd = ""
+        });
+        await w.Test.Db.SaveChangesAsync();
+
+        await composer.RemoveSectionAsync(topic.Id);
+
+        Assert.Empty(await w.Test.Db.IssueSectionProposals.Where(p => p.SectionId == topic.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Undoing_an_added_section_deletes_its_pending_proposal_too()
+    {
+        var w = await IssueComposerServiceTests.BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = IssueComposerServiceTests.ComposerWith(w, new SequenceLlm("unused"), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+
+        var added = await composer.AddSectionAsync(post.Id, SectionTypes.Sponsor);
+        w.Test.Db.IssueSectionProposals.Add(new IssueSectionProposal
+        {
+            PostId = post.Id, SectionId = added.Id, ProposedBodyMd = "x", BaselineBodyMd = ""
+        });
+        await w.Test.Db.SaveChangesAsync();
+
+        // Undoing the add restores the pre-add snapshot, which doesn't contain this section — so
+        // RestoreAsync removes it exactly like RemoveSectionAsync would, proposal included.
+        await history.UndoAsync(post.Id);
+
+        Assert.Empty(await w.Test.Db.IssueSections.Where(s => s.Id == added.Id).ToListAsync());
+        Assert.Empty(await w.Test.Db.IssueSectionProposals.Where(p => p.SectionId == added.Id).ToListAsync());
+    }
+
+    [Fact]
+    public async Task Accept_refuses_a_title_only_proposal_when_the_title_was_hand_edited()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        // Title-only edit: ReplyJson only ever emits bodyMd, so build this reply by hand.
+        var reply = $$"""{"reply":"ok","edits":[{"sectionId":"{{sections[1].Id}}","title":"Proposed title"}]}""";
+        var chat = Chat(test, new SequenceLlm(reply));
+        await chat.SendAsync(post.Id, "rename it");
+        var proposal = await test.Db.IssueSectionProposals.SingleAsync();
+
+        sections[1].Title = "Hand typed title";              // the user renamed it meanwhile
+        await test.Db.SaveChangesAsync();
+
+        await Assert.ThrowsAsync<StaleProposalException>(() => chat.AcceptAsync(proposal.Id, force: false));
+        Assert.Equal("Hand typed title",
+            (await test.Db.IssueSections.SingleAsync(s => s.Id == sections[1].Id)).Title);
+    }
 }

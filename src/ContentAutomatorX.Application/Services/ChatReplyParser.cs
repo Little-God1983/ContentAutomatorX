@@ -14,7 +14,7 @@ public static class ChatReplyParser
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    private record RawEdit(Guid SectionId, string? Title, string? BodyMd);
+    private record RawEdit(string? SectionId, string? Title, string? BodyMd);
     private record RawReply(string? Reply, List<RawEdit>? Edits);
 
     /// <summary>Structural validation only. Whether a sectionId actually belongs to the issue is
@@ -32,8 +32,15 @@ public static class ChatReplyParser
             foreach (var edit in raw.Edits ?? [])
             {
                 var hasField = !string.IsNullOrWhiteSpace(edit.Title) || !string.IsNullOrWhiteSpace(edit.BodyMd);
-                if (edit.SectionId == Guid.Empty || !hasField) { dropped++; continue; }
-                edits.Add(new ChatEdit(edit.SectionId, NullIfBlank(edit.Title), NullIfBlank(edit.BodyMd)));
+                // Parsed as a string, not a Guid: a Guid-typed property throws during Deserialize,
+                // which would lose every other edit in the same reply. Models really do emit junk
+                // here — echoing the prompt's own "<id>" placeholder is a common habit.
+                if (!Guid.TryParse(edit.SectionId, out var sectionId) || sectionId == Guid.Empty || !hasField)
+                {
+                    dropped++;
+                    continue;
+                }
+                edits.Add(new ChatEdit(sectionId, NullIfBlank(edit.Title), NullIfBlank(edit.BodyMd)));
             }
 
             var prose = raw.Reply?.Trim() ?? "";

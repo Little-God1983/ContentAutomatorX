@@ -101,6 +101,17 @@ public class ChatRetentionTests
         var post = await AddIssueAsync(test, PostStatus.Draft, null, Now.AddDays(-2));
         test.Db.IssueChatMessages.RemoveRange(
             await test.Db.IssueChatMessages.Where(m => m.PostId == post.Id).ToListAsync());
+        // AddIssueAsync also seeds a proposal at the same timestamp — remove it too, or it alone
+        // would supply the "still alive" signal and this test would pass even if the revision's
+        // contribution to lastActivity were deleted outright.
+        test.Db.IssueSectionProposals.RemoveRange(
+            await test.Db.IssueSectionProposals.Where(p => p.PostId == post.Id).ToListAsync());
+        // Backdated for the same reason as Recent_chat_keeps_an_old_issue_alive: with every
+        // activity list empty, PurgeAsync falls back to post.CreatedAt — which defaults to the
+        // real insert time (effectively "now"). Left there, that fallback alone would read as
+        // "recently active" even if the revision timestamp were never consulted at all, which
+        // would defeat this test's whole point.
+        (await test.Db.Posts.SingleAsync(p => p.Id == post.Id)).CreatedAt = Now.AddDays(-400);
         await test.Db.SaveChangesAsync();
 
         Assert.Equal(0, await Chat(test).PurgeAsync(Now));
@@ -145,6 +156,24 @@ public class ChatRetentionTests
         var post = await AddIssueAsync(test, PostStatus.Draft, null, Now.AddDays(-100));
         // Regenerate-all on an issue nobody has chatted about in months. The suggestion is seconds
         // old and must survive the next tick.
+        test.Db.IssueSectionProposals.Add(new IssueSectionProposal
+        {
+            PostId = post.Id, SectionId = Guid.NewGuid(), ProposedBodyMd = "fresh",
+            BaselineBodyMd = "", CreatedAt = Now
+        });
+        await test.Db.SaveChangesAsync();
+
+        Assert.Equal(0, await Chat(test).PurgeAsync(Now));
+        Assert.Equal(2, await test.Db.IssueSectionProposals.CountAsync(p => p.PostId == post.Id));
+    }
+
+    [Fact]
+    public async Task A_fresh_proposal_keeps_a_recently_worked_published_issue_alive()
+    {
+        using var test = TestDb.Create();
+        // Published long ago, but someone is editing it right now. The composer stays live after
+        // publishing, so their work must not be swept out from under them.
+        var post = await AddIssueAsync(test, PostStatus.Published, Now.AddDays(-40), Now.AddDays(-40));
         test.Db.IssueSectionProposals.Add(new IssueSectionProposal
         {
             PostId = post.Id, SectionId = Guid.NewGuid(), ProposedBodyMd = "fresh",

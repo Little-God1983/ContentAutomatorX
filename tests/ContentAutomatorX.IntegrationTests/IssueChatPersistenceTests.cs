@@ -73,4 +73,25 @@ public class IssueChatPersistenceTests
         });
         await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync());
     }
+
+    [Fact]
+    public async Task Two_revisions_cannot_share_the_same_post_stack_and_ordinal()
+    {
+        var (test, post, _) = await SeedAsync();
+        using var _ = test;
+        // Simulates two circuits racing to push the same undo step: each computes "top + 1" from
+        // its own read and neither sees the other's write until the unique index says no.
+        test.Db.IssueRevisions.Add(new IssueRevision
+        {
+            PostId = post.Id, Stack = RevisionStacks.Undo, Ordinal = 1, Label = "First", SnapshotJson = "{}"
+        });
+        await test.Db.SaveChangesAsync();
+
+        using var second = test.NewContext();
+        second.IssueRevisions.Add(new IssueRevision
+        {
+            PostId = post.Id, Stack = RevisionStacks.Undo, Ordinal = 1, Label = "Second", SnapshotJson = "{}"
+        });
+        await Assert.ThrowsAsync<DbUpdateException>(() => second.SaveChangesAsync());
+    }
 }

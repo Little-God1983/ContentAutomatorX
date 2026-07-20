@@ -15,5 +15,9 @@ public class IssueSectionProposal
     /// from silently discarding that edit.</summary>
     public required string BaselineBodyMd { get; set; }
 
+    /// <summary>The section's title when this was generated, for the same reason as
+    /// BaselineBodyMd. Null when the section had none.</summary>
+    public string? BaselineTitle { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

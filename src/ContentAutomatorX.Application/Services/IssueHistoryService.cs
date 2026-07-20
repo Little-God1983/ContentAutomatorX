@@ -102,8 +102,16 @@ public class IssueHistoryService(IAppDbContext db)
 
         var live = await db.IssueSections.Where(s => s.PostId == postId).ToListAsync(ct);
         var wanted = snapshot.Sections.ToDictionary(s => s.Id);
-        foreach (var section in live.Where(s => !wanted.ContainsKey(s.Id)))
-            db.IssueSections.Remove(section);
+        var doomed = live.Where(s => !wanted.ContainsKey(s.Id)).ToList();
+        foreach (var section in doomed) db.IssueSections.Remove(section);
+        if (doomed.Count > 0)
+        {
+            // Same reasoning as RemoveSectionAsync: no FK, so an undo that removes a section would
+            // otherwise strand its proposal.
+            var doomedIds = doomed.Select(s => s.Id).ToList();
+            db.IssueSectionProposals.RemoveRange(
+                await db.IssueSectionProposals.Where(p => doomedIds.Contains(p.SectionId)).ToListAsync(ct));
+        }
 
         var byId = live.ToDictionary(s => s.Id);
         foreach (var want in snapshot.Sections)

@@ -111,6 +111,11 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var sections = await GetSectionsAsync(section.PostId, ct);
         sections.RemoveAll(s => s.Id == sectionId);
         db.IssueSections.Remove(section);
+        // The proposal has no FK to the section — only to the post — so nothing removes it for us.
+        // Orphaned it is invisible, since no card exists to render it, and unreachable once the
+        // undo entry that could restore the section is trimmed off the stack.
+        db.IssueSectionProposals.RemoveRange(
+            await db.IssueSectionProposals.Where(p => p.SectionId == sectionId).ToListAsync(ct));
         Renumber(sections);
         await db.SaveChangesAsync(ct);
     }
