@@ -87,23 +87,33 @@ public class IssueHistoryServiceTests
     }
 
     [Fact]
-    public async Task A_new_snapshot_clears_the_redo_stack()
+    public async Task A_new_snapshot_clears_the_whole_redo_stack()
     {
         var (test, post, sections) = await SeedAsync();
         using var _ = test;
         var history = new IssueHistoryService(test.Db);
 
+        // Two undos, so the redo stack holds two entries. With only one, "clear the stack" and
+        // "pop the top entry" are indistinguishable and this test would pass either way.
         await history.SnapshotAsync(post.Id, "First");
         sections[1].BodyMd = "one";
         await test.Db.SaveChangesAsync();
-        await history.UndoAsync(post.Id);
-        Assert.Equal("First", (await history.GetStateAsync(post.Id)).RedoLabel);
-
         await history.SnapshotAsync(post.Id, "Second");
+        sections[1].BodyMd = "two";
+        await test.Db.SaveChangesAsync();
+
+        await history.UndoAsync(post.Id);
+        await history.UndoAsync(post.Id);
+        Assert.Equal(2, await test.Db.IssueRevisions
+            .CountAsync(r => r.PostId == post.Id && r.Stack == RevisionStacks.Redo));
+
+        await history.SnapshotAsync(post.Id, "Third");
 
         var state = await history.GetStateAsync(post.Id);
-        Assert.Equal("Second", state.UndoLabel);
+        Assert.Equal("Third", state.UndoLabel);
         Assert.Null(state.RedoLabel);
+        Assert.Equal(0, await test.Db.IssueRevisions
+            .CountAsync(r => r.PostId == post.Id && r.Stack == RevisionStacks.Redo));
     }
 
     [Fact]
