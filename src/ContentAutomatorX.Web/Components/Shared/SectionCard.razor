@@ -5,7 +5,9 @@
     <div class="d-flex align-center" style="gap:4px">
         <MudIcon Icon="@TypeIcon()" Size="Size.Small" Class="mx-1" />
         <MudText Typo="Typo.subtitle2" Class="flex-grow-1"
-                 Style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">@Label()</MudText>
+                 Style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+            @Label()@(Proposal?.ProposedTitle is string t ? $"  →  {t}" : "")
+        </MudText>
         @if (Movable())
         {
             <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
@@ -31,6 +33,22 @@
                            Disabled="@Busy" OnClick="@(() => OnDelete.InvokeAsync())" />
         }
     </div>
+    @if (Proposal is not null)
+    {
+        <div class="mt-2 pa-2" style="border-left:3px solid var(--mud-palette-primary); background:var(--mud-palette-background-grey);">
+            <MudText Typo="Typo.overline">Current</MudText>
+            <MudText Typo="Typo.body2" Style="white-space:pre-wrap;">@(Section.BodyMd ?? "(empty)")</MudText>
+            <MudDivider Class="my-2" />
+            <MudText Typo="Typo.overline" Color="Color.Primary">Proposed</MudText>
+            <MudText Typo="Typo.body2" Style="white-space:pre-wrap;">@(Proposal.ProposedBodyMd ?? Section.BodyMd ?? "(empty)")</MudText>
+            <div class="mt-2 d-flex" style="gap:8px">
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                           Disabled="@Busy" OnClick="@(() => OnAcceptProposal.InvokeAsync())">Accept</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                           Disabled="@Busy" OnClick="@(() => OnRejectProposal.InvokeAsync())">Reject</MudButton>
+            </div>
+        </div>
+    }
     @if (_expanded)
     {
         <div class="mt-2">
@@ -75,6 +93,9 @@
     [Parameter] public EventCallback OnDelete { get; set; }
     [Parameter] public EventCallback OnRegenerate { get; set; }
     [Parameter] public EventCallback<SectionEdit> OnApply { get; set; }
+    [Parameter] public IssueSectionProposal? Proposal { get; set; }
+    [Parameter] public EventCallback OnAcceptProposal { get; set; }
+    [Parameter] public EventCallback OnRejectProposal { get; set; }
 
     private bool _expanded;
     private string _title = "", _body = "", _image = "", _link = "", _linkText = "";
