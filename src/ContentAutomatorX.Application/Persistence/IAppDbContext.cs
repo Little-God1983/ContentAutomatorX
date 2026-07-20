@@ -14,5 +14,10 @@ public interface IAppDbContext
     DbSet<PromptTemplate> PromptTemplates { get; }
     DbSet<Platform> Platforms { get; }
     DbSet<Post> Posts { get; }
+    DbSet<IssueSection> IssueSections { get; }
+    DbSet<TenantLlmSetting> TenantLlmSettings { get; }
+    DbSet<IssueChatMessage> IssueChatMessages { get; }
+    DbSet<IssueSectionProposal> IssueSectionProposals { get; }
+    DbSet<IssueRevision> IssueRevisions { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

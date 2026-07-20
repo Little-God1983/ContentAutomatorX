@@ -33,3 +33,26 @@ public static class PlatformTypes
 {
     public const string MailerLite = "MailerLite";
 }
+
+public static class SectionTypes
+{
+    public const string Header = "Header";
+    public const string Topic = "Topic";
+    public const string Sponsor = "Sponsor";
+    public const string Button = "Button";
+    public const string Divider = "Divider";
+    public const string Footer = "Footer";
+    public const string LegacyBody = "LegacyBody";
+}
+
+public static class ChatRoles
+{
+    public const string User = "User";
+    public const string Assistant = "Assistant";
+}
+
+public static class RevisionStacks
+{
+    public const string Undo = "Undo";
+    public const string Redo = "Redo";
+}

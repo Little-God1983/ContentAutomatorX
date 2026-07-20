@@ -9,7 +9,7 @@ namespace ContentAutomatorX.Infrastructure.Sources;
 /// <summary>"AI as a source": one LLM call (ideally with web search enabled via
 /// Claude:ExtraArgs) returns found articles as strict JSON; each becomes a ContentItem.
 /// It finds material — it never writes the newsletter.</summary>
-public class LlmResearchConnector(ILlmBackend llm) : ISourceConnector
+public class LlmResearchConnector(ILlmBackend llm, ILlmSettingsProvider llmSettings) : ISourceConnector
 {
     public string Type => SourceTypes.LlmResearch;
 
@@ -23,10 +23,11 @@ public class LlmResearchConnector(ILlmBackend llm) : ISourceConnector
             ?? throw new InvalidOperationException($"Source {source.Id}: invalid LlmResearch config");
 
         var prompt = BuildPrompt(config, retry: false);
-        var reply = await llm.GenerateAsync(prompt, ct);
+        var settings = await llmSettings.GetAsync(source.TenantId, ct);
+        var reply = await llm.GenerateAsync(prompt, settings, ct);
         if (!TryParse(reply.Text, out var parsed))
         {
-            reply = await llm.GenerateAsync(BuildPrompt(config, retry: true), ct);
+            reply = await llm.GenerateAsync(BuildPrompt(config, retry: true), settings, ct);
             if (!TryParse(reply.Text, out parsed))
                 throw new InvalidOperationException(
                     $"LlmResearch source {source.DisplayName}: model did not return valid JSON after retry");

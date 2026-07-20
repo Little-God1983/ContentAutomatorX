@@ -15,6 +15,11 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<Platform> Platforms => Set<Platform>();
     public DbSet<Post> Posts => Set<Post>();
+    public DbSet<IssueSection> IssueSections => Set<IssueSection>();
+    public DbSet<TenantLlmSetting> TenantLlmSettings => Set<TenantLlmSetting>();
+    public DbSet<IssueChatMessage> IssueChatMessages => Set<IssueChatMessage>();
+    public DbSet<IssueSectionProposal> IssueSectionProposals => Set<IssueSectionProposal>();
+    public DbSet<IssueRevision> IssueRevisions => Set<IssueRevision>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -28,5 +33,27 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<Post>().Property(p => p.Status).HasConversion<string>();
         b.Entity<Post>().HasIndex(p => new { p.TenantId, p.Status });
         b.Entity<Platform>().HasIndex(p => new { p.TenantId, p.Type }).IsUnique();
+        b.Entity<IssueSection>().HasIndex(s => new { s.PostId, s.Position });
+        b.Entity<IssueSection>()
+            .HasOne<Post>().WithMany().HasForeignKey(s => s.PostId).OnDelete(DeleteBehavior.Cascade);
+        // Unique so "at most one row per tenant" is enforced by the database, not
+        // by hoping every writer goes through SaveAsync's upsert. No FK to Tenant:
+        // no tenant-owned entity here declares one (see Platform, Recipe, Source).
+        b.Entity<TenantLlmSetting>().HasIndex(s => s.TenantId).IsUnique();
+        b.Entity<IssueChatMessage>().HasIndex(m => m.PostId);
+        b.Entity<IssueChatMessage>()
+            .HasOne<Post>().WithMany().HasForeignKey(m => m.PostId).OnDelete(DeleteBehavior.Cascade);
+        // Unique so "at most one pending proposal per section" is enforced by the database, not by
+        // hoping every writer remembers to delete the previous one first.
+        b.Entity<IssueSectionProposal>().HasIndex(p => p.SectionId).IsUnique();
+        b.Entity<IssueSectionProposal>().HasIndex(p => p.PostId);
+        b.Entity<IssueSectionProposal>()
+            .HasOne<Post>().WithMany().HasForeignKey(p => p.PostId).OnDelete(DeleteBehavior.Cascade);
+        // Unique so a concurrent second circuit computing the same ordinal fails loudly instead of
+        // silently producing two rows that tie for "top of stack" — where which one pops first is
+        // decided by index scan order, not by anything we specify.
+        b.Entity<IssueRevision>().HasIndex(r => new { r.PostId, r.Stack, r.Ordinal }).IsUnique();
+        b.Entity<IssueRevision>()
+            .HasOne<Post>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
     }
 }

@@ -3,6 +3,8 @@
 @inject ISnackbar Snackbar
 @inject TenantContext Ctx
 @inject IDialogService DialogService
+@using ContentAutomatorX.Application.Newsletter
+@using ContentAutomatorX.Domain.Models
 
 <MudText Typo="Typo.h4" Class="mb-4">Tenants</MudText>
 
@@ -12,6 +14,24 @@
     <MudTextField @bind-Value="_slug" Label="Slug (short id, used in draft front-matter)" />
     <MudTextField @bind-Value="_voice" Label="Voice profile (tone, style, audience — goes into every prompt)" Lines="5" />
     <MudTextField @bind-Value="_folder" Label="Output folder (local OneDrive/Mega synced path)" />
+    <MudDivider Class="my-3" />
+    <MudText Typo="Typo.subtitle1">Newsletter</MudText>
+    <div class="d-flex flex-wrap" style="gap:16px">
+        <MudTextField @bind-Value="_accent" Label="Accent color (#rrggbb — headings, links, buttons)" Style="min-width:220px" />
+        <MudTextField @bind-Value="_logoUrl" Label="Logo URL (https)" Style="min-width:280px" Class="flex-grow-1" />
+        <MudSelect T="string" @bind-Value="_fontKey" Label="Font" Style="min-width:200px">
+            @foreach (var f in EmailFonts.All)
+            {
+                <MudSelectItem T="string" Value="@f.Key">@f.Value.Label</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <MudTextField @bind-Value="_defaultHeader" Label="Default header (markdown — prefills every new issue)" Lines="3" />
+    <MudTextField @bind-Value="_defaultFooter" Label="Default footer (markdown — sign-off, socials)" Lines="3" />
+    <MudTextField @bind-Value="_senderIdentity" Label="Sender name & address (required by MailerLite / anti-spam law)" />
+    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+        The unsubscribe link is inserted automatically below the footer — it cannot be forgotten or removed.
+    </MudText>
     <MudSwitch T="bool" @bind-Value="_active" Label="Active" Color="Color.Primary" />
     <div class="mt-2">
         <MudButton OnClick="VerifyFolder" Variant="Variant.Outlined" Class="mr-2">Verify folder</MudButton>
@@ -43,6 +63,8 @@
     private List<Tenant> _tenants = [];
     private Tenant? _editing;
     private string _name = "", _slug = "", _voice = "", _folder = "";
+    private string _accent = "", _logoUrl = "", _fontKey = EmailFonts.DefaultKey;
+    private string _defaultHeader = "", _defaultFooter = "", _senderIdentity = "";
     private bool _active = true;
 
     protected override async Task OnInitializedAsync() => _tenants = await TenantSvc.ListAsync();
@@ -51,12 +73,18 @@
     {
         _editing = t;
         (_name, _slug, _voice, _folder, _active) = (t.Name, t.Slug, t.VoiceProfile, t.OutputFolderPath, t.IsActive);
+        var branding = TenantBranding.Parse(t.BrandingJson);
+        (_accent, _logoUrl, _fontKey) = (branding.AccentColorHex ?? "", branding.LogoUrl ?? "",
+            branding.FontKey ?? EmailFonts.DefaultKey);
+        (_defaultHeader, _defaultFooter, _senderIdentity) = (t.DefaultHeaderMd, t.DefaultFooterMd, t.SenderIdentity);
     }
 
     private void Reset()
     {
         _editing = null;
         (_name, _slug, _voice, _folder, _active) = ("", "", "", "", true);
+        (_accent, _logoUrl, _fontKey) = ("", "", EmailFonts.DefaultKey);
+        (_defaultHeader, _defaultFooter, _senderIdentity) = ("", "", "");
     }
 
     private void VerifyFolder()
@@ -72,6 +100,11 @@
         catch (Exception ex) { Snackbar.Add($"Not writable: {ex.Message}", Severity.Error); }
     }
 
+    private string BrandingJson() => new TenantBranding(
+        string.IsNullOrWhiteSpace(_accent) ? null : _accent.Trim(),
+        string.IsNullOrWhiteSpace(_logoUrl) ? null : _logoUrl.Trim(),
+        _fontKey).ToJson();
+
     private async Task Save()
     {
         if (string.IsNullOrWhiteSpace(_name) || string.IsNullOrWhiteSpace(_slug))
@@ -80,12 +113,20 @@
         if (_editing is null)
         {
             await TenantSvc.CreateAsync(new Tenant
-            { Name = _name, Slug = _slug, VoiceProfile = _voice, OutputFolderPath = _folder, IsActive = _active });
+            {
+                Name = _name, Slug = _slug, VoiceProfile = _voice, OutputFolderPath = _folder, IsActive = _active,
+                BrandingJson = BrandingJson(), DefaultHeaderMd = _defaultHeader,
+                DefaultFooterMd = _defaultFooter, SenderIdentity = _senderIdentity
+            });
         }
         else
         {
             (_editing.Name, _editing.Slug, _editing.VoiceProfile, _editing.OutputFolderPath, _editing.IsActive)
                 = (_name, _slug, _voice, _folder, _active);
+            _editing.BrandingJson = BrandingJson();
+            _editing.DefaultHeaderMd = _defaultHeader;
+            _editing.DefaultFooterMd = _defaultFooter;
+            _editing.SenderIdentity = _senderIdentity;
             await TenantSvc.UpdateAsync();
         }
         Reset();

@@ -1,14 +1,15 @@
 @page "/issue/{PostId:guid}"
+@using ContentAutomatorX.Domain.Abstractions
 @implements IDisposable
 @inject TenantContext Ctx
 @inject PostService PostSvc
-@inject SourceService SourceSvc
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 @inject NavigationManager Nav
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
-<MudText Typo="Typo.h4" Class="mb-4">Issue editor</MudText>
+<MudText Typo="Typo.h4" Class="mb-4">Issue composer</MudText>
 
 @if (_post is null)
 {
@@ -19,11 +20,11 @@ else
     <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
         <MudTextField @bind-Value="_title" Label="Title" Class="flex-grow-1" Style="min-width:280px" />
         <MudChip T="string" Color="@StatusColor(_post.Status)">@_post.Status</MudChip>
-        <MudButton OnClick="SaveAsync" Variant="Variant.Outlined"
-                   Disabled="@(_pushing || _composing || _subjectsLoading)">Save</MudButton>
+        <MudButton OnClick="SaveAsync" Variant="Variant.Outlined" Disabled="@AnyBusy">Save</MudButton>
+        <MudButton OnClick="ExportAsync" Variant="Variant.Outlined" Disabled="@AnyBusy">Export .md</MudButton>
         @if (_post.Status != PostStatus.Published)
         {
-            <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_pushing">
+            <MudButton OnClick="PushAsync" Variant="Variant.Filled" Color="Color.Primary" Disabled="@AnyBusy">
                 @(_post.Status == PostStatus.Pushed ? "Re-push" : "Push ⚡")
             </MudButton>
         }
@@ -34,19 +35,37 @@ else
             </MudButton>
         }
     </div>
-    @if (_pushing)
+    @if (_pushing || _generating || _chatting)
     {
         <MudProgressLinear Indeterminate="true" Class="mb-2" />
     }
 
     <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
+        <MudTooltip Text="@(_history.UndoLabel is null ? "Nothing to undo" : $"Undo: {_history.UndoLabel}")">
+            <MudButton StartIcon="@Icons.Material.Filled.Undo" Variant="Variant.Outlined" Size="Size.Small"
+                       Disabled="@(AnyBusy || _history.UndoLabel is null)" OnClick="UndoAsync">Undo</MudButton>
+        </MudTooltip>
+        <MudTooltip Text="@(_history.RedoLabel is null ? "Nothing to redo" : $"Redo: {_history.RedoLabel}")">
+            <MudButton StartIcon="@Icons.Material.Filled.Redo" Variant="Variant.Outlined" Size="Size.Small"
+                       Disabled="@(AnyBusy || _history.RedoLabel is null)" OnClick="RedoAsync">Redo</MudButton>
+        </MudTooltip>
+        <MudButton StartIcon="@Icons.Material.Filled.Autorenew" Variant="Variant.Outlined" Size="Size.Small"
+                   Disabled="@AnyBusy" OnClick="RegenerateAllAsync">Regenerate all</MudButton>
+        <MudSpacer />
+        <MudTooltip Text="The model every ✨ on this page runs on — change it in AI Studio">
+            <MudChip T="string" Size="Size.Small" Icon="@Icons.Material.Filled.Memory"
+                     Variant="Variant.Outlined">@_modelLabel</MudChip>
+        </MudTooltip>
+    </div>
+
+    <div class="d-flex align-center flex-wrap mb-2" style="gap:12px">
         <MudTextField @bind-Value="_subject" Label="Subject" Class="flex-grow-1" Style="min-width:240px" />
         <MudTextField @bind-Value="_preview" Label="Preview text" Class="flex-grow-1" Style="min-width:240px" />
-        <MudButton OnClick="SubjectsAsync" Disabled="@_subjectsLoading">✨ Subjects</MudButton>
+        <MudButton OnClick="SubjectsAsync" Disabled="@AnyBusy">✨ Subjects</MudButton>
     </div>
     @if (_subjectIdeas.Count > 0)
     {
-        <MudChipSet T="string" Class="mb-4">
+        <MudChipSet T="string" Class="mb-2">
             @foreach (var idea in _subjectIdeas)
             {
                 <MudChip T="string" OnClick="@(() => _subject = idea)">@idea</MudChip>
@@ -54,93 +73,70 @@ else
         </MudChipSet>
     }
 
+    @if (_generateFailed)
+    {
+        <MudAlert Severity="Severity.Error" Class="mb-2">
+            Topic generation failed — the drafted topics are untouched.
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Error"
+                       Class="ml-2" OnClick="GenerateAsync" Disabled="@AnyBusy">Retry generation</MudButton>
+        </MudAlert>
+    }
+    else if (!_generating && SkeletonCount > 0)
+    {
+        <MudAlert Severity="Severity.Info" Class="mb-2">
+            @SkeletonCount topic(s) have no text yet.
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                       Class="ml-2" OnClick="GenerateAsync" Disabled="@AnyBusy">Generate ✨</MudButton>
+        </MudAlert>
+    }
+
     <MudGrid>
-        <MudItem xs="12" md="6">
+        <MudItem xs="12" md="5">
             <MudPaper Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-2">Material</MudText>
-                <MudChipSet T="Guid" SelectionMode="SelectionMode.MultiSelection" CheckMark="true"
-                            SelectedValues="_issueSources" SelectedValuesChanged="OnIssueSourcesChangedAsync"
-                            Class="mb-2">
-                    @foreach (var s in _allSources)
-                    {
-                        <MudChip T="Guid" Value="@s.Id">@s.DisplayName</MudChip>
-                    }
-                </MudChipSet>
-
-                <div>
-                    <MudButton OnClick="GatherAsync" Variant="Variant.Outlined"
-                               Disabled="@(_gathering || _issueSources.Count == 0)">
-                        @(_candidates.Count > 0 ? "Re-gather" : "Gather")
-                    </MudButton>
-                </div>
-                @if (_gathering)
+                <MudText Typo="Typo.h6" Class="mb-2">Structure</MudText>
+                @{ var topicNumber = 0; }
+                @for (var n = 0; n < _sections.Count; n++)
                 {
-                    <MudProgressLinear Indeterminate="true" Class="my-2" />
+                    var index = n;
+                    var section = _sections[index];
+                    if (section.Type == SectionTypes.Topic) { topicNumber++; }
+                    var proposal = ProposalFor(section);
+                    <SectionCard @key="section.Id" Section="@section" TopicNumber="@topicNumber" Busy="@AnyBusy"
+                                 CanMoveUp="@(index > 1)" CanMoveDown="@(index < _sections.Count - 2)"
+                                 Proposal="@proposal"
+                                 OnMove="@(dir => MoveAsync(section, dir))"
+                                 OnDelete="@(() => DeleteAsync(section))"
+                                 OnRegenerate="@(() => RegenerateAsync(section))"
+                                 OnAcceptProposal="@(() => AcceptProposalAsync(proposal!))"
+                                 OnRejectProposal="@(() => RejectProposalAsync(proposal!))"
+                                 OnApply="@(edit => ApplyAsync(section, edit))" />
                 }
-
-                <MudTable Items="_candidates" Hover="true" Dense="true" Class="mt-2">
-                    <HeaderContent>
-                        <MudTh></MudTh>
-                        <MudTh>Title</MudTh>
-                        <MudTh>Source</MudTh>
-                        <MudTh>Published</MudTh>
-                    </HeaderContent>
-                    <RowTemplate>
-                        <MudTd>
-                            <MudCheckBox T="bool" Value="@_checkedItems.Contains(context.Id)"
-                                         ValueChanged="@(v => ToggleItem(context.Id, v))" Dense="true" />
-                        </MudTd>
-                        <MudTd>
-                            @if (context.Url is not null)
-                            {
-                                <MudLink Href="@context.Url" Target="_blank">@context.Title</MudLink>
-                            }
-                            else
-                            {
-                                @context.Title
-                            }
-                        </MudTd>
-                        <MudTd>@SourceName(context.SourceId)</MudTd>
-                        <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
-                    </RowTemplate>
-                    <NoRecordsContent>
-                        <MudText>No candidates yet — gather from the sources above.</MudText>
-                    </NoRecordsContent>
-                </MudTable>
-
-                <MudTextField @bind-Value="_extraInstructions" Label="Extra instructions (optional)" Lines="2" Class="mt-3" />
-                <MudButton OnClick="ComposeAsync" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
-                           Disabled="@(_checkedItems.Count == 0 || _composing)">
-                    Compose ✨ (@_checkedItems.Count items)
-                </MudButton>
-                @if (_composing)
-                {
-                    <MudProgressLinear Indeterminate="true" Class="mt-2" />
-                }
+                <MudMenu Label="Add section" StartIcon="@Icons.Material.Filled.Add"
+                         Variant="Variant.Outlined" Class="mt-2" Disabled="@AnyBusy">
+                    <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Topic))">Topic (write manually)</MudMenuItem>
+                    <MudMenuItem OnClick="OpenItemPickerAsync">Topic from inbox…</MudMenuItem>
+                    <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Sponsor))">Sponsor block</MudMenuItem>
+                    <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Button))">Button / CTA</MudMenuItem>
+                    <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Divider))">Divider</MudMenuItem>
+                </MudMenu>
+                <MudTextField @bind-Value="_extraInstructions"
+                              Label="Extra instructions (used by Generate and every ✨)" Lines="2" Class="mt-3" />
             </MudPaper>
         </MudItem>
 
-        <MudItem xs="12" md="6">
+        <MudItem xs="12" md="7">
             <MudPaper Class="pa-4">
-                <div class="d-flex align-center justify-space-between mb-2">
-                    <MudText Typo="Typo.h6">Body</MudText>
-                    <MudButtonGroup Variant="Variant.Outlined">
-                        <MudButton Color="@(_previewMode ? Color.Default : Color.Primary)"
-                                   OnClick="@(() => _previewMode = false)">Edit</MudButton>
-                        <MudButton Color="@(_previewMode ? Color.Primary : Color.Default)"
-                                   OnClick="@(() => _previewMode = true)">Preview</MudButton>
-                    </MudButtonGroup>
-                </div>
-                @if (_previewMode)
-                {
-                    <div class="pa-3" style="border:1px solid var(--mud-palette-lines-default); border-radius:4px; max-height:720px; overflow-y:auto;">
-                        @((MarkupString)EmailHtmlRenderer.Render(_body, _title))
-                    </div>
-                }
-                else
-                {
-                    <MudTextField @bind-Value="_body" Lines="24" Variant="Variant.Outlined" Style="font-family:monospace" />
-                }
+                <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true">
+                    <MudTabPanel Text="Preview" PanelClass="pt-4">
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">Exactly what MailerLite receives</MudText>
+                        <div class="pa-3" style="border:1px solid var(--mud-palette-lines-default); border-radius:4px; max-height:800px; overflow-y:auto; background:#f4f4f4;">
+                            @((MarkupString)_previewHtml)
+                        </div>
+                    </MudTabPanel>
+                    <MudTabPanel Text="Chat" PanelClass="pt-4">
+                        <IssueChatPanel Messages="@_chat.Messages" Sending="@_chatting" OnSend="SendChatAsync" />
+                    </MudTabPanel>
+                </MudTabs>
             </MudPaper>
         </MudItem>
     </MudGrid>
@@ -149,184 +145,368 @@ else
 @code {
     [Parameter] public Guid PostId { get; set; }
     private Post? _post;
-    private string _title = "", _body = "", _subject = "", _preview = "", _extraInstructions = "";
-    private List<Source> _allSources = [];
-    private HashSet<Guid> _issueSources = [];
-    private List<ContentItem> _candidates = [];
-    private HashSet<Guid> _checkedItems = [];
+    private List<IssueSection> _sections = [];
+    private string _previewHtml = "";
+    private string _title = "", _subject = "", _preview = "", _extraInstructions = "";
     private IReadOnlyList<string> _subjectIdeas = [];
-    private bool _gathering, _composing, _pushing;
-    private bool _previewMode, _subjectsLoading;
+    private bool _generating, _generateFailed, _pushing, _subjectsLoading, _mutating, _gathering;
+    private bool _autoGenerate, _autoGather;
+    private IssueChat _chat = new([], []);
+    private bool _chatting;
+    private HistoryState _history = new(null, null);
+    private string _modelLabel = "";
+
+    private bool AnyBusy => _generating || _pushing || _subjectsLoading || _mutating || _gathering || _chatting;
+    private int SkeletonCount => _sections.Count(s =>
+        s.Type == SectionTypes.Topic && string.IsNullOrWhiteSpace(s.BodyMd) && s.SourceItemId is not null);
 
     protected override async Task OnInitializedAsync()
     {
         _post = await PostSvc.GetAsync(PostId);
         if (_post is null) { Nav.NavigateTo("/posts"); return; }
-        _title = _post.Title; _subject = _post.Subject ?? ""; _preview = _post.PreviewText ?? "";
-        if (_post.DraftId is Guid draftId)
-        {
-            var draft = await PostSvc.GetDraftAsync(draftId);
-            _body = draft?.Body ?? "";
-        }
-        _allSources = await SourceSvc.ListAsync(_post.TenantId);
-        _issueSources = (await PostSvc.GetIssueSourceIdsAsync(_post)).ToHashSet();
-        await ReloadCandidatesAsync();
+        _title = _post.Title;
+        _subject = _post.Subject ?? "";
+        _preview = _post.PreviewText ?? "";
 
         Ctx.Changed += OnTenantChanged;
         CheckTenantGuard();
 
+        await WithComposerAsync(c => c.EnsureSectionsAsync(PostId));
+        await ReloadSectionsAsync();
+
+        var query = System.Web.HttpUtility.ParseQueryString(new Uri(Nav.Uri).Query);
+        _extraInstructions = query["instructions"] ?? "";
+        _autoGenerate = query["generate"] == "1";
+        _autoGather = query["gather"] == "1";
+    }
+
+    // generate=1/gather=1/instructions are only ever meant to auto-run once, driven by
+    // interactive user actions upstream (e.g. Content.razor's "Create newsletter"). Running them
+    // from OnInitializedAsync would fire during prerender too — awaiting a dialog result there
+    // (OpenItemPickerAsync) can never complete, hanging the initial page load. OnAfterRender(Async)
+    // never runs during prerender, so gating on firstRender here makes this interactive-only, and
+    // stripping the query params before running keeps an F5 reload from re-triggering ingestion/LLM.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_autoGenerate && !_autoGather) return;
+
+        var generate = _autoGenerate;
+        var gather = _autoGather;
+        _autoGenerate = false;
+        _autoGather = false;
+
         var uri = new Uri(Nav.Uri);
-        if (System.Web.HttpUtility.ParseQueryString(uri.Query)["gather"] == "1") await GatherAsync();
+        var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
+        query.Remove("generate");
+        query.Remove("gather");
+        query.Remove("instructions");
+        var cleanQuery = query.ToString();
+        var cleanUri = uri.GetLeftPart(UriPartial.Path) + (string.IsNullOrEmpty(cleanQuery) ? "" : $"?{cleanQuery}");
+        Nav.NavigateTo(cleanUri, replace: true);
+
+        if (generate && SkeletonCount > 0) await GenerateAsync();
+        if (gather) // "+ New → Create & gather": fetch fresh material, then pick
+        {
+            await GatherAsync();
+            await OpenItemPickerAsync();
+        }
     }
 
-    private void OnTenantChanged() => _ = InvokeAsync(() =>
+    // Every composer call runs in a fresh DI scope: LLM calls are long-running, and cross-scope
+    // writes would leave circuit-tracked section entities stale (see PostService.GetFreshAsync).
+    private async Task<T> WithComposerAsync<T>(Func<IssueComposerService, Task<T>> op)
     {
-        CheckTenantGuard();
-        StateHasChanged();
-    });
-
-    // This page is post-scoped: its data comes from the post's own TenantId, not Ctx.Active,
-    // so it must keep working while Ctx is still initializing. Once Ctx is ready, a mismatch
-    // (or no active tenant at all) means the user switched tenants away from this issue.
-    private void CheckTenantGuard()
-    {
-        if (_post is not null && Ctx.Initialized && (Ctx.Active is null || Ctx.Active.Id != _post.TenantId))
-            Nav.NavigateTo("/posts");
+        using var scope = ScopeFactory.CreateScope();
+        return await op(scope.ServiceProvider.GetRequiredService<IssueComposerService>());
     }
 
-    private async Task ReloadCandidatesAsync()
+    private async Task WithComposerAsync(Func<IssueComposerService, Task> op)
     {
-        if (_post is null) return;
-        _candidates = await PostSvc.GetCandidatesAsync(_post);
-        _checkedItems = _candidates.Select(c => c.Id).ToHashSet();
+        using var scope = ScopeFactory.CreateScope();
+        await op(scope.ServiceProvider.GetRequiredService<IssueComposerService>());
     }
 
-    private string SourceName(Guid sourceId) =>
-        _allSources.FirstOrDefault(s => s.Id == sourceId)?.DisplayName ?? "(unknown source)";
-
-    private void ToggleItem(Guid id, bool on)
+    // Chat gets the same fresh-scope treatment as the composer, for the same reason — and more so:
+    // a chat turn is the longest-running call on this page.
+    private async Task<T> WithChatAsync<T>(Func<IssueChatService, Task<T>> op)
     {
-        if (on) _checkedItems.Add(id); else _checkedItems.Remove(id);
+        using var scope = ScopeFactory.CreateScope();
+        return await op(scope.ServiceProvider.GetRequiredService<IssueChatService>());
     }
 
-    private async Task OnIssueSourcesChangedAsync(IReadOnlyCollection<Guid> values)
+    private async Task WithChatAsync(Func<IssueChatService, Task> op)
     {
-        if (_post is null) return;
-        _issueSources = values.ToHashSet();
+        using var scope = ScopeFactory.CreateScope();
+        await op(scope.ServiceProvider.GetRequiredService<IssueChatService>());
+    }
+
+    private async Task<T> WithHistoryAsync<T>(Func<IssueHistoryService, Task<T>> op)
+    {
+        using var scope = ScopeFactory.CreateScope();
+        return await op(scope.ServiceProvider.GetRequiredService<IssueHistoryService>());
+    }
+
+    private async Task ReloadSectionsAsync()
+    {
+        // Every mutating handler awaits this from its finally block. An exception escaping here
+        // would replace that handler's own error snackbar and, with no ErrorBoundary in the app,
+        // tear down the whole circuit — losing the page instead of reporting one failed refresh.
         try
         {
-            await PostSvc.SetIssueSourcesAsync(_post, _issueSources.ToList());
-            await ReloadCandidatesAsync();
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Failed to update sources: {ex.Message}", Severity.Error);
-        }
-    }
-
-    private async Task GatherAsync()
-    {
-        if (_post is null || _gathering) return;
-        _gathering = true;
-        StateHasChanged();
-        try
-        {
-            using var scope = ScopeFactory.CreateScope();
-            var pipeline = scope.ServiceProvider.GetRequiredService<IngestionPipeline>();
-            var runs = new List<PipelineRun>();
-            foreach (var id in _issueSources)
-                runs.Add(await pipeline.RunAsync(_post.TenantId, id));
-            await ReloadCandidatesAsync();
-
-            var failed = runs.Count(r => r.Status == RunStatus.Failed);
-            var severity = runs.Count == 0 ? Severity.Info
-                : failed == runs.Count ? Severity.Error
-                : failed > 0 ? Severity.Warning : Severity.Success;
-            Snackbar.Add(runs.Count == 0 ? "No sources selected to gather from."
-                : $"Gathered from {runs.Count} source(s){(failed > 0 ? $", {failed} failed" : "")}.", severity);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add($"Gather failed: {ex.Message}", Severity.Error);
-        }
-        finally
-        {
-            _gathering = false;
-            StateHasChanged();
-        }
-    }
-
-    private async Task ComposeAsync()
-    {
-        if (_post is null || _checkedItems.Count == 0 || _composing) return;
-        if (_post.DraftId is not null)
-        {
-            var confirmed = await DialogService.ShowMessageBoxAsync("Regenerate?",
-                "Regenerate replaces the current body and title. Continue?", yesText: "Continue", cancelText: "Cancel");
-            if (confirmed != true) return;
-        }
-
-        _composing = true;
-        StateHasChanged();
-        try
-        {
-            // Persist unsaved Title/Subject/Body/Preview edits first — otherwise they're
-            // silently discarded when the compose result overwrites _title/_body below,
-            // and the service's `Subject ??= draft.Title` would clobber a not-yet-saved subject.
-            await SaveCoreAsync();
-
-            using var scope = ScopeFactory.CreateScope();
-            var postSvc = scope.ServiceProvider.GetRequiredService<PostService>();
-            var (run, _) = await postSvc.ComposeAsync(PostId, _checkedItems.ToList(),
-                string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions);
-
-            // Re-sync the circuit-scoped context via the circuit's own PostSvc — the fresh scope
-            // above created a new draft and repointed the Post row's DraftId under a different
-            // DbContext, which this circuit's tracked Post instance wouldn't otherwise see.
-            var post = await PostSvc.GetFreshAsync(PostId);
-            if (post is null) { Nav.NavigateTo("/posts"); return; }
-            _post = post;
-            _title = post.Title;
-            _subject = post.Subject ?? _subject;
-            if (post.DraftId is Guid draftId)
+            _sections = await WithComposerAsync(c => c.GetSectionsAsync(PostId));
+            _previewHtml = await WithComposerAsync(c => c.RenderPreviewAsync(PostId, _title));
+            _chat = await WithChatAsync(c => c.GetThreadAsync(PostId));
+            _history = await WithHistoryAsync(h => h.GetStateAsync(PostId));
+            if (_post is not null)
             {
-                var draft = await PostSvc.GetDraftAsync(draftId);
-                _body = draft?.Body ?? _body;
+                using var scope = ScopeFactory.CreateScope();
+                var settings = await scope.ServiceProvider.GetRequiredService<ILlmSettingsProvider>()
+                    .GetAsync(_post.TenantId);
+                // The resolved model, not the stored one: the question this badge answers is "what
+                // wrote this text". When nothing names a model the CLI picks and we genuinely do not
+                // know which, so say that rather than guessing a name.
+                _modelLabel = settings.Model.Length > 0 ? settings.Model : "CLI default";
             }
-
-            var severity = run.Status switch
-            {
-                RunStatus.Succeeded => Severity.Success,
-                RunStatus.Partial => Severity.Warning,
-                _ => Severity.Error
-            };
-            Snackbar.Add(run.Status == RunStatus.Succeeded ? "Composed."
-                : $"Compose {run.Status}: {LastLogLine(run.LogJson)} — full log on the Runs page", severity);
         }
         catch (Exception ex)
         {
-            Snackbar.Add($"Compose failed: {ex.Message}", Severity.Error);
+            Snackbar.Add($"Could not refresh the issue: {ex.Message}", Severity.Error);
+        }
+        StateHasChanged();
+    }
+
+    private async Task RunMutationAsync(Func<IssueComposerService, Task> op, string errorLabel)
+    {
+        if (_mutating) return;
+        _mutating = true;
+        try
+        {
+            await WithComposerAsync(op);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"{errorLabel} failed: {ex.Message}", Severity.Error);
         }
         finally
         {
-            _composing = false;
-            StateHasChanged();
+            _mutating = false;
+            await ReloadSectionsAsync();
         }
     }
 
-    private static string LastLogLine(string logJson)
+    private Task MoveAsync(IssueSection s, int direction) =>
+        RunMutationAsync(c => c.MoveSectionAsync(s.Id, direction), "Move");
+
+    private Task DeleteAsync(IssueSection s) =>
+        RunMutationAsync(c => c.RemoveSectionAsync(s.Id), "Delete");
+
+    private Task AddSectionAsync(string type) =>
+        RunMutationAsync(c => c.AddSectionAsync(PostId, type), "Add");
+
+    private Task ApplyAsync(IssueSection s, SectionCard.SectionEdit e) =>
+        RunMutationAsync(c => c.UpdateSectionAsync(s.Id, e.Title, e.BodyMd, e.ImageUrl, e.LinkUrl, e.LinkText), "Save");
+
+    private async Task GenerateAsync()
     {
+        if (_generating) return;
+        _generating = true;
+        _generateFailed = false;
+        StateHasChanged();
         try
         {
-            var lines = JsonSerializer.Deserialize<string[]>(logJson);
-            return lines is { Length: > 0 } ? lines[^1] : "no details logged";
+            var filled = await WithComposerAsync(c => c.GenerateTopicsAsync(PostId,
+                string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions));
+            Snackbar.Add($"Filled {filled} topic(s).", Severity.Success);
         }
-        catch (JsonException) { return "no details logged"; }
+        catch (Exception ex)
+        {
+            _generateFailed = true;
+            Snackbar.Add($"Generation failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _generating = false;
+            await ReloadSectionsAsync();
+        }
     }
 
-    // Shared by Save/Compose/Subjects/Push so none of them can act on stale text —
-    // every path that reads or overwrites the draft persists current field values first.
-    private Task SaveCoreAsync() => PostSvc.SaveIssueAsync(PostId, _title, _body,
+    private async Task RegenerateAsync(IssueSection s)
+    {
+        if (_generating) return;
+        _generating = true;
+        StateHasChanged();
+        try
+        {
+            await WithComposerAsync(c => c.RegenerateSectionAsync(s.Id,
+                string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions));
+            Snackbar.Add("Rewritten.", Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Rewrite failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _generating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private Task UndoAsync() => StepHistoryAsync(h => h.UndoAsync(PostId), "Undo");
+    private Task RedoAsync() => StepHistoryAsync(h => h.RedoAsync(PostId), "Redo");
+
+    private async Task StepHistoryAsync(Func<IssueHistoryService, Task<string?>> step, string verb)
+    {
+        if (_mutating) return;
+        _mutating = true;
+        try
+        {
+            var label = await WithHistoryAsync(step);
+            Snackbar.Add(label is null ? $"Nothing to {verb.ToLowerInvariant()}." : $"{verb}: {label}",
+                label is null ? Severity.Info : Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"{verb} failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _mutating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task RegenerateAllAsync()
+    {
+        if (_generating) return;
+        var targets = _sections
+            .Where(s => s.Type is SectionTypes.Header or SectionTypes.Topic)
+            .Select(s => s.Type == SectionTypes.Header
+                ? "Header"
+                : $"Topic: {s.Title ?? "(untitled)"}")
+            .ToList();
+        if (targets.Count == 0)
+        {
+            Snackbar.Add("Nothing to regenerate — this issue has no header or topics.", Severity.Info);
+            return;
+        }
+
+        var parameters = new DialogParameters<RegenerateAllDialog> { { x => x.Sections, targets } };
+        var dialog = await DialogService.ShowAsync<RegenerateAllDialog>("Regenerate the whole issue", parameters);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+        var instruction = result.Data as string;
+
+        _generating = true;
+        StateHasChanged();
+        try
+        {
+            var count = await WithChatAsync(c => c.RegenerateAllAsync(PostId,
+                string.IsNullOrWhiteSpace(instruction) ? null : instruction));
+            Snackbar.Add(count == 0
+                ? "The model proposed nothing — try again with an instruction."
+                : $"{count} suggestion(s) — review them on the cards.",
+                count == 0 ? Severity.Warning : Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Regenerate failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _generating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task SendChatAsync(string message)
+    {
+        if (_chatting) return;
+        _chatting = true;
+        StateHasChanged();
+        try
+        {
+            var result = await WithChatAsync(c => c.SendAsync(PostId, message));
+            if (result.ProposalCount > 0)
+                Snackbar.Add($"{result.ProposalCount} suggestion(s) — review them on the cards.", Severity.Success);
+            if (result.DroppedEdits > 0)
+                Snackbar.Add($"Ignored {result.DroppedEdits} change(s) to sections that aren't in this issue.",
+                    Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chat failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _chatting = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task AcceptProposalAsync(IssueSectionProposal proposal)
+    {
+        if (_mutating) return;
+        _mutating = true;
+        try
+        {
+            await WithChatAsync(c => c.AcceptAsync(proposal.Id, force: false));
+            Snackbar.Add("Applied.", Severity.Success);
+        }
+        catch (StaleProposalException)
+        {
+            // The section moved under the suggestion. Overwriting is legitimate — losing the user's
+            // typing without asking is not.
+            var confirmed = await DialogService.ShowMessageBoxAsync("This section changed",
+                "You edited this section after the suggestion was made. Applying it will replace what you wrote.",
+                yesText: "Replace it", cancelText: "Keep mine");
+            if (confirmed == true)
+            {
+                try
+                {
+                    await WithChatAsync(c => c.AcceptAsync(proposal.Id, force: true));
+                    Snackbar.Add("Applied.", Severity.Success);
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add($"Apply failed: {ex.Message}", Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Apply failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _mutating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task RejectProposalAsync(IssueSectionProposal proposal)
+    {
+        if (_mutating) return;
+        _mutating = true;
+        try
+        {
+            await WithChatAsync(c => c.RejectAsync(proposal.Id));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Discard failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _mutating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private IssueSectionProposal? ProposalFor(IssueSection section) =>
+        _chat.Proposals.FirstOrDefault(p => p.SectionId == section.Id);
+
+    private Task SaveMetaAsync() => PostSvc.SaveIssueMetaAsync(PostId, _title,
         string.IsNullOrWhiteSpace(_subject) ? null : _subject,
         string.IsNullOrWhiteSpace(_preview) ? null : _preview);
 
@@ -334,13 +514,33 @@ else
     {
         try
         {
-            await SaveCoreAsync();
+            await SaveMetaAsync();
             Snackbar.Add("Saved", Severity.Success);
+            await ReloadSectionsAsync(); // preview title may have changed
         }
         catch (Exception ex)
         {
             Snackbar.Add($"Save failed: {ex.Message}", Severity.Error);
         }
+    }
+
+    private async Task ExportAsync()
+    {
+        try
+        {
+            var markdown = await WithComposerAsync(c => c.ExportMarkdownAsync(PostId));
+            await JS.InvokeVoidAsync("contentxDownload", $"{FileSlug(_title)}.md", markdown);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Export failed: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private static string FileSlug(string title)
+    {
+        var slug = new string([.. title.Select(ch => char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : '-')]).Trim('-');
+        return slug.Length == 0 ? "issue" : slug;
     }
 
     private async Task SubjectsAsync()
@@ -350,7 +550,7 @@ else
         StateHasChanged();
         try
         {
-            await SaveCoreAsync();
+            await SaveMetaAsync();
             _subjectIdeas = await PostSvc.SubjectIdeasAsync(PostId);
         }
         catch (Exception ex)
@@ -371,7 +571,7 @@ else
         StateHasChanged();
         try
         {
-            await SaveCoreAsync();
+            await SaveMetaAsync();
             _post = await PostSvc.PushAsync(PostId);
             var url = _post.ExternalUrl;
             Snackbar.Add("Pushed to MailerLite", Severity.Success, config =>
@@ -396,6 +596,20 @@ else
         }
     }
 
+    private void OnTenantChanged() => _ = InvokeAsync(() =>
+    {
+        CheckTenantGuard();
+        StateHasChanged();
+    });
+
+    // Post-scoped page: data comes from the post's own TenantId, not Ctx.Active, so it keeps
+    // working while Ctx initializes. Once Ctx is ready, a mismatch means the user switched away.
+    private void CheckTenantGuard()
+    {
+        if (_post is not null && Ctx.Initialized && (Ctx.Active is null || Ctx.Active.Id != _post.TenantId))
+            Nav.NavigateTo("/posts");
+    }
+
     private static Color StatusColor(PostStatus status) => status switch
     {
         PostStatus.Pushed => Color.Info,
@@ -403,6 +617,53 @@ else
         PostStatus.Failed => Color.Error,
         _ => Color.Default
     };
+
+    private async Task OpenItemPickerAsync()
+    {
+        if (_post is null) return;
+        var parameters = new DialogParameters<InboxItemPickerDialog> { { d => d.TenantId, _post.TenantId } };
+        // CloseOnNavigation defaults such that MudDialog auto-cancels on any NavigationManager
+        // location change — including our own same-page NavigateTo(replace:true) that strips the
+        // gather=1 query param right before this dialog opens. Without this, the picker would
+        // close itself before the user ever sees it. false here so our own URL-cleanup doesn't
+        // eat the dialog we're about to show.
+        var options = new DialogOptions { CloseOnNavigation = false };
+        var dialog = await DialogService.ShowAsync<InboxItemPickerDialog>("Add topics from inbox", parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not List<Guid> itemIds || itemIds.Count == 0) return;
+        await RunMutationAsync(c => c.AddTopicsFromItemsAsync(PostId, itemIds), "Add topics");
+        if (SkeletonCount > 0) await GenerateAsync(); // picked topics get their blurbs immediately
+    }
+
+    private async Task GatherAsync()
+    {
+        if (_post is null || _gathering) return;
+        _gathering = true;
+        StateHasChanged();
+        try
+        {
+            var sourceIds = await PostSvc.GetIssueSourceIdsAsync(_post);
+            using var scope = ScopeFactory.CreateScope();
+            var pipeline = scope.ServiceProvider.GetRequiredService<IngestionPipeline>();
+            var failed = 0;
+            foreach (var id in sourceIds)
+            {
+                var run = await pipeline.RunAsync(_post.TenantId, id);
+                if (run.Status == RunStatus.Failed) failed++;
+            }
+            Snackbar.Add(failed > 0 ? $"Gathered — {failed} source(s) failed." : "Gathered.",
+                failed > 0 ? Severity.Warning : Severity.Success);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Gather failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _gathering = false;
+            StateHasChanged();
+        }
+    }
 
     public void Dispose() => Ctx.Changed -= OnTenantChanged;
 }

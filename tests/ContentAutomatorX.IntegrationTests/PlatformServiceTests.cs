@@ -27,6 +27,11 @@ public sealed class RacingPlatformDbContext(AppDbContext inner, TestDb test, Gui
     public DbSet<PromptTemplate> PromptTemplates => inner.PromptTemplates;
     public DbSet<Platform> Platforms => inner.Platforms;
     public DbSet<Post> Posts => inner.Posts;
+    public DbSet<IssueSection> IssueSections => inner.IssueSections;
+    public DbSet<TenantLlmSetting> TenantLlmSettings => inner.TenantLlmSettings;
+    public DbSet<IssueChatMessage> IssueChatMessages => inner.IssueChatMessages;
+    public DbSet<IssueSectionProposal> IssueSectionProposals => inner.IssueSectionProposals;
+    public DbSet<IssueRevision> IssueRevisions => inner.IssueRevisions;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
@@ -57,6 +62,11 @@ public sealed class FailingSaveDbContext(AppDbContext inner) : IAppDbContext
     public DbSet<PromptTemplate> PromptTemplates => inner.PromptTemplates;
     public DbSet<Platform> Platforms => inner.Platforms;
     public DbSet<Post> Posts => inner.Posts;
+    public DbSet<IssueSection> IssueSections => inner.IssueSections;
+    public DbSet<TenantLlmSetting> TenantLlmSettings => inner.TenantLlmSettings;
+    public DbSet<IssueChatMessage> IssueChatMessages => inner.IssueChatMessages;
+    public DbSet<IssueSectionProposal> IssueSectionProposals => inner.IssueSectionProposals;
+    public DbSet<IssueRevision> IssueRevisions => inner.IssueRevisions;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {

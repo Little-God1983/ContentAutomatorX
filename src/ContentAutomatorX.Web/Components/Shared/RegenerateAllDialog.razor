@@ -1,0 +1,27 @@
+<MudDialog>
+    <DialogContent>
+        <MudText Class="mb-2">
+            The AI will suggest a fresh version of @Sections.Count section(s). Nothing is
+            overwritten — each suggestion appears on its card for you to accept or reject.
+        </MudText>
+        <MudList T="string" Dense="true">
+            @foreach (var name in Sections)
+            {
+                <MudListItem T="string" Icon="@Icons.Material.Filled.AutoAwesome">@name</MudListItem>
+            }
+        </MudList>
+        <MudTextField @bind-Value="_instruction" Label="Anything to steer it? (optional)" Lines="2" Class="mt-3" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   OnClick="@(() => Dialog.Close(DialogResult.Ok(_instruction)))">Suggest rewrites</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public IReadOnlyList<string> Sections { get; set; } = [];
+
+    private string _instruction = "";
+}

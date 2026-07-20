@@ -1,0 +1,71 @@
+@using ContentAutomatorX.Domain.Entities
+@inject ContentService ContentSvc
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <DialogContent>
+        @if (_loading)
+        {
+            <MudProgressLinear Indeterminate="true" />
+        }
+        else
+        {
+            <MudTextField T="string" Value="_search" ValueChanged="@((string v) => { _search = v; ApplyFilter(); })"
+                          Immediate="true" DebounceInterval="300" Label="Search title & text" Clearable="true"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" />
+            <MudTable T="ContentItem" Items="_filtered" Hover="true" Dense="true" MultiSelection="true"
+                      @bind-SelectedItems="_selected" Style="max-height:420px;overflow-y:auto;">
+                <HeaderContent>
+                    <MudTh>Title</MudTh><MudTh>Published</MudTh><MudTh>Status</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd>@context.Title</MudTd>
+                    <MudTd>@((context.PublishedAt ?? context.FetchedAt).ToLocalTime().ToString("g"))</MudTd>
+                    <MudTd>@context.Status</MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText>No unused inbox items — gather from your sources first.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@(_selected.Count == 0)"
+                   OnClick="@(() => MudDialog.Close(DialogResult.Ok(_selected.Select(i => i.Id).ToList())))">
+            Add @_selected.Count topic(s)
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter] public Guid TenantId { get; set; }
+
+    private List<ContentItem> _all = [];
+    private List<ContentItem> _filtered = [];
+    private HashSet<ContentItem> _selected = [];
+    private string _search = "";
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _all = (await ContentSvc.ListAsync(TenantId))
+                .Where(i => i.Status is not (ContentItemStatus.Used or ContentItemStatus.Ignored))
+                .ToList();
+            ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Failed to load inbox items: {ex.Message}", Severity.Error);
+        }
+        finally { _loading = false; }
+    }
+
+    private void ApplyFilter() => _filtered = string.IsNullOrWhiteSpace(_search)
+        ? _all
+        : _all.Where(i => i.Title.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+                          i.Body.Contains(_search, StringComparison.OrdinalIgnoreCase)).ToList();
+}

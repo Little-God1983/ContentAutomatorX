@@ -5,6 +5,7 @@ using ContentAutomatorX.Application.Services;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Domain.Models;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Infrastructure.Llm;
 using ContentAutomatorX.Infrastructure.Persistence;
@@ -55,6 +56,18 @@ if (string.IsNullOrWhiteSpace(claudeOptions.Model)) claudeOptions.Model = null;
 builder.Services.AddSingleton(claudeOptions);
 builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
 builder.Services.AddSingleton<ILlmBackend, ClaudeCliBackend>();
+
+// appsettings values become the fallback for tenants that have not chosen.
+// Wrapped in LlmFallbackSettings rather than registered as a bare LlmSettings: a
+// component injecting LlmSettings would otherwise receive this global default in
+// place of a tenant's resolved settings and work — wrongly, for every tenant.
+// LlmSettings itself carries no Claude types, so Application never sees ClaudeCliOptions.
+builder.Services.AddSingleton(new LlmFallbackSettings(
+    LlmSettings.From(claudeOptions.Model, claudeOptions.Effort)));
+// Scoped, not singleton: every consumer (IssueComposerService, PostService,
+// GenerationPipeline, LlmResearchConnector) is scoped or transient, so it can
+// take IAppDbContext directly — no IServiceScopeFactory dance needed.
+builder.Services.AddScoped<ILlmSettingsProvider, LlmSettingsService>();
 if (OperatingSystem.IsWindows())
     builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
 else
@@ -73,6 +86,9 @@ builder.Services.AddScoped<DraftService>();
 builder.Services.AddScoped<RunService>();
 builder.Services.AddScoped<PlatformService>();
 builder.Services.AddScoped<PostService>();
+builder.Services.AddScoped<IssueHistoryService>();
+builder.Services.AddScoped<IssueComposerService>();
+builder.Services.AddScoped<IssueChatService>();
 builder.Services.AddScoped<PostSyncService>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();
@@ -81,6 +97,7 @@ builder.Services.AddScoped<ContentAutomatorX.Web.Services.TenantContext>();
 // --- scheduler ---
 builder.Services.AddHostedService<SchedulerService>();
 builder.Services.AddHostedService<PlatformSyncJob>();
+builder.Services.AddHostedService<ChatRetentionJob>();
 
 // --- UI + MCP ---
 builder.Services.AddMudServices();

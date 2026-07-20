@@ -1,0 +1,45 @@
+@using ContentAutomatorX.Domain
+@using ContentAutomatorX.Domain.Entities
+
+<div style="max-height:640px; overflow-y:auto;" class="mb-3">
+    @if (Messages.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="mud-text-secondary">
+            Ask for changes in plain language — "make topic 3 shorter", "the intro is too salesy".
+            Suggestions appear on the section cards for you to accept or reject; nothing is written until you do.
+        </MudText>
+    }
+    @foreach (var message in Messages)
+    {
+        var mine = message.Role == ChatRoles.User;
+        <div class="mb-2 pa-2" style="@(mine ? "background:var(--mud-palette-background-grey); border-radius:6px;" : "")">
+            <MudText Typo="Typo.overline" Color="@(mine ? Color.Default : Color.Primary)">
+                @(mine ? "you" : "ai")
+            </MudText>
+            <MudText Typo="Typo.body2" Style="white-space:pre-wrap;">@message.Text</MudText>
+        </div>
+    }
+</div>
+
+<MudTextField @bind-Value="_draft" Label="Ask for a change…" Lines="3" Immediate="true"
+              Disabled="@Sending" Variant="Variant.Outlined" />
+<MudButton Class="mt-2" Variant="Variant.Filled" Color="Color.Primary"
+           Disabled="@(Sending || string.IsNullOrWhiteSpace(_draft))" OnClick="SendAsync">Send</MudButton>
+
+@code {
+    [Parameter, EditorRequired] public IReadOnlyList<IssueChatMessage> Messages { get; set; } = [];
+    [Parameter] public bool Sending { get; set; }
+    [Parameter] public EventCallback<string> OnSend { get; set; }
+
+    private string _draft = "";
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft)) return;
+        var text = _draft;
+        // Cleared before awaiting so a slow turn cannot be double-sent by an impatient second click;
+        // the Sending flag disables the button, this stops the text lingering behind it.
+        _draft = "";
+        await OnSend.InvokeAsync(text);
+    }
+}

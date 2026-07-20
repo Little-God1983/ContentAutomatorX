@@ -125,6 +125,147 @@ namespace ContentAutomatorX.Infrastructure.Migrations
                     b.ToTable("Drafts");
                 });
 
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueChatMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PostId");
+
+                    b.ToTable("IssueChatMessages");
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueRevision", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Label")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Ordinal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SnapshotJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Stack")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PostId", "Stack", "Ordinal")
+                        .IsUnique();
+
+                    b.ToTable("IssueRevisions");
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueSection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BodyMd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ImageUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LinkText")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LinkUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid?>("SourceItemId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PostId", "Position");
+
+                    b.ToTable("IssueSections");
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueSectionProposal", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BaselineBodyMd")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("BaselineTitle")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("PostId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProposedBodyMd")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ProposedTitle")
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("SectionId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PostId");
+
+                    b.HasIndex("SectionId")
+                        .IsUnique();
+
+                    b.ToTable("IssueSectionProposals");
+                });
+
             modelBuilder.Entity("ContentAutomatorX.Domain.Entities.PipelineRun", b =>
                 {
                     b.Property<Guid>("Id")
@@ -392,6 +533,18 @@ namespace ContentAutomatorX.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("BrandingJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DefaultFooterMd")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("DefaultHeaderMd")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
@@ -400,6 +553,10 @@ namespace ContentAutomatorX.Infrastructure.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("OutputFolderPath")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SenderIdentity")
                         .IsRequired()
                         .HasColumnType("TEXT");
 
@@ -417,6 +574,67 @@ namespace ContentAutomatorX.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("Tenants");
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.TenantLlmSetting", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Effort")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique();
+
+                    b.ToTable("TenantLlmSettings");
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueChatMessage", b =>
+                {
+                    b.HasOne("ContentAutomatorX.Domain.Entities.Post", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueRevision", b =>
+                {
+                    b.HasOne("ContentAutomatorX.Domain.Entities.Post", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueSection", b =>
+                {
+                    b.HasOne("ContentAutomatorX.Domain.Entities.Post", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("ContentAutomatorX.Domain.Entities.IssueSectionProposal", b =>
+                {
+                    b.HasOne("ContentAutomatorX.Domain.Entities.Post", null)
+                        .WithMany()
+                        .HasForeignKey("PostId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }

@@ -7,6 +7,7 @@
 @inject RecipeService RecipeSvc
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
+@inject NavigationManager Nav
 
 <MudText Typo="Typo.h4" Class="mb-4">Inbox</MudText>
 
@@ -54,16 +55,16 @@ else
     </div>
 
     <MudPaper Class="pa-4 mb-4">
-        <MudText Typo="Typo.subtitle1">Generate from hand-picked items (@_selectedItems.Count selected)</MudText>
-        <MudSelect T="Guid?" @bind-Value="_recipeId" Label="Recipe">
+        <MudText Typo="Typo.subtitle1">Create a newsletter from hand-picked items (@_selectedItems.Count selected)</MudText>
+        <MudSelect T="Guid?" @bind-Value="_recipeId" Label="Newsletter automation">
             @foreach (var r in _recipes)
             {
-                <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name (@r.Kind)</MudSelectItem>
+                <MudSelectItem T="Guid?" Value="@((Guid?)r.Id)">@r.Name</MudSelectItem>
             }
         </MudSelect>
-        <MudTextField @bind-Value="_extraInstructions" Label="Extra instructions for this run (optional)" />
-        <MudButton OnClick="RunWithSelection" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
-                   Disabled="@(_recipeId is null || _selectedItems.Count == 0 || _running)">Generate draft</MudButton>
+        <MudTextField @bind-Value="_extraInstructions" Label="Extra instructions for this issue (optional)" />
+        <MudButton OnClick="CreateNewsletterAsync" Variant="Variant.Filled" Color="Color.Primary" Class="mt-2"
+                   Disabled="@(_recipeId is null || _selectedItems.Count == 0 || _running)">Create newsletter</MudButton>
         <MudButton OnClick="DeleteSelected" Variant="Variant.Outlined" Color="Color.Error" Class="mt-2 ml-2"
                    Disabled="@(_selectedItems.Count == 0 || _running)">Delete selected</MudButton>
     </MudPaper>
@@ -154,7 +155,9 @@ else
 
     private async Task ReloadAllAsync()
     {
-        _recipes = Ctx.Initialized && Ctx.Active is not null ? await RecipeSvc.ListAsync(Ctx.Active.Id) : [];
+        _recipes = Ctx.Initialized && Ctx.Active is not null
+            ? (await RecipeSvc.ListAsync(Ctx.Active.Id)).Where(r => r.Kind == DraftKinds.Newsletter).ToList()
+            : [];
         _sourcesById = Ctx.Initialized && Ctx.Active is not null
             ? (await SourceSvc.ListAsync(Ctx.Active.Id)).ToDictionary(s => s.Id)
             : [];
@@ -256,26 +259,26 @@ else
         await Reload();
     }
 
-    private async Task RunWithSelection()
+    private async Task CreateNewsletterAsync()
     {
         _running = true;
-        Snackbar.Add("Generating draft from selected items...", Severity.Info);
         try
         {
-            var ids = _selectedItems.Select(i => i.Id).ToList();
+            var tenantId = Ctx.Active!.Id;
+            var itemIds = _selectedItems.Select(i => i.Id).ToList();
             using var scope = ScopeFactory.CreateScope();
-            var generation = scope.ServiceProvider.GetRequiredService<GenerationPipeline>();
-            var (run, draft) = await generation.RunAsync(_recipeId!.Value, ids,
-                string.IsNullOrWhiteSpace(_extraInstructions) ? null : _extraInstructions);
-            if (run.Status == RunStatus.Succeeded)
-                Snackbar.Add($"Draft delivered: {draft!.FilePath}", Severity.Success);
-            else
-                Snackbar.Add($"Run {run.Status}: {run.LogJson}", Severity.Error);
+            var composer = scope.ServiceProvider.GetRequiredService<IssueComposerService>();
+            var postSvc = scope.ServiceProvider.GetRequiredService<PostService>();
+            var title = await postSvc.SuggestTitleAsync(_recipeId!.Value);
+            var post = await composer.CreateFromItemsAsync(tenantId, _recipeId!.Value, itemIds, title);
+            var instructions = string.IsNullOrWhiteSpace(_extraInstructions) ? ""
+                : $"&instructions={Uri.EscapeDataString(_extraInstructions)}";
+            Nav.NavigateTo($"/issue/{post.Id}?generate=1{instructions}");
         }
-        finally
+        catch (Exception ex)
         {
-            _running = false;
-            await Reload();
+            Snackbar.Add($"Failed to create the newsletter: {ex.Message}", Severity.Error);
+            _running = false; // only reset on failure — success navigates away
         }
     }
 
