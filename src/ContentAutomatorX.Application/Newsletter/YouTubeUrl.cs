@@ -1,10 +1,11 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Text.RegularExpressions;
 
 namespace ContentAutomatorX.Application.Newsletter;
 
 /// <summary>Pure URL work. The HEAD probe that decides which thumbnail actually exists lives
 /// behind IYouTubeThumbnailResolver, because Application does not do HTTP.</summary>
-public static class YouTubeUrl
+public static partial class YouTubeUrl
 {
     public static bool TryGetVideoId(string? url, [NotNullWhen(true)] out string? id)
     {
@@ -29,10 +30,30 @@ public static class YouTubeUrl
             _ => null
         };
 
-        if (string.IsNullOrWhiteSpace(candidate)) return false;
+        // This is the boundary where "what counts as a video id" is decided: the id is
+        // interpolated unescaped into MaxResThumbnail/FallbackThumbnail, and those strings are
+        // destined for an <img src> and an href in a sent email. Constrain to the character set a
+        // real YouTube id uses so a hostile query value or path segment can never reach a
+        // subscriber, regardless of what any later encoding step does. Applied uniformly to all
+        // four URL shapes (not only watch?v=) so the rule holds in one place.
+        if (!IsValidVideoId(candidate)) return false;
         id = candidate;
         return true;
     }
+
+    private static bool IsValidVideoId([NotNullWhen(true)] string? candidate) =>
+        !string.IsNullOrEmpty(candidate) && VideoIdRegex().IsMatch(candidate);
+
+    // Real YouTube ids are 11 base64url characters, but that has not always been true (short
+    // legacy ids exist) and there is public discussion of YouTube widening the id space as the
+    // 11-character space fills up. Enforcing the character set is the actual security boundary —
+    // it alone defeats the injection, since none of ", <, >, space, (, ), = can appear. A hard
+    // length==11 check would be more precise today but would silently start rejecting real videos
+    // the day the format changes, which is a worse failure mode for a newsletter than being
+    // slightly permissive. We keep a generous upper bound (32) purely as a defensive cap against
+    // pathological input, not as a format assertion.
+    [GeneratedRegex(@"^[A-Za-z0-9_-]{1,32}$")]
+    private static partial Regex VideoIdRegex();
 
     public static string MaxResThumbnail(string videoId) =>
         $"https://img.youtube.com/vi/{videoId}/maxresdefault.jpg";

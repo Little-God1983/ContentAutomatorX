@@ -27,4 +27,27 @@ public class ReadingTimeTests
         Assert.Equal("1 min read", ReadingTime.Describe(markdown));
         Assert.Equal(ReadingTime.Describe("Heading bold italic link"), ReadingTime.Describe(markdown));
     }
+
+    [Fact]
+    public void Intra_word_hyphens_and_underscores_do_not_split_the_word()
+    {
+        Assert.Equal(1, ReadingTime.CountWords("state-of-the-art"));
+        Assert.Equal(1, ReadingTime.CountWords("well_known_function"));
+    }
+
+    [Fact]
+    public void Markdown_positioned_hyphens_and_underscores_still_do_not_inflate_the_count()
+    {
+        // The leading "-" of a list bullet, a "---" horizontal rule, and the "_..._" wrapping an
+        // italicized word all carry markdown meaning and must not be counted as/split into words.
+        var markdown = "_italic_ word\n\n---\n\n- list item";
+        Assert.Equal(4, ReadingTime.CountWords(markdown)); // italic, word, list, item
+    }
+
+    [Fact]
+    public void Fenced_code_blocks_are_stripped_before_counting()
+    {
+        var markdown = "intro text\n\n```\nvar x = 1;\nconsole.log(x);\n```\n\noutro text";
+        Assert.Equal(4, ReadingTime.CountWords(markdown)); // intro, text, outro, text — code excluded
+    }
 }

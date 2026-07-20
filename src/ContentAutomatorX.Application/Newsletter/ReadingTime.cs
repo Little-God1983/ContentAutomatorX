@@ -18,15 +18,30 @@ public static partial class ReadingTime
     public static int CountWords(string? markdown)
     {
         if (string.IsNullOrWhiteSpace(markdown)) return 0;
-        // Link targets first, so a long URL does not count as a word; then the rest of the syntax.
-        var text = LinkRegex().Replace(markdown, "$1");
+        // Fenced code blocks first: a code sample is not prose.
+        var text = FencedCodeRegex().Replace(markdown, " ");
+        // Link targets next, so a long URL does not count as a word; then the rest of the syntax.
+        text = LinkRegex().Replace(text, "$1");
+        text = EmphasisRegex().Replace(text, " ");
         text = SyntaxRegex().Replace(text, " ");
         return text.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).Length;
     }
 
+    [GeneratedRegex(@"```[\s\S]*?```")]
+    private static partial Regex FencedCodeRegex();
+
     [GeneratedRegex(@"\[([^\]]*)\]\([^)]*\)")]
     private static partial Regex LinkRegex();
 
-    [GeneratedRegex(@"[#*_>`~\[\]()|-]+")]
+    // *, _, ~ and - carry markdown meaning only at a word boundary: "**bold**", "_italic_",
+    // "~~strike~~", a "- " list bullet, or a "---" horizontal rule are all flanked by a non-word
+    // character (start/end of text, whitespace, punctuation) on at least one side. An intra-word
+    // hyphen or underscore ("state-of-the-art", "well_known_function") has word characters on both
+    // immediate sides and must be left alone, or ordinary hyphenated/underscored prose gets split
+    // into extra words. This pattern removes a run only when it is NOT fully internal to a word.
+    [GeneratedRegex(@"(?<!\w)[*_~-]+|[*_~-]+(?!\w)")]
+    private static partial Regex EmphasisRegex();
+
+    [GeneratedRegex(@"[#>`\[\]()|]+")]
     private static partial Regex SyntaxRegex();
 }

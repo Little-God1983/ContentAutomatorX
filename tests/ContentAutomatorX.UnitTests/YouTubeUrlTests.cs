@@ -31,6 +31,19 @@ public class YouTubeUrlTests
         Assert.Null(id);
     }
 
+    [Theory]
+    [InlineData("https://www.youtube.com/watch?v=%22%3E%3Cimg%20onerror%3Dalert(1)%3E")]
+    [InlineData("https://www.youtube.com/shorts/%22%3E%3Cimg%20onerror%3Dalert(1)%3E")]
+    [InlineData("https://www.youtube.com/embed/%22%3E%3Cimg%20onerror%3Dalert(1)%3E")]
+    [InlineData("https://youtu.be/%22%3E%3Cimg%20onerror%3Dalert(1)%3E")]
+    public void Rejects_video_ids_outside_the_safe_character_set(string url)
+    {
+        // A crafted v= or path-segment value must never reach MaxResThumbnail unvalidated; it is
+        // destined for an <img src> and href in a sent email.
+        Assert.False(YouTubeUrl.TryGetVideoId(url, out var id));
+        Assert.Null(id);
+    }
+
     [Fact]
     public void Builds_both_thumbnail_urls()
     {
