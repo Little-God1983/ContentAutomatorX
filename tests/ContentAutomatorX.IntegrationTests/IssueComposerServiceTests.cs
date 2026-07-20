@@ -15,9 +15,11 @@ public class SequenceLlm(params string[] replies) : ILlmBackend
     private int _n;
     public string Name => "seq";
     public List<string> Prompts { get; } = [];
-    public Task<LlmResult> GenerateAsync(string prompt, CancellationToken ct = default)
+    public LlmSettings? LastSettings { get; private set; }
+    public Task<LlmResult> GenerateAsync(string prompt, LlmSettings settings, CancellationToken ct = default)
     {
         Prompts.Add(prompt);
+        LastSettings = settings;
         var reply = replies[Math.Min(_n++, replies.Length - 1)];
         return Task.FromResult(new LlmResult(reply, "seq-model"));
     }
@@ -104,8 +106,9 @@ public class IssueComposerServiceTests
 
     private static IssueComposerService Composer(World w, ILlmBackend llm) =>
         new(w.Test.Db, llm,
-            new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery()),
-                llm, w.Platforms, w.MailerLite));
+            new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
+                llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
+            new StubLlmSettings());
 
     [Fact]
     public async Task CreateFromItems_builds_header_topics_footer_with_contiguous_positions()
@@ -359,8 +362,8 @@ public class IssueComposerServiceTests
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Sectioned issue");
         await composer.GenerateTopicsAsync(post.Id, null);
-        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery()),
-            llm, w.Platforms, w.MailerLite);
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
+            llm, w.Platforms, w.MailerLite, new StubLlmSettings());
 
         var pushed = await posts.PushAsync(post.Id);
 
@@ -381,8 +384,8 @@ public class IssueComposerServiceTests
         await ConfigureMailerLiteAsync(w);
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
-        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery()),
-            new FakeLlm(), w.Platforms, w.MailerLite);
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings()),
+            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings());
         await posts.SaveIssueMetaAsync(post.Id, "t", new string('x', 256), null);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => posts.PushAsync(post.Id));
@@ -398,8 +401,8 @@ public class IssueComposerServiceTests
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Old");
-        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery()),
-            new FakeLlm(), w.Platforms, w.MailerLite);
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings()),
+            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings());
 
         await posts.SaveIssueMetaAsync(post.Id, "New title", "Subj", "Pv");
 
@@ -419,8 +422,8 @@ public class IssueComposerServiceTests
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         await composer.GenerateTopicsAsync(post.Id, null);
-        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery()),
-            llm, w.Platforms, w.MailerLite);
+        var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
+            llm, w.Platforms, w.MailerLite, new StubLlmSettings());
 
         var ideas = await posts.SubjectIdeasAsync(post.Id);
 

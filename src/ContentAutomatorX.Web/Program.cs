@@ -5,6 +5,7 @@ using ContentAutomatorX.Application.Services;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Domain.Models;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Infrastructure.Llm;
 using ContentAutomatorX.Infrastructure.Persistence;
@@ -55,6 +56,14 @@ if (string.IsNullOrWhiteSpace(claudeOptions.Model)) claudeOptions.Model = null;
 builder.Services.AddSingleton(claudeOptions);
 builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
 builder.Services.AddSingleton<ILlmBackend, ClaudeCliBackend>();
+
+// appsettings values become the fallback for tenants that have not chosen.
+// Registered as a plain LlmSettings so Application never sees ClaudeCliOptions.
+builder.Services.AddSingleton(LlmSettings.From(claudeOptions.Model, claudeOptions.Effort));
+// Scoped, not singleton: every consumer (IssueComposerService, PostService,
+// GenerationPipeline, LlmResearchConnector) is scoped or transient, so it can
+// take IAppDbContext directly — no IServiceScopeFactory dance needed.
+builder.Services.AddScoped<ILlmSettingsProvider, LlmSettingsService>();
 if (OperatingSystem.IsWindows())
     builder.Services.AddSingleton<ICredentialStore, DpapiCredentialStore>();
 else

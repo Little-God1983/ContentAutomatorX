@@ -14,7 +14,8 @@ public record TopicBlurb(Guid ItemId, string Title, string Blurb);
 /// <summary>Owns the structured-issue composer: section lifecycle (Task 4) and AI topic
 /// generation (Task 5). An issue always has exactly one Header (first) and one Footer (last);
 /// positions stay 0-based and contiguous after every mutation.</summary>
-public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService posts)
+public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService posts,
+    ILlmSettingsProvider llmSettings)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -169,12 +170,14 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var itemIds = skeletons.Select(s => s.SourceItemId!.Value).ToList();
         var items = await db.ContentItems.Where(i => itemIds.Contains(i.Id)).ToListAsync(ct);
         var prompt = BuildTopicsPrompt(tenant, recipe, items, extraInstructions);
+        var settings = await llmSettings.GetAsync(tenant.Id, ct);
 
         List<TopicBlurb>? topics = null;
         for (var attempt = 1; attempt <= 2 && topics is null; attempt++)
         {
             var reply = await llm.GenerateAsync(attempt == 1 ? prompt
-                : prompt + "\nYour previous reply was not valid JSON. Respond with ONLY the JSON array.", ct);
+                : prompt + "\nYour previous reply was not valid JSON. Respond with ONLY the JSON array.",
+                settings, ct);
             TryParseTopics(reply.Text, out topics);
         }
         if (topics is null)
@@ -201,6 +204,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
         var post = await db.Posts.SingleAsync(p => p.Id == section.PostId, ct);
         var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
+        var settings = await llmSettings.GetAsync(tenant.Id, ct);
         var voice = string.IsNullOrWhiteSpace(tenant.VoiceProfile) ? "" : $"Voice: {tenant.VoiceProfile}\n";
         var extra = string.IsNullOrWhiteSpace(instruction) ? "" : $"Extra instructions: {instruction}\n";
         string prompt;
@@ -234,7 +238,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         {
             throw new InvalidOperationException("Only topics and the header can be regenerated.");
         }
-        var reply = await llm.GenerateAsync(prompt, ct);
+        var reply = await llm.GenerateAsync(prompt, settings, ct);
         section.BodyMd = reply.Text.Trim();
         await db.SaveChangesAsync(ct);
     }

@@ -12,7 +12,7 @@ using Microsoft.EntityFrameworkCore;
 namespace ContentAutomatorX.Application.Services;
 
 public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBackend llm,
-    PlatformService platforms, IMailerLiteClient mailerLite)
+    PlatformService platforms, IMailerLiteClient mailerLite, ILlmSettingsProvider llmSettings)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -187,6 +187,7 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
             body = draft.Body;
         }
         var excerpt = body.Length <= 4000 ? body : body[..4000];
+        var settings = await llmSettings.GetAsync(post.TenantId, ct);
         var prompt = $"""
             Write 5 email subject lines for this newsletter issue. Punchy, concrete, <60 chars, no clickbait.
             Respond with ONLY a JSON array of 5 strings, no prose, no markdown fences.
@@ -197,7 +198,7 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
         for (var attempt = 1; attempt <= 2; attempt++)
         {
             var reply = await llm.GenerateAsync(attempt == 1 ? prompt
-                : prompt + "\nYour previous reply was not valid JSON. ONLY the JSON array.", ct);
+                : prompt + "\nYour previous reply was not valid JSON. ONLY the JSON array.", settings, ct);
             if (TryParseStringArray(reply.Text, out var subjects)) return subjects!;
         }
         throw new InvalidOperationException("Model did not return subject lines as JSON.");

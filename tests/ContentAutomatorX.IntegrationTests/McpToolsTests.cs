@@ -43,7 +43,7 @@ public class McpToolsTests : IDisposable
         test.Db.ContentItems.Add(new ContentItem { TenantId = tenant.Id, SourceId = source.Id, ExternalId = "e", Title = "News" });
         await test.Db.SaveChangesAsync();
 
-        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery(), new StubLlmSettings());
         var json = await ContentXTools.RunRecipe(pipeline, recipe.Id.ToString(), null, null);
 
         using var doc = JsonDocument.Parse(json);
@@ -87,8 +87,8 @@ public class McpToolsTests : IDisposable
         var ml = new FakeMailerLite();
         var creds = new InMemoryCredentials();
         var platforms = new PlatformService(test.Db, creds, ml);
-        var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery());
-        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml);
+        var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings());
+        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml, new StubLlmSettings());
 
         var json = await ContentXTools.PushPost(posts, Guid.NewGuid().ToString());
 
@@ -288,8 +288,8 @@ public class McpToolsTests : IDisposable
         var ml = new FakeMailerLite();
         var creds = new InMemoryCredentials();
         var platforms = new PlatformService(test.Db, creds, ml);
-        var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery());
-        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml);
+        var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings());
+        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml, new StubLlmSettings());
 
         var json = await ContentXTools.ListPosts(posts, tenant.Id.ToString());
 

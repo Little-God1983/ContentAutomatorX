@@ -12,9 +12,11 @@ public class FakeLlm(string reply = "# Generated Title\nGenerated body.") : ILlm
 {
     public string Name => "fake";
     public string? LastPrompt { get; private set; }
-    public Task<LlmResult> GenerateAsync(string prompt, CancellationToken ct = default)
+    public LlmSettings? LastSettings { get; private set; }
+    public Task<LlmResult> GenerateAsync(string prompt, LlmSettings settings, CancellationToken ct = default)
     {
         LastPrompt = prompt;
+        LastSettings = settings;
         return Task.FromResult(new LlmResult(reply, "fake-model"));
     }
 }
@@ -22,8 +24,22 @@ public class FakeLlm(string reply = "# Generated Title\nGenerated body.") : ILlm
 public class FailingLlm : ILlmBackend
 {
     public string Name => "failing";
-    public Task<LlmResult> GenerateAsync(string prompt, CancellationToken ct = default) =>
+    public Task<LlmResult> GenerateAsync(string prompt, LlmSettings settings, CancellationToken ct = default) =>
         throw new InvalidOperationException("llm down");
+}
+
+/// <summary>Returns the same settings for every tenant.</summary>
+public class StubLlmSettings(LlmSettings? settings = null) : ILlmSettingsProvider
+{
+    private readonly LlmSettings _settings = settings ?? LlmSettings.Inherit;
+    public Guid? LastTenantId { get; private set; }
+    public Task<LlmSettings> GetAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        LastTenantId = tenantId;
+        return Task.FromResult(_settings);
+    }
+    public Task SaveAsync(Guid tenantId, LlmSettings settings, CancellationToken ct = default) =>
+        Task.CompletedTask;
 }
 
 public class GenerationPipelineTests : IDisposable
@@ -62,7 +78,7 @@ public class GenerationPipelineTests : IDisposable
         using var test = TestDb.Create();
         var (tenant, _, recipe) = Seed(test);
         var llm = new FakeLlm();
-        var pipeline = new GenerationPipeline(test.Db, llm, new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, llm, new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, draft) = await pipeline.RunAsync(recipe.Id);
 
@@ -82,7 +98,7 @@ public class GenerationPipelineTests : IDisposable
     {
         using var test = TestDb.Create();
         var (_, _, recipe) = Seed(test);
-        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery(), new StubLlmSettings());
 
         await pipeline.RunAsync(recipe.Id);
         var (run2, draft2) = await pipeline.RunAsync(recipe.Id);
@@ -97,7 +113,7 @@ public class GenerationPipelineTests : IDisposable
     {
         using var test = TestDb.Create();
         var (_, _, recipe) = Seed(test);
-        var pipeline = new GenerationPipeline(test.Db, new FailingLlm(), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, new FailingLlm(), new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, draft) = await pipeline.RunAsync(recipe.Id);
 
@@ -116,7 +132,7 @@ public class GenerationPipelineTests : IDisposable
         var t = fresh.Tenants.Single();
         t.OutputFolderPath = "";     // unconfigured folder → delivery throws
         fresh.SaveChanges();
-        var pipeline = new GenerationPipeline(test.NewContext(), new FakeLlm(), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.NewContext(), new FakeLlm(), new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, draft) = await pipeline.RunAsync(recipe.Id);
 
@@ -135,7 +151,7 @@ public class GenerationPipelineTests : IDisposable
         recipe.TargetPlatformId = platform.Id;
         test.Db.Platforms.Add(platform);
         test.Db.SaveChanges();
-        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, draft) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
 
@@ -162,7 +178,7 @@ public class GenerationPipelineTests : IDisposable
         var t = fresh.Tenants.Single();
         t.OutputFolderPath = "";     // unconfigured folder → delivery throws
         fresh.SaveChanges();
-        var pipeline = new GenerationPipeline(test.NewContext(), new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.NewContext(), new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, _) = await pipeline.RunAsync(recipe.Id); // default createReviewPost: true
 
@@ -185,7 +201,7 @@ public class GenerationPipelineTests : IDisposable
         recipe.TargetPlatformId = platform.Id;
         test.Db.Platforms.Add(platform);
         test.Db.SaveChanges();
-        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm("# Weekly\n\nbody"), new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, _) = await pipeline.RunAsync(recipe.Id, createReviewPost: false);
 
@@ -198,11 +214,26 @@ public class GenerationPipelineTests : IDisposable
     {
         using var test = TestDb.Create();
         var (_, _, recipe) = Seed(test);
-        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery());
+        var pipeline = new GenerationPipeline(test.Db, new FakeLlm(), new FileShareDraftDelivery(), new StubLlmSettings());
 
         var (run, _) = await pipeline.RunAsync(recipe.Id);
 
         Assert.Equal(RunStatus.Succeeded, run.Status);
         Assert.Empty(test.Db.Posts.ToList());
+    }
+
+    [Fact]
+    public async Task Resolves_llm_settings_for_the_recipes_tenant()
+    {
+        using var test = TestDb.Create();
+        var (tenant, _, recipe) = Seed(test);
+        var llm = new FakeLlm();
+        var settings = new StubLlmSettings(new LlmSettings("sonnet", LlmEffort.High));
+        var pipeline = new GenerationPipeline(test.Db, llm, new FakeDelivery(), settings);
+
+        await pipeline.RunAsync(recipe.Id);
+
+        Assert.Equal(tenant.Id, settings.LastTenantId);
+        Assert.Equal("sonnet", llm.LastSettings!.Model);
     }
 }

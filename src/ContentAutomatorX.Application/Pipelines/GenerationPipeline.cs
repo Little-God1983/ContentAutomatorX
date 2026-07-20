@@ -9,7 +9,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.Application.Pipelines;
 
-public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDelivery delivery)
+public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDelivery delivery,
+    ILlmSettingsProvider llmSettings)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -36,6 +37,7 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
         try
         {
             var tenant = await db.Tenants.SingleAsync(t => t.Id == recipe.TenantId, ct);
+            var settings = await llmSettings.GetAsync(recipe.TenantId, ct);
             var template = await db.PromptTemplates.FirstOrDefaultAsync(p => p.Id == recipe.PromptTemplateId, ct)
                 ?? await db.PromptTemplates.FirstOrDefaultAsync(p => p.TenantId == null && p.Kind == recipe.Kind, ct);
             var templateText = template?.Template ?? DefaultTemplates.GetFor(recipe.Kind);
@@ -49,7 +51,7 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
             log.Add($"prompt: {prompt.Length} chars");
 
             LlmResult result;
-            try { result = await llm.GenerateAsync(prompt, ct); }
+            try { result = await llm.GenerateAsync(prompt, settings, ct); }
             catch (Exception ex)
             {
                 return (await Finish(run, RunStatus.Failed, log, $"LLM failed: {ex.Message}", ct), null);

@@ -1,3 +1,4 @@
+using ContentAutomatorX.Domain.Models;
 using ContentAutomatorX.Infrastructure.Llm;
 
 namespace ContentAutomatorX.UnitTests;
@@ -27,9 +28,12 @@ public class ClaudeCliBackendTests
     public async Task Returns_result_text_and_pipes_prompt_via_stdin()
     {
         var runner = new FakeProcessRunner(new ProcessResult(0, GoodJson, ""));
-        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions { Model = "claude-sonnet-5" });
+        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
 
-        var result = await backend.GenerateAsync("write things");
+        // The model now flows in via LlmSettings (the caller's resolved tenant settings),
+        // not ClaudeCliOptions.Model — that field only feeds the appsettings fallback
+        // built once in Program.cs, before LlmSettingsService is ever consulted.
+        var result = await backend.GenerateAsync("write things", new LlmSettings("claude-sonnet-5", LlmEffort.Default));
 
         Assert.StartsWith("# Draft", result.Text);
         Assert.Equal("write things", runner.LastStdin);
@@ -46,7 +50,7 @@ public class ClaudeCliBackendTests
             new ProcessResult(0, GoodJson, ""));
         var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
 
-        var result = await backend.GenerateAsync("p");
+        var result = await backend.GenerateAsync("p", LlmSettings.Inherit);
 
         Assert.StartsWith("# Draft", result.Text);
         Assert.Equal(2, runner.Calls);
@@ -58,7 +62,7 @@ public class ClaudeCliBackendTests
         var runner = new FakeProcessRunner(new ProcessResult(1, "", "dead"));
         var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p", LlmSettings.Inherit));
         Assert.Equal(2, runner.Calls);
     }
 
@@ -69,7 +73,7 @@ public class ClaudeCliBackendTests
         var runner = new FakeProcessRunner(new ProcessResult(0, errorJson, ""));
         var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p", LlmSettings.Inherit));
         Assert.Equal(2, runner.Calls);
     }
 
@@ -80,7 +84,7 @@ public class ClaudeCliBackendTests
         var runner = new FakeProcessRunner(new ProcessResult(0, noResultJson, ""));
         var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backend.GenerateAsync("p", LlmSettings.Inherit));
         Assert.Equal(2, runner.Calls);
     }
 
@@ -94,7 +98,7 @@ public class ClaudeCliBackendTests
         var runner = new FakeProcessRunner(new ProcessResult(0, jsonWithModelUsage, ""));
         var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
 
-        var result = await backend.GenerateAsync("p");
+        var result = await backend.GenerateAsync("p", LlmSettings.Inherit);
 
         Assert.Equal("OK", result.Text);
         Assert.Equal("claude-opus-4-8[1m]", result.Model);
@@ -106,7 +110,7 @@ public class ClaudeCliBackendTests
         var runner = new FakeProcessRunner(new ProcessResult(0, GoodJson, ""));
         var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions { ExtraArgs = "--allowedTools WebSearch" });
 
-        await backend.GenerateAsync("hi");
+        await backend.GenerateAsync("hi", LlmSettings.Inherit);
 
         Assert.Contains("-p --output-format json", runner.LastArguments);
         Assert.EndsWith("--allowedTools WebSearch", runner.LastArguments);
