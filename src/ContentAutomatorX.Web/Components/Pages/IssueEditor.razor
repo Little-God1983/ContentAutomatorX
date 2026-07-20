@@ -81,11 +81,15 @@ else
                     var index = n;
                     var section = _sections[index];
                     if (section.Type == SectionTypes.Topic) { topicNumber++; }
+                    var proposal = ProposalFor(section);
                     <SectionCard @key="section.Id" Section="@section" TopicNumber="@topicNumber" Busy="@AnyBusy"
                                  CanMoveUp="@(index > 1)" CanMoveDown="@(index < _sections.Count - 2)"
+                                 Proposal="@proposal"
                                  OnMove="@(dir => MoveAsync(section, dir))"
                                  OnDelete="@(() => DeleteAsync(section))"
                                  OnRegenerate="@(() => RegenerateAsync(section))"
+                                 OnAcceptProposal="@(() => AcceptProposalAsync(proposal!))"
+                                 OnRejectProposal="@(() => RejectProposalAsync(proposal!))"
                                  OnApply="@(edit => ApplyAsync(section, edit))" />
                 }
                 <MudMenu Label="Add section" StartIcon="@Icons.Material.Filled.Add"
@@ -103,10 +107,17 @@ else
 
         <MudItem xs="12" md="7">
             <MudPaper Class="pa-4">
-                <MudText Typo="Typo.h6" Class="mb-2">Email preview — exactly what MailerLite receives</MudText>
-                <div class="pa-3" style="border:1px solid var(--mud-palette-lines-default); border-radius:4px; max-height:800px; overflow-y:auto; background:#f4f4f4;">
-                    @((MarkupString)_previewHtml)
-                </div>
+                <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true">
+                    <MudTabPanel Text="Preview" PanelClass="pt-4">
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">Exactly what MailerLite receives</MudText>
+                        <div class="pa-3" style="border:1px solid var(--mud-palette-lines-default); border-radius:4px; max-height:800px; overflow-y:auto; background:#f4f4f4;">
+                            @((MarkupString)_previewHtml)
+                        </div>
+                    </MudTabPanel>
+                    <MudTabPanel Text="Chat" PanelClass="pt-4">
+                        <IssueChatPanel Messages="@_chat.Messages" Sending="@_chatting" OnSend="SendChatAsync" />
+                    </MudTabPanel>
+                </MudTabs>
             </MudPaper>
         </MudItem>
     </MudGrid>
@@ -121,8 +132,10 @@ else
     private IReadOnlyList<string> _subjectIdeas = [];
     private bool _generating, _generateFailed, _pushing, _subjectsLoading, _mutating, _gathering;
     private bool _autoGenerate, _autoGather;
+    private IssueChat _chat = new([], []);
+    private bool _chatting;
 
-    private bool AnyBusy => _generating || _pushing || _subjectsLoading || _mutating || _gathering;
+    private bool AnyBusy => _generating || _pushing || _subjectsLoading || _mutating || _gathering || _chatting;
     private int SkeletonCount => _sections.Count(s =>
         s.Type == SectionTypes.Topic && string.IsNullOrWhiteSpace(s.BodyMd) && s.SourceItemId is not null);
 
@@ -192,10 +205,25 @@ else
         await op(scope.ServiceProvider.GetRequiredService<IssueComposerService>());
     }
 
+    // Chat gets the same fresh-scope treatment as the composer, for the same reason — and more so:
+    // a chat turn is the longest-running call on this page.
+    private async Task<T> WithChatAsync<T>(Func<IssueChatService, Task<T>> op)
+    {
+        using var scope = ScopeFactory.CreateScope();
+        return await op(scope.ServiceProvider.GetRequiredService<IssueChatService>());
+    }
+
+    private async Task WithChatAsync(Func<IssueChatService, Task> op)
+    {
+        using var scope = ScopeFactory.CreateScope();
+        await op(scope.ServiceProvider.GetRequiredService<IssueChatService>());
+    }
+
     private async Task ReloadSectionsAsync()
     {
         _sections = await WithComposerAsync(c => c.GetSectionsAsync(PostId));
         _previewHtml = await WithComposerAsync(c => c.RenderPreviewAsync(PostId, _title));
+        _chat = await WithChatAsync(c => c.GetThreadAsync(PostId));
         StateHasChanged();
     }
 
@@ -275,6 +303,93 @@ else
             await ReloadSectionsAsync();
         }
     }
+
+    private async Task SendChatAsync(string message)
+    {
+        if (_chatting) return;
+        _chatting = true;
+        StateHasChanged();
+        try
+        {
+            var result = await WithChatAsync(c => c.SendAsync(PostId, message));
+            if (result.ProposalCount > 0)
+                Snackbar.Add($"{result.ProposalCount} suggestion(s) — review them on the cards.", Severity.Success);
+            if (result.DroppedEdits > 0)
+                Snackbar.Add($"Ignored {result.DroppedEdits} change(s) to sections that aren't in this issue.",
+                    Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Chat failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _chatting = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task AcceptProposalAsync(IssueSectionProposal proposal)
+    {
+        if (_mutating) return;
+        _mutating = true;
+        try
+        {
+            await WithChatAsync(c => c.AcceptAsync(proposal.Id, force: false));
+            Snackbar.Add("Applied.", Severity.Success);
+        }
+        catch (StaleProposalException)
+        {
+            // The section moved under the suggestion. Overwriting is legitimate — losing the user's
+            // typing without asking is not.
+            var confirmed = await DialogService.ShowMessageBoxAsync("This section changed",
+                "You edited this section after the suggestion was made. Applying it will replace what you wrote.",
+                yesText: "Replace it", cancelText: "Keep mine");
+            if (confirmed == true)
+            {
+                try
+                {
+                    await WithChatAsync(c => c.AcceptAsync(proposal.Id, force: true));
+                    Snackbar.Add("Applied.", Severity.Success);
+                }
+                catch (Exception ex)
+                {
+                    Snackbar.Add($"Apply failed: {ex.Message}", Severity.Error);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Apply failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _mutating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private async Task RejectProposalAsync(IssueSectionProposal proposal)
+    {
+        if (_mutating) return;
+        _mutating = true;
+        try
+        {
+            await WithChatAsync(c => c.RejectAsync(proposal.Id));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Discard failed: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _mutating = false;
+            await ReloadSectionsAsync();
+        }
+    }
+
+    private IssueSectionProposal? ProposalFor(IssueSection section) =>
+        _chat.Proposals.FirstOrDefault(p => p.SectionId == section.Id);
 
     private Task SaveMetaAsync() => PostSvc.SaveIssueMetaAsync(PostId, _title,
         string.IsNullOrWhiteSpace(_subject) ? null : _subject,
