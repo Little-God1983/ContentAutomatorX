@@ -1,0 +1,163 @@
+using ContentAutomatorX.Application.Newsletter;
+
+namespace ContentAutomatorX.UnitTests;
+
+public class TemplateValidatorTests
+{
+    // A minimal template that must validate clean. Every negative test below is this, broken
+    // in exactly one way — so a failure names the rule it broke, not a pile of unrelated noise.
+    private const string Valid = """
+        <!-- BLOCK: shell -->
+        <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body></html>
+        <!-- /BLOCK -->
+        <!-- BLOCK: topic -->
+        <!-- IF: image --><img src="{{image_url}}" /><!-- /IF -->
+        <h2>{{title}}</h2>{{body_html}}
+        <!-- /BLOCK -->
+        """;
+
+    [Fact]
+    public void A_valid_template_produces_no_errors()
+    {
+        var issues = TemplateValidator.Validate(Valid);
+        Assert.False(TemplateValidator.HasErrors(issues));
+    }
+
+    [Theory]
+    // E1 empty
+    [InlineData("", "is empty")]
+    // E3 no shell
+    [InlineData("<!-- BLOCK: topic -->x<!-- /BLOCK -->", "must contain a BLOCK: shell")]
+    // E6 unknown block
+    [InlineData("<!-- BLOCK: shell -->{{sections}}{{unsubscribe_url}}<!-- /BLOCK -->"
+              + "<!-- BLOCK: banana -->x<!-- /BLOCK -->", "Unknown block name")]
+    // E8 unclosed block
+    [InlineData("<!-- BLOCK: shell -->{{sections}}{{unsubscribe_url}}", "never closed")]
+    public void Structural_problems_are_errors(string html, string expectedFragment)
+    {
+        var issues = TemplateValidator.Validate(html);
+        Assert.True(TemplateValidator.HasErrors(issues));
+        Assert.Contains(issues, i => i.Message.Contains(expectedFragment, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact] // E2
+    public void Oversized_template_is_an_error()
+    {
+        var html = Valid + new string('x', TemplateValidator.MaxBytes);
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("too large"));
+    }
+
+    [Fact] // E4
+    public void Shell_without_the_sections_slot_is_an_error()
+    {
+        var html = "<!-- BLOCK: shell --><html>{{unsubscribe_url}}</html><!-- /BLOCK -->";
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("{{sections}}"));
+    }
+
+    [Fact] // E5 — the one that matters most
+    public void Template_without_an_unsubscribe_link_is_an_error()
+    {
+        var html = "<!-- BLOCK: shell --><html>{{sections}}</html><!-- /BLOCK -->";
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // E10
+    public void Unknown_placeholder_is_an_error_naming_the_block()
+    {
+        var html = Valid.Replace("{{title}}", "{{titel}}");
+        var issue = Assert.Single(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("titel"));
+        Assert.Contains("topic", issue.Message);
+    }
+
+    [Fact] // E10 — a placeholder legal elsewhere is still illegal here
+    public void Placeholder_from_another_block_is_an_error()
+    {
+        var html = Valid.Replace("{{title}}", "{{thumbnail_url}}");
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("thumbnail_url"));
+    }
+
+    [Fact] // E11
+    public void Sections_slot_outside_the_shell_is_an_error()
+    {
+        var html = Valid.Replace("<h2>{{title}}</h2>", "<h2>{{sections}}</h2>");
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("only in the shell"));
+    }
+
+    [Fact] // E12
+    public void Unclosed_if_region_is_an_error()
+    {
+        var html = Valid.Replace("<!-- /IF -->", "");
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("never closed"));
+    }
+
+    [Fact] // E12 — stray close
+    public void Closing_if_with_nothing_open_is_an_error()
+    {
+        var html = Valid.Replace("<h2>{{title}}</h2>", "<!-- /IF --><h2>{{title}}</h2>");
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("no IF is open"));
+    }
+
+    [Fact] // E13
+    public void Nested_if_region_is_an_error()
+    {
+        var html = Valid.Replace("<img src=\"{{image_url}}\" />",
+            "<!-- IF: link --><img src=\"{{image_url}}\" /><!-- /IF -->");
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("cannot nest"));
+    }
+
+    [Fact] // E14
+    public void Unknown_if_condition_is_an_error()
+    {
+        var html = Valid.Replace("<!-- IF: image -->", "<!-- IF: banana -->");
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("banana"));
+    }
+
+    [Fact] // W1
+    public void Missing_optional_blocks_are_warnings_not_errors()
+    {
+        var issues = TemplateValidator.Validate(Valid);
+        Assert.False(TemplateValidator.HasErrors(issues));
+        // Valid defines shell and topic; the other six optional blocks warn.
+        Assert.Equal(6, issues.Count(i => i.Level == TemplateIssueLevel.Warning
+            && i.Message.Contains("built-in design")));
+    }
+
+    [Fact] // W2
+    public void Block_with_no_placeholders_at_all_is_a_warning()
+    {
+        var html = Valid + "\n<!-- BLOCK: sponsor --><td>nothing dynamic</td><!-- /BLOCK -->";
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Warning && i.Message.Contains("no placeholders"));
+    }
+
+    [Fact]
+    public void Divider_needs_no_placeholders_and_does_not_warn()
+    {
+        var html = Valid + "\n<!-- BLOCK: divider --><hr /><!-- /BLOCK -->";
+        Assert.DoesNotContain(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Warning && i.Message.Contains("no placeholders"));
+    }
+
+    [Fact]
+    public void The_reference_template_is_not_yet_annotated_and_that_is_expected()
+    {
+        // docs/user-braindumps/preview.html carries BLOCK comments but no placeholders yet —
+        // Task 10 converts it. This test documents the current state so the conversion has a
+        // before-and-after, and fails loudly if someone converts it without updating this.
+        var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..",
+            "docs", "user-braindumps", "preview.html");
+        if (!File.Exists(path)) return; // not shipped with the test output on all machines
+        var issues = TemplateValidator.Validate(File.ReadAllText(path));
+        Assert.True(TemplateValidator.HasErrors(issues));
+    }
+}
