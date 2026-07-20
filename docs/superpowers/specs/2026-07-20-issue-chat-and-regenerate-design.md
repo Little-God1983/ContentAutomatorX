@@ -1,7 +1,7 @@
 # Issue Chat, Whole-Issue Regenerate & Composer Undo — Design
 
 **Date:** 2026-07-20
-**Status:** Approved, not yet implemented
+**Status:** Implemented
 **Supersedes nothing.** Extends `2026-07-19-newsletter-composer-design.md`.
 
 ## 1. Goal
@@ -50,8 +50,8 @@ The rule is therefore restated, not revoked:
 | 7 | Transcript is flattened into the single `GenerateAsync` prompt | No `ILlmBackend` change; stays provider-neutral, which is the stated goal of the model-selector work |
 | 8 | History caps at the last 20 messages | Bounds prompt growth against the 300 s CLI timeout. Safe because the current issue is always re-sent in full |
 | 9 | Chat may edit any section type; regenerate-all touches Header + Topic only | Fixing a footer typo by chat is useful; regenerating tenant boilerplate from scratch is not |
-| 10 | Proposals store the body they were generated against (`BaselineBodyMd`) | Persisted proposals can outlive the text they were based on. Without a baseline, a stale Accept silently discards hand edits |
-| 11 | Retention: 30 days after publish; 90 days after last chat activity if never published | `PublishedAt` alone leaks every unpublished issue's thread forever (see §8) |
+| 10 | Proposals store the title and body they were generated against (`BaselineTitle`, `BaselineBodyMd`) | Persisted proposals can outlive the text they were based on. Without a baseline, a stale Accept silently discards hand edits — and guarding the body alone left a title-only proposal free to overwrite a hand-typed title |
+| 11 | Retention: 30 days after publish *or* last activity, whichever is later; 90 days after last activity if never published | `PublishedAt` alone leaks every unpublished issue's thread forever, and a fixed publish clock deletes work done on an issue after it shipped (see §8) |
 | 12 | New `IssueChatService`, not more methods on `IssueComposerService` | `IssueComposerService` is already 294 lines with 13 public methods |
 | 13 | **Undo is snapshot-based, not a command journal** | One restore routine is correct for all eight mutations and for any added later; eight hand-written inverses are eight chances to be subtly wrong (see §7.1) |
 | 14 | A snapshot covers the whole issue: post header fields plus all sections | Makes "everything in the composer" honest, and costs three extra strings |
@@ -91,6 +91,7 @@ public class IssueSectionProposal
     public string? ProposedTitle { get; set; }       // null = title unchanged
     public string? ProposedBodyMd { get; set; }      // null = body unchanged
     public required string BaselineBodyMd { get; set; }  // section body when proposed; "" if it had none
+    public string? BaselineTitle { get; set; }           // section title when proposed; null if it had none
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
@@ -113,7 +114,9 @@ matching the existing convention.
 text and deletes the row, Reject deletes the row. A pending proposal is a row that exists.
 
 **Indexes.** `IssueChatMessage` on `PostId`; `IssueSectionProposal` unique on `SectionId`
-(enforcing decision 6) plus an index on `PostId`; `IssueRevision` on `(PostId, Stack, Ordinal)`.
+(enforcing decision 6) plus an index on `PostId`; `IssueRevision` **unique** on
+`(PostId, Stack, Ordinal)`, so two circuits computing the same next ordinal collide loudly
+instead of both landing (see §7.4).
 
 All three must be added to **`IAppDbContext`** (Application) and **`AppDbContext`**
 (Infrastructure) — twin lists that must stay in sync, and three test fakes implement
@@ -161,7 +164,10 @@ A static `TryParseChatReply(string text, out ChatReply? reply)` mirroring the ex
 
 Validation is where the structural lock lives:
 
-- An edit whose `sectionId` is not a section of **this post** is dropped.
+- An edit whose `sectionId` is missing, unparseable, or not a section of **this post** is dropped.
+  The id is read as a string and parsed, deliberately: a `Guid`-typed field throws during
+  deserialization and would lose every other edit in the same reply — and a model echoing this
+  spec's own `"<id>"` placeholder is exactly the input that triggers it.
 - An edit with neither `title` nor `bodyMd` is dropped.
 - Dropped edits are **surfaced, not silent** — the UI reports that the model proposed a change
   to an unknown section and it was ignored.
@@ -205,7 +211,9 @@ no Header and no Topic sections; the UI then reports "nothing to regenerate" rat
 an empty confirm dialog.
 
 `AcceptAsync(force: false)` throws when the section's current `BodyMd` differs from the
-proposal's `BaselineBodyMd`; the UI then asks and retries with `force: true`. Accept snapshots
+proposal's baseline — checked per field, so a proposal that changes only the title is not blocked
+by a rewritten body, and one that changes only the title *is* blocked by a retyped title. The UI
+then asks and retries with `force: true`. Accept snapshots
 first (§7), so it is undoable either way.
 
 `PurgeAsync` returns the number of threads collected and lives here rather than in a separate
@@ -362,15 +370,18 @@ Stated explicitly so the gaps are chosen, not discovered:
 - **Proposals.** Accepting a proposal deletes it; undoing restores your text but does not
   resurrect the proposal. Ask the model again if you want it back.
 - **Chat messages.** The transcript is a record of what was said and is never rewritten by undo.
-- **Concurrent editors.** History is per post, not per circuit. Two tabs open on one issue share
+- **Concurrent editors.** History is per post, not per circuit. A unique index on
+  `(PostId, Stack, Ordinal)` means two circuits stepping history at once fail loudly and
+  recoverably rather than silently producing two revisions tied for top of stack, where which one
+  pops first is decided by index scan order. Two tabs open on one issue share
   one undo stack. Acceptable in a single-user tool; noted so it is not a surprise.
 
 ## 8. Retention
 
 | Issue state | Purged |
 |---|---|
-| `Published` | 30 days after `PublishedAt` |
-| Anything else | 90 days after the thread's most recent message |
+| `Published` | 30 days after `PublishedAt` **or** the newest chat message, revision or proposal, whichever is later |
+| Anything else | 90 days after the newest chat message, revision or proposal |
 | Post deleted | Immediately, by cascade |
 
 Chat messages, proposals, and revisions are collected together.
