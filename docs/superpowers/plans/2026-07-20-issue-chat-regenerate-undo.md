@@ -27,7 +27,7 @@
 - **Test placement:** pure functions → `tests/ContentAutomatorX.UnitTests/`. Anything needing a DbContext → `tests/ContentAutomatorX.IntegrationTests/`. Both projects are flat; `Xunit` is a global using (no `using Xunit;` line). Assertions use built-in `Assert` — no FluentAssertions.
 - **Test naming:** `Method_snake_case_description`.
 - **Commands:** build/test from repo root. `dotnet build ContentAutomatorX.slnx`, `dotnet test ContentAutomatorX.slnx`. EF is a local tool: `dotnet tool restore` once, then `dotnet ef …`.
-- **Baseline test count: 309 (164 unit + 145 integration).** Report the new totals.
+- **Baseline test count: 309 (164 unit + 145 integration).** Report the new totals. Counts below are xUnit *cases*, so a `[Theory]` contributes one per `[InlineData]`.
 - **If `dotnet build` fails with MSB3021/MSB3027 file-lock errors**, a running `ContentAutomatorX.Web` or Visual Studio holds the DLLs. Stop that process and retry — it is an environment lock, not a code failure.
 
 ## Deliberate deviations from the spec
@@ -1061,7 +1061,7 @@ builder.Services.AddScoped<IssueHistoryService>();
 - [ ] **Step 7: Run the tests**
 
 Run: `dotnet test ContentAutomatorX.slnx`
-Expected: PASS — 320 total (170 unit + 150 integration). All pre-existing `IssueComposerServiceTests` must still pass unchanged in behaviour; only their construction changed.
+Expected: PASS — 329 total (173 unit + 156 integration). All pre-existing `IssueComposerServiceTests` must still pass unchanged in behaviour; only their construction changed.
 
 - [ ] **Step 8: Commit**
 
@@ -1806,7 +1806,7 @@ builder.Services.AddHostedService<ChatRetentionJob>();
 - [ ] **Step 6: Run the tests**
 
 Run: `dotnet test ContentAutomatorX.slnx`
-Expected: PASS — 339 total (170 unit + 169 integration).
+Expected: PASS — 348 total (173 unit + 175 integration).
 
 - [ ] **Step 7: Commit**
 
@@ -2130,7 +2130,7 @@ Replace the second `MudItem` (the preview pane) with:
 - [ ] **Step 7: Verify it compiles and the suite still passes**
 
 Run: `dotnet build ContentAutomatorX.slnx && dotnet test ContentAutomatorX.slnx`
-Expected: Build succeeded, 0 warnings; 339 tests pass.
+Expected: Build succeeded, 0 warnings; 348 tests pass.
 
 - [ ] **Step 8: Commit**
 
@@ -2319,7 +2319,7 @@ In the markup, immediately after the `@if (_pushing || _generating) { <MudProgre
 - [ ] **Step 6: Verify it compiles and the suite still passes**
 
 Run: `dotnet build ContentAutomatorX.slnx && dotnet test ContentAutomatorX.slnx`
-Expected: Build succeeded, 0 warnings; 339 tests pass.
+Expected: Build succeeded, 0 warnings; 348 tests pass.
 
 - [ ] **Step 7: Commit**
 
@@ -2365,7 +2365,7 @@ Open an existing newsletter issue with a header and at least two topics.
 Report which checklist items passed, and for any that failed, what was fixed. Run the full suite once more:
 
 Run: `dotnet test ContentAutomatorX.slnx`
-Expected: PASS, 339 tests.
+Expected: PASS, 348 tests.
 
 - [ ] **Step 4: Commit (only if fixes were needed)**
 
