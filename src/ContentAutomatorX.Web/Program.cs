@@ -8,6 +8,7 @@ using ContentAutomatorX.Domain.Entities;
 using ContentAutomatorX.Domain.Models;
 using ContentAutomatorX.Infrastructure.Delivery;
 using ContentAutomatorX.Infrastructure.Llm;
+using ContentAutomatorX.Infrastructure.Newsletter;
 using ContentAutomatorX.Infrastructure.Persistence;
 using ContentAutomatorX.Infrastructure.Platforms;
 using ContentAutomatorX.Infrastructure.Security;
@@ -48,6 +49,10 @@ builder.Services.AddTransient<ISourceConnector, LlmResearchConnector>(); // no H
 // --- MailerLite connector (HTTP + retry/backoff) ---
 builder.Services.AddHttpClient<MailerLiteClient>().AddStandardResilienceHandler();
 builder.Services.AddTransient<IMailerLiteClient>(sp => sp.GetRequiredService<MailerLiteClient>());
+
+// --- YouTube thumbnail resolver (HTTP HEAD probe) ---
+builder.Services.AddHttpClient<IYouTubeThumbnailResolver, YouTubeThumbnailResolver>(c =>
+    c.Timeout = TimeSpan.FromSeconds(5));
 
 // --- LLM backend ---
 var claudeOptions = new ClaudeCliOptions();
