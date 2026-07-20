@@ -270,14 +270,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
     public static bool TryParseTopics(string text, out List<TopicBlurb>? topics)
     {
         topics = null;
-        var trimmed = text.Trim();
-        if (trimmed.StartsWith("```"))
-        {
-            var firstNewline = trimmed.IndexOf('\n');
-            var lastFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
-            if (firstNewline >= 0 && lastFence > firstNewline)
-                trimmed = trimmed[(firstNewline + 1)..lastFence].Trim();
-        }
+        var trimmed = MarkdownFence.Strip(text);
         try
         {
             var parsed = JsonSerializer.Deserialize<List<TopicBlurb>>(trimmed, JsonOpts);
