@@ -33,7 +33,7 @@ another tenant and its own (unset) settings apply instead.
 | 5 | Effort representation | **Provider-neutral enum** (`Default/Low/Medium/High/XHigh/Max`) in Domain, translated per backend. Not a raw CLI string. |
 | 6 | Read timing | **Per call, no cache.** Saves take effect immediately; no stale-value class of bug. |
 | 7 | How settings reach the backend | **`ILlmBackend.GenerateAsync` gains a required `LlmSettings` parameter.** The caller resolves; the backend stays tenancy-ignorant. See §6.3. |
-| 8 | Backend lifetime | **`ILlmBackend` stays a singleton.** `LlmSettingsService` is also a singleton and opens a DB scope per read via `IServiceScopeFactory`. |
+| 8 | Service lifetime | **`ILlmBackend` stays a singleton; `LlmSettingsService` is scoped.** Because callers resolve settings (decision 7), no singleton reads the DB, so the service takes `IAppDbContext` directly — no `IServiceScopeFactory`. |
 | 9 | Injection safety | **Whitelist-validated custom model strings.** These become process arguments; see §7. |
 
 ### 2.1 Why per-tenant, and how this differs from the mockup
@@ -70,7 +70,7 @@ Consequences accepted:
 
 ### In (v1)
 
-1. **`LlmSetting` table** — at most one row per tenant, holding Model + Effort.
+1. **`TenantLlmSetting` table** — at most one row per tenant, holding Model + Effort.
 2. **`LlmSettings` domain record + `LlmEffort` enum** — provider-neutral.
 3. **`ILlmSettingsProvider` / `LlmSettingsService`** — read and save a tenant's
    values; fall back to `appsettings`, then to "omit the flag".
@@ -98,7 +98,7 @@ Consequences accepted:
 ## 5. Data model
 
 ```
-LlmSetting  (new table, at most one row per tenant)
+TenantLlmSetting  (new table, at most one row per tenant)
   Id        Guid PK
   TenantId  Guid       — unique index; bare Guid, no FK navigation
   Model     string ("")  — "" means "omit --model"; else alias or full ID
@@ -107,9 +107,13 @@ LlmSetting  (new table, at most one row per tenant)
 Tenant, Recipe, Post, IssueSection  — unchanged.
 ```
 
+The entity is `TenantLlmSetting`, not `LlmSetting`, so it does not read as a
+typo of the `LlmSettings` value record (§6.1). The `Tenant` prefix also states
+the scoping at every use site.
+
 Shape follows `Platform`, the closest existing analogue: a `Guid Id` primary
 key plus a plain `Guid TenantId` with a unique index
-(`b.Entity<LlmSetting>().HasIndex(s => s.TenantId).IsUnique()`).
+(`b.Entity<TenantLlmSetting>().HasIndex(s => s.TenantId).IsUnique()`).
 
 **No foreign key to `Tenant`.** No tenant-owned entity in this codebase
 declares one — `AppDbContext` configures a relationship only for
@@ -150,14 +154,19 @@ model field; the storage, the service, and the UI are untouched.
 
 ### 6.2 Application — `LlmSettingsService`
 
-- `GetAsync(tenantId)` → reads that tenant's row; if absent or blank, falls
-  back to `ClaudeCliOptions.Model` / `ClaudeCliOptions.Effort` from
-  `appsettings`; if those are blank too, returns `LlmSettings.Inherit`.
+- `GetAsync(tenantId)` → reads that tenant's row. **Model and Effort fall back
+  independently:** a blank field falls back to `ClaudeCliOptions.Model` /
+  `ClaudeCliOptions.Effort` from `appsettings`, so pinning a model without an
+  effort still inherits the configured effort. If those are blank too, returns
+  `LlmSettings.Inherit`.
 - `SaveAsync(tenantId, settings)` → upserts the tenant's row. Validates
   before writing (§7); throws `ArgumentException` on a rejected model string.
-- Registered **singleton**, resolving `IAppDbContext` through
-  `IServiceScopeFactory` per call so it can be injected into singleton
-  consumers without a lifetime mismatch.
+- Registered **scoped**, taking `IAppDbContext` directly. Every consumer
+  (`IssueComposerService`, `PostService`, `GenerationPipeline`,
+  `LlmResearchConnector`) is scoped or transient, so there is no singleton to
+  bridge and no `IServiceScopeFactory` indirection.
+- The `appsettings` fallback is injected as a plain `LlmSettings` value, not as
+  `ClaudeCliOptions` — Application does not reference Infrastructure.
 
 Reading one indexed SQLite row per LLM call is microseconds against a
 multi-second CLI invocation, so no caching is introduced and no invalidation
@@ -287,9 +296,9 @@ adds a second parser to the path.
 
 | Failure | Behavior |
 |---|---|
-| No `LlmSetting` row for this tenant | Fall back to `appsettings`, then to omitting both flags. Never an error. |
+| No `TenantLlmSetting` row for this tenant | Fall back to `appsettings`, then to omitting both flags. Never an error. |
 | Custom model fails validation | Inline field error in AI Studio; nothing written; service throws if called directly. |
-| DB read fails mid-generation | Log and fall back to `appsettings` values so generation still runs rather than hard-failing on a settings lookup. |
+| DB read fails mid-generation | **Let it propagate.** Reversed 2026-07-20 while planning: catching it would also swallow a genuinely broken database and run every generation on silently-wrong settings, which is harder to diagnose than a failed run. The same read already happens on every page load, so a broken DB is not subtle. If this proves wrong, the fix is a `try`/`catch` returning `fallback` in one method. |
 | CLI rejects a model/effort value | Existing behavior: non-zero exit → one retry → `InvalidOperationException` surfaced as the current generation-failed banner, with stderr included. |
 | Effort string in DB is unrecognized | Treated as `Default` (flag omitted) rather than throwing. |
 | AI Studio opened with no active tenant | Card shows the same "no tenant" state the other tenant-scoped pages show; no save possible. |
