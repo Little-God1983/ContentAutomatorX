@@ -1392,7 +1392,9 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         db.IssueChatMessages.Add(new IssueChatMessage { PostId = postId, Role = ChatRoles.User, Text = text });
         await db.SaveChangesAsync(ct);
 
-        var reply = await RunTurnAsync(postId, text, includeTranscript: true, restrictTo: null, ct);
+        // ask is null: the transcript already ends with the message just persisted above, so
+        // re-appending it would show the model the same question twice.
+        var reply = await RunTurnAsync(postId, ask: null, includeTranscript: true, restrictTo: null, ct);
         db.IssueChatMessages.Add(new IssueChatMessage
         {
             PostId = postId, Role = ChatRoles.Assistant, Text = reply.Reply
@@ -1451,7 +1453,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         await db.SaveChangesAsync(ct);
     }
 
-    private async Task<ChatReply> RunTurnAsync(Guid postId, string ask, bool includeTranscript,
+    private async Task<ChatReply> RunTurnAsync(Guid postId, string? ask, bool includeTranscript,
         HashSet<Guid>? restrictTo, CancellationToken ct)
     {
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
@@ -1480,7 +1482,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
     }
 
     private static string BuildPrompt(Tenant tenant, Recipe? recipe, List<IssueSection> sections,
-        HashSet<Guid>? restrictTo, List<IssueChatMessage> transcript, string ask)
+        HashSet<Guid>? restrictTo, List<IssueChatMessage> transcript, string? ask)
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are editing an existing newsletter issue with its author.");
@@ -1512,7 +1514,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             sb.AppendLine();
         }
         sb.AppendLine("--- now ---");
-        sb.AppendLine(ask);
+        sb.AppendLine(ask ?? "Reply to the author's last message above.");
         return sb.ToString();
     }
 
