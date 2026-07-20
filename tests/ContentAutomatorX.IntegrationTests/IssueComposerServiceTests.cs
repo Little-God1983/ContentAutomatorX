@@ -104,11 +104,11 @@ public class IssueComposerServiceTests
         return new World(test, platforms, ml, tenant, recipe, source, items);
     }
 
-    private static IssueComposerService Composer(World w, ILlmBackend llm) =>
+    private static IssueComposerService Composer(World w, ILlmBackend llm, StubLlmSettings? settings = null) =>
         new(w.Test.Db, llm,
             new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
                 llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
-            new StubLlmSettings());
+            settings ?? new StubLlmSettings());
 
     [Fact]
     public async Task CreateFromItems_builds_header_topics_footer_with_contiguous_positions()
@@ -310,6 +310,22 @@ public class IssueComposerServiceTests
     }
 
     [Fact]
+    public async Task GenerateTopics_resolves_llm_settings_for_the_posts_tenant()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm(TopicsJson(w.Items.Take(1)));
+        var settings = new StubLlmSettings(new LlmSettings("haiku", LlmEffort.Low));
+        var composer = Composer(w, llm, settings);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+
+        await composer.GenerateTopicsAsync(post.Id, null);
+
+        Assert.Equal(w.Tenant.Id, settings.LastTenantId);
+        Assert.Equal("haiku", llm.LastSettings!.Model);
+    }
+
+    [Fact]
     public async Task RegenerateSection_rewrites_a_topic_blurb_from_its_source_item()
     {
         var w = await BuildAsync();
@@ -343,6 +359,23 @@ public class IssueComposerServiceTests
         Assert.Contains("Item 1", llm.Prompts.Single());                    // topic titles in prompt
         await Assert.ThrowsAsync<InvalidOperationException>(
             () => composer.RegenerateSectionAsync(sections[^1].Id, null));  // footer is not regenerable
+    }
+
+    [Fact]
+    public async Task RegenerateSection_resolves_llm_settings_for_the_posts_tenant()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var llm = new SequenceLlm("A fresh new blurb.");
+        var settings = new StubLlmSettings(new LlmSettings("haiku", LlmEffort.Low));
+        var composer = Composer(w, llm, settings);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id))[1];
+
+        await composer.RegenerateSectionAsync(topic.Id, null);
+
+        Assert.Equal(w.Tenant.Id, settings.LastTenantId);
+        Assert.Equal("haiku", llm.LastSettings!.Model);
     }
 
     private static async Task ConfigureMailerLiteAsync(World w)

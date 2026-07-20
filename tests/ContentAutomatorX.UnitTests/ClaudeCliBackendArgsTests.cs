@@ -84,4 +84,15 @@ public class ClaudeCliBackendArgsTests
 
         Assert.Equal("claude-sonnet-5", result.Model);
     }
+
+    [Fact]
+    public async Task Blank_settings_model_and_no_modelUsage_falls_back_to_claude_default()
+    {
+        var runner = new RecordingRunner("""{"result":"ok"}""");
+        var backend = new ClaudeCliBackend(runner, new ClaudeCliOptions());
+
+        var result = await backend.GenerateAsync("hi", LlmSettings.Inherit);
+
+        Assert.Equal("claude-default", result.Model);
+    }
 }

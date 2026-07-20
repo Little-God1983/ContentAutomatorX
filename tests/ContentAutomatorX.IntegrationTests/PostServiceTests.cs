@@ -253,6 +253,25 @@ public class PostServiceTests
     }
 
     [Fact]
+    public async Task Subject_ideas_resolves_llm_settings_for_the_posts_tenant()
+    {
+        var w = await BuildAsync();
+        using var _ = w.Test;
+        var post = await w.Posts.CreateIssueAsync(w.Tenant.Id, w.Recipe.Id, 7, null, "t");
+        await w.Posts.SaveIssueAsync(post.Id, "t", "body", null, null);
+        var llm = new FakeLlm("[\"s1\",\"s2\",\"s3\",\"s4\",\"s5\"]");
+        var settings = new StubLlmSettings(new LlmSettings("haiku", LlmEffort.Low));
+        var postsWithStub = new PostService(w.Test.Db,
+            new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()), llm, w.Platforms, w.MailerLite,
+            settings);
+
+        await postsWithStub.SubjectIdeasAsync(post.Id);
+
+        Assert.Equal(post.TenantId, settings.LastTenantId);
+        Assert.Equal("haiku", llm.LastSettings!.Model);
+    }
+
+    [Fact]
     public async Task Review_queue_lists_needs_review_and_pushed()
     {
         var w = await BuildAsync();
