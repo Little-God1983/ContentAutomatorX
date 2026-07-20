@@ -37,21 +37,28 @@ Two settings pages carry the whole modularity requirement: **Platforms**
 
 ## 🤖 AI Studio — providers × jobs
 
-> **Partially real as of 2026-07-20.** A global **Model + Effort** selector
+> **Partially real as of 2026-07-20.** A **per-tenant Model + Effort** selector
 > ships as a settings card on this page — one model and one reasoning-depth
-> setting for every ✨ action, no provider table and no per-job bindings yet.
-> The two tables below remain the target shape; the global setting is the
-> `newsletter-compose` row's default, generalized to all jobs.
+> setting per tenant, covering every ✨ action for that tenant. No provider
+> table and no per-job bindings yet.
+>
+> This deviates from the two tables below in one way worth noting: there is
+> **no global default row and no override chain**. Each tenant owns its
+> setting outright, the way it owns its Platforms and Recipes. The
+> `tenant override → job default` resolution order sketched further down
+> remains the eventual target; adding the global row later is one nullable
+> `TenantId` plus one fallback step (the shape `PromptTemplate` already uses).
 > Spec: `docs/superpowers/specs/2026-07-20-llm-model-selector-design.md`
 >
 > ```
-> ┌─ AI Studio ── Model (real) ────────────────────────────┐
+> ┌─ AI Studio ── Model — AIVisions (real) ────────────────┐
 > │  Provider  [ Claude CLI ▾ ]   (only provider today)    │
 > │  Model     [ Opus ▾ ]   Default·Opus·Sonnet·Haiku·     │
 > │                         Fable·Custom…                  │
 > │  Effort    [ High ▾ ]   Default·low·medium·high·       │
 > │                         xhigh·max                      │
-> │  ⓘ Applies to every ✨ action.        [ Save ]         │
+> │  ⓘ Applies to every ✨ action for this tenant.         │
+> │    Other tenants keep their own.      [ Save ]         │
 > └────────────────────────────────────────────────────────┘
 > ```
 
