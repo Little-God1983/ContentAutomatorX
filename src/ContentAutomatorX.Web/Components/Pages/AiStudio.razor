@@ -1,6 +1,70 @@
 @page "/ai-studio"
+@using ContentAutomatorX.Domain.Abstractions
+@using ContentAutomatorX.Domain.Models
+@using ContentAutomatorX.Web.Services
+@implements IDisposable
+@inject TenantContext Ctx
+@inject ILlmSettingsProvider LlmSettings
+@inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">AI Studio</MudText>
+
+@if (!Ctx.Initialized)
+{
+    <MudProgressLinear Indeterminate="true" Class="mb-4" />
+}
+else if (Ctx.Active is null)
+{
+    <MudAlert Severity="Severity.Info" Class="mb-4">Create a tenant first — model settings are per tenant.</MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-4 mb-6" Outlined="true">
+        <MudText Typo="Typo.subtitle1" Class="mb-1">Model — @Ctx.Active.Name</MudText>
+        <MudText Typo="Typo.caption" Class="mb-4 d-block">
+            Applies to every ✨ action for this tenant: topic blurbs, subject ideas,
+            regenerate, and LLM research sources. Other tenants keep their own settings.
+        </MudText>
+
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" Value="@("Claude CLI")" Label="Provider" ReadOnly="true" Disabled="true"
+                              Variant="Variant.Outlined" HelperText="Only provider today" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" @bind-Value="_model" Label="Model" Variant="Variant.Outlined">
+                    <MudSelectItem T="string" Value="@("")">Default (CLI decides)</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("opus")">Opus</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("sonnet")">Sonnet</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("haiku")">Haiku</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("fable")">Fable</MudSelectItem>
+                    <MudSelectItem T="string" Value="@CustomOption">Custom…</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="LlmEffort" @bind-Value="_effort" Label="Effort" Variant="Variant.Outlined">
+                    <MudSelectItem T="LlmEffort" Value="LlmEffort.Default">Default (CLI decides)</MudSelectItem>
+                    <MudSelectItem T="LlmEffort" Value="LlmEffort.Low">low</MudSelectItem>
+                    <MudSelectItem T="LlmEffort" Value="LlmEffort.Medium">medium</MudSelectItem>
+                    <MudSelectItem T="LlmEffort" Value="LlmEffort.High">high</MudSelectItem>
+                    <MudSelectItem T="LlmEffort" Value="LlmEffort.XHigh">xhigh</MudSelectItem>
+                    <MudSelectItem T="LlmEffort" Value="LlmEffort.Max">max</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            @if (_model == CustomOption)
+            {
+                <MudItem xs="12" md="8">
+                    <MudTextField @bind-Value="_custom" Label="Custom model ID" Variant="Variant.Outlined"
+                                  Placeholder="claude-opus-4-8" Error="@(_error is not null)"
+                                  ErrorText="@_error" Immediate="true" />
+                </MudItem>
+            }
+        </MudGrid>
+
+        <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="_saving" OnClick="SaveAsync">Save</MudButton>
+    </MudPaper>
+}
 
 <ComingSoonBanner Phase="provider profiles land with the newsletter vertical; the full job-binding table grows with each phase"
                   Description="Provider profiles (Claude CLI, LM Studio, Ollama, hosted APIs, MCP servers, TTS — local solutions are first-class) get bound to named jobs like newsletter-compose or yt-description. Every ✨ button in the app runs a job; swapping the model behind it is editing one row here. Manual always works — AI only ever proposes text into ordinary fields." />
@@ -46,3 +110,79 @@
     Resolution order for every ✨: this-run choice → tenant override → job default.
     See docs/mockups/10-platforms-ai-settings.md.
 </MudText>
+
+@code {
+    // Sentinel for the "Custom…" dropdown entry. Contains a space, so
+    // LlmModelName.IsValid rejects it — it can never be saved as a real model.
+    private const string CustomOption = "custom model";
+
+    private string _model = "";
+    private string _custom = "";
+    private LlmEffort _effort = LlmEffort.Default;
+    private string? _error;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Ctx.Changed += OnTenantChanged;
+        await Ctx.InitializeAsync();
+        await LoadAsync();
+    }
+
+    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    {
+        await LoadAsync();
+        StateHasChanged();
+    });
+
+    private async Task LoadAsync()
+    {
+        if (!Ctx.Initialized || Ctx.Active is null) return;
+        var settings = await LlmSettings.GetAsync(Ctx.Active.Id);
+        _effort = settings.Effort;
+        _error = null;
+        if (settings.Model is "" or "opus" or "sonnet" or "haiku" or "fable")
+        {
+            _model = settings.Model;
+            _custom = "";
+        }
+        else
+        {
+            _model = CustomOption;
+            _custom = settings.Model;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (Ctx.Active is null) return;
+        var model = _model == CustomOption ? _custom.Trim() : _model;
+
+        // Mirror of the service's rule so the error lands on the field. The service
+        // validates again on its own — this is convenience, not the enforcement point.
+        if (model.Length > 0 && !LlmModelName.IsValid(model))
+        {
+            _error = $"Letters, digits, dot, underscore, hyphen or square brackets only, "
+                   + $"up to {LlmModelName.MaxLength} characters.";
+            return;
+        }
+
+        _error = null;
+        _saving = true;
+        try
+        {
+            await LlmSettings.SaveAsync(Ctx.Active.Id, new LlmSettings(model, _effort));
+            Snackbar.Add($"Model settings saved for {Ctx.Active.Name}.", Severity.Success);
+        }
+        catch (ArgumentException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    public void Dispose() => Ctx.Changed -= OnTenantChanged;
+}
