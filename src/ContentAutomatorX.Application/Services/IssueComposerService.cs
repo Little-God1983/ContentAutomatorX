@@ -15,7 +15,7 @@ public record TopicBlurb(Guid ItemId, string Title, string Blurb);
 /// generation (Task 5). An issue always has exactly one Header (first) and one Footer (last);
 /// positions stay 0-based and contiguous after every mutation.</summary>
 public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService posts,
-    ILlmSettingsProvider llmSettings)
+    ILlmSettingsProvider llmSettings, IssueHistoryService history)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -55,6 +55,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
     {
         if (type is SectionTypes.Header or SectionTypes.Footer)
             throw new InvalidOperationException("An issue has exactly one header and one footer.");
+        await history.SnapshotAsync(postId, "Add section", ct);
         var sections = await GetSectionsAsync(postId, ct);
         var section = new IssueSection { PostId = postId, Type = type };
         sections.Insert(Math.Max(sections.Count - 1, 0), section); // above the footer
@@ -66,6 +67,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
 
     public async Task AddTopicsFromItemsAsync(Guid postId, IReadOnlyList<Guid> itemIds, CancellationToken ct = default)
     {
+        await history.SnapshotAsync(postId, "Add topics", ct);
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
         var byId = (await db.ContentItems
                 .Where(i => i.TenantId == post.TenantId && itemIds.Contains(i.Id)).ToListAsync(ct))
@@ -91,6 +93,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         string? imageUrl, string? linkUrl, string? linkText, CancellationToken ct = default)
     {
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
+        await history.SnapshotAsync(section.PostId, "Edit section", ct);
         section.Title = title;
         section.BodyMd = bodyMd;
         section.ImageUrl = imageUrl;
@@ -104,6 +107,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
         if (section.Type is SectionTypes.Header or SectionTypes.Footer)
             throw new InvalidOperationException("Header and footer cannot be removed — edit them instead.");
+        await history.SnapshotAsync(section.PostId, "Delete section", ct);
         var sections = await GetSectionsAsync(section.PostId, ct);
         sections.RemoveAll(s => s.Id == sectionId);
         db.IssueSections.Remove(section);
@@ -120,6 +124,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var index = sections.FindIndex(s => s.Id == sectionId);
         var target = index + direction;
         if (target <= 0 || target >= sections.Count - 1) return; // stay between header and footer
+        await history.SnapshotAsync(section.PostId, "Move section", ct);
         (sections[index], sections[target]) = (sections[target], sections[index]);
         Renumber(sections);
         await db.SaveChangesAsync(ct);
@@ -166,6 +171,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
             .Where(s => s.Type == SectionTypes.Topic && string.IsNullOrWhiteSpace(s.BodyMd) && s.SourceItemId is not null)
             .ToList();
         if (skeletons.Count == 0) return 0;
+        await history.SnapshotAsync(postId, "Generate topics", ct);
 
         var itemIds = skeletons.Select(s => s.SourceItemId!.Value).ToList();
         var items = await db.ContentItems.Where(i => itemIds.Contains(i.Id)).ToListAsync(ct);
@@ -238,6 +244,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         {
             throw new InvalidOperationException("Only topics and the header can be regenerated.");
         }
+        await history.SnapshotAsync(section.PostId, "Rewrite section", ct);
         var reply = await llm.GenerateAsync(prompt, settings, ct);
         section.BodyMd = reply.Text.Trim();
         await db.SaveChangesAsync(ct);

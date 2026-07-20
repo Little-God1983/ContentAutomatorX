@@ -66,10 +66,10 @@ public class IssueComposerServiceTests
         Assert.Equal(b, TenantBranding.Parse(b.ToJson()));
     }
 
-    private sealed record World(TestDb Test, PlatformService Platforms, FakeMailerLite MailerLite,
+    public sealed record World(TestDb Test, PlatformService Platforms, FakeMailerLite MailerLite,
         Tenant Tenant, Recipe Recipe, Source Source, List<ContentItem> Items);
 
-    private static async Task<World> BuildAsync()
+    public static async Task<World> BuildWorldAsync()
     {
         var test = TestDb.Create();
         var tenant = new Tenant
@@ -104,16 +104,22 @@ public class IssueComposerServiceTests
         return new World(test, platforms, ml, tenant, recipe, source, items);
     }
 
+    public static IssueComposerService ComposerWith(World w, ILlmBackend llm, IssueHistoryService history) =>
+        new(w.Test.Db, llm,
+            new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
+                llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
+            new StubLlmSettings(), history);
+
     private static IssueComposerService Composer(World w, ILlmBackend llm, StubLlmSettings? settings = null) =>
         new(w.Test.Db, llm,
             new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
                 llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
-            settings ?? new StubLlmSettings());
+            settings ?? new StubLlmSettings(), new IssueHistoryService(w.Test.Db));
 
     [Fact]
     public async Task CreateFromItems_builds_header_topics_footer_with_contiguous_positions()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
 
@@ -137,7 +143,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task EnsureSections_wraps_a_legacy_draft_body_and_is_idempotent()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var platform = await w.Platforms.GetOrCreateMailerLiteAsync(w.Tenant.Id);
@@ -159,7 +165,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task AddSection_inserts_above_footer_and_rejects_header_footer()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
@@ -176,7 +182,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task Move_swaps_within_bounds_and_never_crosses_header_or_footer()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
@@ -198,7 +204,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task Update_and_remove_persist_and_renumber_but_protect_header_footer()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
@@ -220,7 +226,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task Export_and_preview_render_the_sections()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "My issue");
@@ -235,16 +241,16 @@ public class IssueComposerServiceTests
         Assert.DoesNotContain(SectionHtmlRenderer.UnsubscribeToken, html);
     }
 
-    private static string TopicsJson(IEnumerable<ContentItem> items) =>
+    public static string TopicsJsonFor(IEnumerable<ContentItem> items) =>
         "[" + string.Join(",", items.Select(i =>
             $$"""{"itemId":"{{i.Id}}","title":"{{i.Title}} improved","blurb":"Blurb for {{i.Title}}."}""")) + "]";
 
     [Fact]
     public async Task GenerateTopics_fills_only_empty_topics_and_marks_items_used()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
-        var llm = new SequenceLlm(TopicsJson(w.Items));
+        var llm = new SequenceLlm(TopicsJsonFor(w.Items));
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
             w.Items.Select(i => i.Id).ToList(), "t");
@@ -266,9 +272,9 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task GenerateTopics_retries_once_then_succeeds()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
-        var llm = new SequenceLlm("garbage", TopicsJson(w.Items.Take(1)));
+        var llm = new SequenceLlm("garbage", TopicsJsonFor(w.Items.Take(1)));
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
 
@@ -282,7 +288,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task GenerateTopics_throws_after_two_bad_replies_and_keeps_skeletons()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new SequenceLlm("garbage", "more garbage"));
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
@@ -297,7 +303,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task GenerateTopics_with_no_empty_topics_is_a_noop_without_llm_calls()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var llm = new SequenceLlm("should never be used");
         var composer = Composer(w, llm);
@@ -312,9 +318,9 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task GenerateTopics_resolves_llm_settings_for_the_posts_tenant()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
-        var llm = new SequenceLlm(TopicsJson(w.Items.Take(1)));
+        var llm = new SequenceLlm(TopicsJsonFor(w.Items.Take(1)));
         var settings = new StubLlmSettings(new LlmSettings("haiku", LlmEffort.Low));
         var composer = Composer(w, llm, settings);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
@@ -328,7 +334,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task RegenerateSection_rewrites_a_topic_blurb_from_its_source_item()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var llm = new SequenceLlm("A fresh new blurb.");
         var composer = Composer(w, llm);
@@ -345,7 +351,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task RegenerateSection_writes_a_header_intro_referencing_topics_and_rejects_other_types()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var llm = new SequenceLlm("Welcome! This week: things.");
         var composer = Composer(w, llm);
@@ -364,7 +370,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task RegenerateSection_resolves_llm_settings_for_the_posts_tenant()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var llm = new SequenceLlm("A fresh new blurb.");
         var settings = new StubLlmSettings(new LlmSettings("haiku", LlmEffort.Low));
@@ -388,10 +394,10 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task Push_renders_sections_with_the_mailerlite_unsubscribe_variable_and_needs_no_draft()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         await ConfigureMailerLiteAsync(w);
-        var llm = new SequenceLlm(TopicsJson(w.Items.Take(1)));
+        var llm = new SequenceLlm(TopicsJsonFor(w.Items.Take(1)));
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Sectioned issue");
         await composer.GenerateTopicsAsync(post.Id, null);
@@ -412,7 +418,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task Push_rejects_an_overlong_subject_before_calling_mailerlite()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         await ConfigureMailerLiteAsync(w);
         var composer = Composer(w, new FakeLlm());
@@ -430,7 +436,7 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task SaveIssueMeta_persists_title_subject_preview_without_touching_sections()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Old");
@@ -449,9 +455,9 @@ public class IssueComposerServiceTests
     [Fact]
     public async Task SubjectIdeas_reads_section_markdown_for_sectioned_issues()
     {
-        var w = await BuildAsync();
+        var w = await BuildWorldAsync();
         using var _ = w.Test;
-        var llm = new SequenceLlm(TopicsJson(w.Items.Take(1)), "[\"s1\",\"s2\",\"s3\",\"s4\",\"s5\"]");
+        var llm = new SequenceLlm(TopicsJsonFor(w.Items.Take(1)), "[\"s1\",\"s2\",\"s3\",\"s4\",\"s5\"]");
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         await composer.GenerateTopicsAsync(post.Id, null);
