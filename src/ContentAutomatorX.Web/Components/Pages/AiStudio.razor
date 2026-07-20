@@ -64,7 +64,12 @@ else
         </MudGrid>
 
         <MudButton Class="mt-4" Variant="Variant.Filled" Color="Color.Primary"
-                   Disabled="_saving" OnClick="SaveAsync">Save</MudButton>
+                   Disabled="@(_saving || _loadFailed)" OnClick="SaveAsync">Save</MudButton>
+
+        @if (_loadFailed)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-4">Settings could not be loaded. Try switching tenants again.</MudAlert>
+        }
     </MudPaper>
 }
 
@@ -126,6 +131,7 @@ else
     private string? _effortInherited;
     private string? _error;
     private bool _saving;
+    private bool _loadFailed;
 
     // MainLayout owns Ctx.InitializeAsync (it needs JS interop, so it runs after first
     // render) and raises Changed when it completes. Calling it here too would load the
@@ -150,6 +156,7 @@ else
             // tenant A's choice onto tenant B — silently, and across tenants. Blank the
             // card instead, so what is on screen is never another tenant's data.
             ClearCard();
+            _loadFailed = true;
             StateHasChanged();
             Snackbar.Add($"Failed to load model settings: {ex.Message}", Severity.Error);
         }
@@ -157,6 +164,7 @@ else
 
     private async Task LoadAsync()
     {
+        _loadFailed = false;
         if (!Ctx.Initialized || Ctx.Active is null)
         {
             ClearCard();
@@ -222,10 +230,6 @@ else
         try
         {
             await Settings.SaveAsync(Ctx.Active.Id, new LlmSettings(model, _effort));
-            // Re-read so the card shows what was actually stored: a saved-blank field
-            // becomes "Default", and picks up its inherited-from-appsettings note now
-            // rather than surprising the user on the next visit.
-            await LoadAsync();
             Snackbar.Add($"Model settings saved for {Ctx.Active.Name}.", Severity.Success);
         }
         catch (ArgumentException ex)
@@ -239,6 +243,19 @@ else
         finally
         {
             _saving = false;
+        }
+
+        // Re-read so the card shows what was actually stored: a saved-blank field
+        // becomes "Default", and picks up its inherited-from-appsettings note now
+        // rather than surprising the user on the next visit. Wrapped in its own try
+        // so a reload failure is not reported as a save failure.
+        try
+        {
+            await LoadAsync();
+        }
+        catch
+        {
+            // Reload failed, but save succeeded. Continue silently.
         }
     }
 
