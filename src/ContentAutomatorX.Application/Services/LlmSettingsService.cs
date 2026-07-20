@@ -7,25 +7,54 @@ using Microsoft.EntityFrameworkCore;
 namespace ContentAutomatorX.Application.Services;
 
 /// <summary>Resolves a tenant's LLM choice: its own row, else appsettings, else
-/// "omit both flags". Read fresh on every call — one indexed SQLite row is
-/// microseconds against a multi-second CLI invocation, so there is no cache and
-/// therefore no cache-invalidation bug when a save lands mid-session.</summary>
-/// <param name="fallback">Values from appsettings. A plain LlmSettings rather
-/// than ClaudeCliOptions because Application must not reference Infrastructure.</param>
-public class LlmSettingsService(IAppDbContext db, LlmSettings fallback) : ILlmSettingsProvider
+/// "omit both flags". There is no cache — one indexed SQLite row is microseconds
+/// against a multi-second CLI invocation. The reads are AsNoTracking, which is
+/// what actually makes "fresh every call" true: the scoped AppDbContext lives for
+/// a whole Blazor circuit, so a tracking query would let EF identity resolution
+/// return the snapshot this circuit loaded earlier and a save made in another tab
+/// (another circuit) would never be seen here.</summary>
+/// <param name="fallback">Values from appsettings, wrapped in their own type so
+/// nothing can inject them where a tenant's resolved settings are meant. Carries a
+/// plain LlmSettings because Application must not reference Infrastructure.</param>
+public class LlmSettingsService(IAppDbContext db, LlmFallbackSettings fallback) : ILlmSettingsProvider
 {
     public async Task<LlmSettings> GetAsync(Guid tenantId, CancellationToken ct = default)
     {
-        var row = await db.TenantLlmSettings
+        // The fallback is sanitised too: a typo'd Claude:Model must not reach the CLI
+        // just because it arrived through appsettings rather than through the UI.
+        var fallbackModel = SafeModel(fallback.Value.Model);
+        var row = await db.TenantLlmSettings.AsNoTracking()
             .FirstOrDefaultAsync(s => s.TenantId == tenantId, ct);
-        if (row is null) return fallback;
+        if (row is null) return new LlmSettings(fallbackModel, fallback.Value.Effort);
 
         // Each field falls back independently: a tenant may pin a model while
         // leaving effort alone, or the reverse.
-        var model = string.IsNullOrWhiteSpace(row.Model) ? fallback.Model : row.Model.Trim();
+        var model = SafeModel(row.Model);
+        if (model.Length == 0) model = fallbackModel;
         var effort = LlmSettings.ParseEffort(row.Effort);
-        if (effort == LlmEffort.Default) effort = fallback.Effort;
+        if (effort == LlmEffort.Default) effort = fallback.Value.Effort;
         return new LlmSettings(model, effort);
+    }
+
+    public async Task<LlmSettings> GetStoredAsync(Guid tenantId, CancellationToken ct = default)
+    {
+        var row = await db.TenantLlmSettings.AsNoTracking()
+            .FirstOrDefaultAsync(s => s.TenantId == tenantId, ct);
+        return row is null
+            ? LlmSettings.Inherit
+            : new LlmSettings(SafeModel(row.Model), LlmSettings.ParseEffort(row.Effort));
+    }
+
+    /// <summary>Blank means "unset". Anything else becomes a process argument, so it
+    /// must pass the same rule SaveAsync enforces. A value that fails it can only have
+    /// arrived by bypassing SaveAsync — a hand-edited row, a seed migration, a future
+    /// import — so degrade it to "unset" rather than throwing, exactly as
+    /// LlmSettings.ParseEffort degrades a garbage effort string to Default. Bricking a
+    /// tenant's generation over a bad stored value would be worse than ignoring it.</summary>
+    private static string SafeModel(string? model)
+    {
+        var trimmed = model?.Trim() ?? "";
+        return trimmed.Length == 0 || LlmModelName.IsValid(trimmed) ? trimmed : "";
     }
 
     public async Task SaveAsync(Guid tenantId, LlmSettings settings, CancellationToken ct = default)

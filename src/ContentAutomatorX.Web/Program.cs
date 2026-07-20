@@ -58,8 +58,12 @@ builder.Services.AddSingleton<IProcessRunner, ProcessRunner>();
 builder.Services.AddSingleton<ILlmBackend, ClaudeCliBackend>();
 
 // appsettings values become the fallback for tenants that have not chosen.
-// Registered as a plain LlmSettings so Application never sees ClaudeCliOptions.
-builder.Services.AddSingleton(LlmSettings.From(claudeOptions.Model, claudeOptions.Effort));
+// Wrapped in LlmFallbackSettings rather than registered as a bare LlmSettings: a
+// component injecting LlmSettings would otherwise receive this global default in
+// place of a tenant's resolved settings and work — wrongly, for every tenant.
+// LlmSettings itself carries no Claude types, so Application never sees ClaudeCliOptions.
+builder.Services.AddSingleton(new LlmFallbackSettings(
+    LlmSettings.From(claudeOptions.Model, claudeOptions.Effort)));
 // Scoped, not singleton: every consumer (IssueComposerService, PostService,
 // GenerationPipeline, LlmResearchConnector) is scoped or transient, so it can
 // take IAppDbContext directly — no IServiceScopeFactory dance needed.

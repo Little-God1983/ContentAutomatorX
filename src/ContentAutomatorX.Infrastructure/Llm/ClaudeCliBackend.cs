@@ -9,6 +9,10 @@ public class ClaudeCliOptions
     /// <summary>Executable name/path. On Windows, if plain "claude" fails to start,
     /// set the full path (e.g. %LOCALAPPDATA%\...\claude.exe) in appsettings Claude:Command.</summary>
     public string Command { get; set; } = "claude";
+
+    /// <summary>Fallback model for tenants that have not chosen one. Not read by
+    /// GenerateAsync — that takes the model from the LlmSettings passed per call.
+    /// Configured via appsettings Claude:Model.</summary>
     public string? Model { get; set; }
 
     /// <summary>Fallback reasoning depth for tenants that have not chosen one.

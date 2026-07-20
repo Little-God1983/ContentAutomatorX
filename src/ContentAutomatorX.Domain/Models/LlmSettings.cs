@@ -41,3 +41,13 @@ public record LlmSettings(string Model, LlmEffort Effort)
         _ => LlmEffort.Default,
     };
 }
+
+/// <summary>The appsettings-derived fallback, for tenants that have chosen nothing.
+///
+/// A distinct type rather than a bare LlmSettings in the container, because those
+/// two things are not interchangeable: this is one global default, not any tenant's
+/// answer. Registered as LlmSettings it would satisfy any future component that
+/// injects LlmSettings — and that component would run, silently, on the wrong
+/// settings for every tenant. Same reasoning as ILlmBackend.GenerateAsync taking a
+/// required settings parameter: make the wrong thing fail to compile.</summary>
+public sealed record LlmFallbackSettings(LlmSettings Value);

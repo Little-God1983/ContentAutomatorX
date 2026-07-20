@@ -32,6 +32,8 @@ public class StubLlmSettings(LlmSettings? settings = null) : ILlmSettingsProvide
         LastTenantId = tenantId;
         return Task.FromResult(_settings);
     }
+    public Task<LlmSettings> GetStoredAsync(Guid tenantId, CancellationToken ct = default) =>
+        Task.FromResult(_settings);
     public Task SaveAsync(Guid tenantId, LlmSettings settings, CancellationToken ct = default) =>
         Task.CompletedTask;
 }
