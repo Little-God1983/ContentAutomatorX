@@ -177,6 +177,34 @@ public class TemplateHtmlRendererTests
         Assert.Contains("July 2026", html);
     }
 
+    [Fact] // Finding 2 — an unclosed IF marker must drop to the end of the block, not leak verbatim
+    public void Unclosed_if_region_drops_the_marker_and_everything_after_it_in_the_block()
+    {
+        const string unclosed = """
+            <!-- BLOCK: shell -->{{sections}}{{unsubscribe_url}}<!-- /BLOCK -->
+            <!-- BLOCK: topic -->
+            <!-- IF: image --><img src="{{image_url}}" />
+            <h2>{{title}}</h2>
+            <!-- /BLOCK -->
+            """;
+        var html = TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Topic, title: "No image")], MakeTenant(), "t", unclosed, DateTimeOffset.UtcNow);
+        Assert.DoesNotContain("<!-- IF", html);
+        Assert.DoesNotContain("<img", html);
+        Assert.DoesNotContain("No image", html); // the unclosed region swallows the rest of the block, {{title}} included
+    }
+
+    [Fact] // Finding 3 — the preheader must come from the header at Position 0, regardless of list order
+    public void Preheader_uses_position_order_not_list_order()
+    {
+        var html = TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Header, body: "Wrong header.", position: 1),
+             Section(SectionTypes.Header, body: "Right header.", position: 0)],
+            MakeTenant(), "t", Template, DateTimeOffset.UtcNow);
+        Assert.Contains("Right header.", html.Split("</span>")[0]);
+        Assert.DoesNotContain("Wrong header.", html.Split("</span>")[0]);
+    }
+
     [Fact]
     public void A_template_with_no_shell_renders_nothing_rather_than_throwing()
     {

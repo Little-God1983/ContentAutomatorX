@@ -68,7 +68,11 @@ public static partial class TemplateValidator
 
         // Checked across the whole template rather than inside the footer, so a design that puts
         // unsubscribe in the shell still passes. This is a legal requirement, not a style rule.
-        if (!parsed.Blocks.Values.Any(b => b.Content.Contains("{{unsubscribe_url}}", StringComparison.Ordinal)))
+        // Recognition goes through PlaceholderRegex — the same rule as every other placeholder in
+        // this file — so {{ unsubscribe_url }} (internal whitespace) is accepted like any other
+        // placeholder, rather than being falsely rejected by a stricter literal-string check.
+        if (!parsed.Blocks.Values.Any(b => PlaceholderRegex().Matches(b.Content)
+                .Any(m => m.Groups["name"].Value == "unsubscribe_url")))
             issues.Add(new TemplateIssue(TemplateIssueLevel.Error, 1,
                 "The template contains no {{unsubscribe_url}} — commercial email must carry an unsubscribe link."));
 

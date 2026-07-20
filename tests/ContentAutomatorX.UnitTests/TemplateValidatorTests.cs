@@ -64,6 +64,35 @@ public class TemplateValidatorTests
             i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
     }
 
+    [Fact] // Finding 4 — internal whitespace must be tolerated, same as every other placeholder
+    public void Unsubscribe_placeholder_with_internal_whitespace_is_accepted()
+    {
+        var html = Valid.Replace("{{unsubscribe_url}}", "{{ unsubscribe_url }}");
+        var issues = TemplateValidator.Validate(html);
+        Assert.DoesNotContain(issues, i => i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // Finding 4 — a token that appears only outside every block must still be rejected
+    public void Unsubscribe_placeholder_outside_every_block_is_still_an_error()
+    {
+        // Remove the only in-block occurrence, then add one outside any BLOCK/ /BLOCK pair —
+        // the parser does not capture text outside blocks, so this must still be rejected.
+        var html = Valid.Replace("<a href=\"{{unsubscribe_url}}\">Unsubscribe</a>", "")
+            + "\n{{unsubscribe_url}}";
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // Finding 4 — a template with a genuine parse error (unclosed block) and no unsubscribe
+    // token anywhere must still be rejected for the missing link, not just for the parse error.
+    public void Unsubscribe_check_still_rejects_a_template_with_parse_errors()
+    {
+        const string html = "<!-- BLOCK: shell -->{{sections}}<html>"; // never closed, no unsubscribe token
+        var issues = TemplateValidator.Validate(html);
+        Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("never closed"));
+        Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
     [Fact] // E10
     public void Unknown_placeholder_is_an_error_naming_the_block()
     {

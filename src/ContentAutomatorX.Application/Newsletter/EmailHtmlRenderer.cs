@@ -14,6 +14,7 @@ public static partial class EmailHtmlRenderer
         .Build();
 
     private static readonly string[] AllowedHrefSchemes = ["http://", "https://", "mailto:"];
+    private static readonly string[] AllowedSrcSchemes = ["http://", "https://"];
 
     public const string DefaultAccent = "#1e88e5";
 
@@ -50,6 +51,7 @@ public static partial class EmailHtmlRenderer
     private static string InlineStyles(string html)
     {
         html = AnchorRegex().Replace(html, StyleAnchor);
+        html = ImgRegex().Replace(html, StyleImg);
         html = OrderedListRegex().Replace(html, "<ol${attrs} style=\"margin:0 0 14px;padding-left:24px;\">");
         html = TableCellRegex().Replace(html, StyleTableCell);
         return html
@@ -96,4 +98,19 @@ public static partial class EmailHtmlRenderer
 
     [GeneratedRegex("<a href=\"(?<href>[^\"]*)\"(?<rest>[^>]*)>")]
     private static partial Regex AnchorRegex();
+
+    // Same rule as StyleAnchor, applied to Markdig's image syntax. A non-http(s) src (e.g.
+    // javascript: or data:) never reaches a mail client or browser today, but the renderer's
+    // scheme check must hold for every URL-bearing value, images included — not anchors only.
+    private static string StyleImg(Match m)
+    {
+        var url = m.Groups["src"].Value.Trim();
+        var safe = AllowedSrcSchemes.Any(scheme => url.StartsWith(scheme, StringComparison.OrdinalIgnoreCase));
+        return safe
+            ? m.Value
+            : "<img src=\"\" />";
+    }
+
+    [GeneratedRegex("<img src=\"(?<src>[^\"]*)\"(?<rest>[^>]*)>")]
+    private static partial Regex ImgRegex();
 }

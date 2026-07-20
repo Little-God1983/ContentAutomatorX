@@ -110,6 +110,37 @@ public class SectionHtmlRendererTests
         Assert.True(html.IndexOf("FIRST", StringComparison.Ordinal) < html.IndexOf("LAST", StringComparison.Ordinal));
     }
 
+    [Fact] // Finding 1 (Critical) — a javascript: LinkUrl must never reach a video's thumbnail anchor
+    public void Video_with_javascript_link_emits_thumbnail_with_no_anchor_and_no_javascript_scheme()
+    {
+        var section = new IssueSection
+        {
+            Position = 0, Type = SectionTypes.Video, Title = "V",
+            ImageUrl = "https://img.example.com/x.png",
+            LinkUrl = "javascript:alert(document.domain)"
+        };
+        var html = SectionHtmlRenderer.RenderSection(section, EmailHtmlRenderer.DefaultAccent);
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("<a ", html);
+        Assert.DoesNotContain("<a>", html);
+        Assert.Contains("<img src=\"https://img.example.com/x.png\"", html);
+    }
+
+    [Fact] // Finding 1 (Critical) — a null LinkUrl must not produce an empty-href anchor
+    public void Video_with_null_link_and_valid_image_emits_thumbnail_with_no_anchor()
+    {
+        var section = new IssueSection
+        {
+            Position = 0, Type = SectionTypes.Video, Title = "V",
+            ImageUrl = "https://img.example.com/x.png", LinkUrl = null
+        };
+        var html = SectionHtmlRenderer.RenderSection(section, EmailHtmlRenderer.DefaultAccent);
+        Assert.DoesNotContain("href=\"\"", html);
+        Assert.DoesNotContain("<a ", html);
+        Assert.DoesNotContain("<a>", html);
+        Assert.Contains("<img src=\"https://img.example.com/x.png\"", html);
+    }
+
     [Fact]
     public void ToMarkdown_exports_all_section_types_without_the_compliance_footer()
     {

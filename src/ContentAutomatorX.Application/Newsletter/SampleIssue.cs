@@ -4,7 +4,7 @@ using ContentAutomatorX.Domain.Entities;
 namespace ContentAutomatorX.Application.Newsletter;
 
 /// <summary>The fixed issue the template editor previews against. Deliberately exercises every
-/// block and both sides of every IF region — section 4 has nothing optional set, so a template
+/// block and both sides of every IF region — the entry at position 3 has nothing optional set, so a template
 /// author sees immediately whether their regions collapse cleanly. A real issue would leave
 /// whichever blocks it happens not to use untested while they are being edited.</summary>
 public static class SampleIssue

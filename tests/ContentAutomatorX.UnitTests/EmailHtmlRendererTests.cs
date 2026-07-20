@@ -106,6 +106,17 @@ public class EmailHtmlRendererTests
         Assert.Contains("<hr style=\"border:none;border-top:1px solid #dddddd;margin:20px 0;\" />", html);
     }
 
+    [Fact] // Finding 5 — Markdig image syntax must be scheme-checked the same way anchors already are
+    public void Strips_javascript_scheme_image_src_but_keeps_http()
+    {
+        var html = EmailHtmlRenderer.Render(
+            "![bad](javascript:alert(1)) ![ok](https://ex.com/x.png)", "Test");
+
+        Assert.DoesNotContain("javascript:", html, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("<img src=\"\"", html);
+        Assert.Contains("<img src=\"https://ex.com/x.png\"", html);
+    }
+
     [Fact]
     public void Null_and_empty_markdown_render_the_shell_without_crashing()
     {

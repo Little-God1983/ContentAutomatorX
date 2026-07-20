@@ -74,7 +74,14 @@ public static partial class TemplateHtmlRenderer
             if (!open.Success) break;
 
             var close = RegionCloseRegex().Match(text, open.Index + open.Length);
-            if (!close.Success) break;   // unclosed: leave the rest verbatim rather than truncating
+            if (!close.Success)
+            {
+                // unclosed: drop everything from the marker to the end of the block, rather than
+                // emitting the marker verbatim and letting its placeholders be substituted.
+                sb.Append(text, cursor, open.Index - cursor);
+                cursor = text.Length;
+                break;
+            }
 
             sb.Append(text, cursor, open.Index - cursor);
 
@@ -139,7 +146,7 @@ public static partial class TemplateHtmlRenderer
 
     private static string Preheader(IReadOnlyList<IssueSection> sections)
     {
-        var header = sections.FirstOrDefault(s => s.Type == SectionTypes.Header);
+        var header = sections.OrderBy(s => s.Position).FirstOrDefault(s => s.Type == SectionTypes.Header);
         if (string.IsNullOrWhiteSpace(header?.BodyMd)) return "";
         var text = MarkdownSyntaxRegex().Replace(header.BodyMd, "").Replace('\n', ' ').Trim();
         if (text.Length > 200) text = text[..200];

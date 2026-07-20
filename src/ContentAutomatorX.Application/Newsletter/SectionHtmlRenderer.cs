@@ -86,7 +86,12 @@ public static partial class SectionHtmlRenderer
                     sb.AppendLine($"""<h2 style="font-size:21px;margin:20px 0 10px;color:{accent};">{title}</h2>""");
                 var thumbnail = VideoThumbnail(s);
                 if (thumbnail is not null)
-                    sb.AppendLine($"""<a href="{WebUtility.HtmlEncode(s.LinkUrl)}"><img src="{WebUtility.HtmlEncode(thumbnail)}" alt="{title}" style="max-width:100%;height:auto;border:0;display:block;margin:0 0 10px;" /></a>""");
+                {
+                    var img = $"""<img src="{WebUtility.HtmlEncode(thumbnail)}" alt="{title}" style="max-width:100%;height:auto;border:0;display:block;margin:0 0 10px;" />""";
+                    sb.AppendLine(IsHttpUrl(s.LinkUrl)
+                        ? $"""<a href="{WebUtility.HtmlEncode(s.LinkUrl)}">{img}</a>"""
+                        : img);
+                }
                 sb.AppendLine(EmailHtmlRenderer.RenderFragment(s.BodyMd ?? "", accent));
                 if (IsHttpUrl(s.LinkUrl))
                     AppendButton(sb, s.LinkUrl!, s.LinkText ?? "Watch on YouTube", accent);
