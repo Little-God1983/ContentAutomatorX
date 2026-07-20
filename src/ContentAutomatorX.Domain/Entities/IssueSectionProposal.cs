@@ -19,5 +19,8 @@ public class IssueSectionProposal
     /// BaselineBodyMd. Null when the section had none.</summary>
     public string? BaselineTitle { get; set; }
 
+    public string? ProposedCategory { get; set; }
+    public string? BaselineCategory { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 }

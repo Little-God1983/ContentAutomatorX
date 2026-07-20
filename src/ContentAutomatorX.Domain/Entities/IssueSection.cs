@@ -11,5 +11,6 @@ public class IssueSection
     public string? ImageUrl { get; set; }      // topic image / sponsor logo (absolute URL)
     public string? LinkUrl { get; set; }       // read-more / sponsor target / CTA target
     public string? LinkText { get; set; }      // CTA label
+    public string? Category { get; set; }      // topic label — "Tutorial", "News"
     public Guid? SourceItemId { get; set; }    // ContentItem a topic came from (null = manual)
 }

@@ -41,6 +41,7 @@ public static class SectionTypes
     public const string Sponsor = "Sponsor";
     public const string Button = "Button";
     public const string Divider = "Divider";
+    public const string Video = "Video";
     public const string Footer = "Footer";
     public const string LegacyBody = "LegacyBody";
 }
