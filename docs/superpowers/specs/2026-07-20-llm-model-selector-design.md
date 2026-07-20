@@ -159,6 +159,12 @@ model field; the storage, the service, and the UI are untouched.
   `ClaudeCliOptions.Effort` from `appsettings`, so pinning a model without an
   effort still inherits the configured effort. If those are blank too, returns
   `LlmSettings.Inherit`.
+- `GetStoredAsync(tenantId)` → the tenant's own row with **no** fallback
+  applied, `LlmSettings.Inherit` when it has none. This is what the editing UI
+  binds to (§6.6); `GetAsync` is what generation runs on.
+- Both reads also validate the model (§7) and degrade an invalid one to blank,
+  so the write-path check is not the only thing standing between a stored or
+  configured string and a process argument.
 - `SaveAsync(tenantId, settings)` → upserts the tenant's row. Validates
   before writing (§7); throws `ArgumentException` on a rejected model string.
 - Registered **scoped**, taking `IAppDbContext` directly. Every consumer
@@ -169,8 +175,16 @@ model field; the storage, the service, and the UI are untouched.
   `ClaudeCliOptions` — Application does not reference Infrastructure.
 
 Reading one indexed SQLite row per LLM call is microseconds against a
-multi-second CLI invocation, so no caching is introduced and no invalidation
-bug is possible.
+multi-second CLI invocation, so no caching is introduced.
+
+Absence of an explicit cache is not by itself enough. The reads must be
+`AsNoTracking()`, because the scoped `AppDbContext` lives for the whole Blazor
+circuit: a tracking query returns the already-tracked instance via EF identity
+resolution without refreshing its values, which is a per-circuit cache in all
+but name. Each browser tab is its own circuit, so without `AsNoTracking()` a
+save in tab A would never be seen by a tab B that had already read the row,
+and tab B would keep generating on the old model. With it, the guarantee holds:
+every call sees the row as it is on disk.
 
 ### 6.3 Domain — `ILlmBackend` signature change
 
@@ -261,6 +275,17 @@ global-looking nav page reads as global and invites the wrong edit.
 live dropdown. There is exactly one backend and nothing to switch to; an
 enabled control with one option would promise a choice that does not exist.
 It is rendered at all only to mark where provider selection will land.
+
+**The dropdowns show the tenant's stored choice, not the resolved value.** The
+card is an editor, so it must present what this tenant actually chose — which is
+why the provider exposes a separate stored-value read alongside the resolved one
+(§6.2). Binding the resolved value would mean an unset tenant's card displays the
+appsettings model as though it had been chosen, Save would silently convert that
+inheritance into an explicit row, and "Default (CLI decides)" could never be
+selected while appsettings names a model. Where a field is unset and the fallback
+for it is non-blank, the inherited value appears as helper text under the control
+("unset — inheriting `opus` from appsettings"), never as a selected item. A blank
+fallback — the shipped default — shows nothing extra.
 
 Selecting a preset hides the custom field and clears it. Saving shows a
 success snackbar; a rejected custom string shows an inline validation error
