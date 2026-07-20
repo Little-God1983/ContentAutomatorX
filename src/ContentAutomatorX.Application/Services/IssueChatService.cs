@@ -109,6 +109,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
     {
         var postIds = (await db.IssueChatMessages.Select(m => m.PostId).Distinct().ToListAsync(ct))
             .Union(await db.IssueRevisions.Select(r => r.PostId).Distinct().ToListAsync(ct))
+            .Union(await db.IssueSectionProposals.Select(p => p.PostId).Distinct().ToListAsync(ct))
             .ToList();
         if (postIds.Count == 0) return 0;
 
@@ -120,12 +121,18 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             .Select(m => new { m.PostId, m.CreatedAt }).ToListAsync(ct);
         var revisionTimes = await db.IssueRevisions.Where(r => postIds.Contains(r.PostId))
             .Select(r => new { r.PostId, r.CreatedAt }).ToListAsync(ct);
+        var proposalTimes = await db.IssueSectionProposals.Where(p => postIds.Contains(p.PostId))
+            .Select(p => new { p.PostId, p.CreatedAt }).ToListAsync(ct);
 
         var collected = 0;
         foreach (var post in posts)
         {
+            // Proposals count as activity in their own right: regenerate-all creates them without
+            // writing a chat message or a revision, so a sweep that ignored them would both leak
+            // proposal-only issues forever and delete a brand-new suggestion on a long-quiet issue.
             var lastActivity = messageTimes.Where(m => m.PostId == post.Id).Select(m => m.CreatedAt)
                 .Concat(revisionTimes.Where(r => r.PostId == post.Id).Select(r => r.CreatedAt))
+                .Concat(proposalTimes.Where(p => p.PostId == post.Id).Select(p => p.CreatedAt))
                 .DefaultIfEmpty(post.CreatedAt).Max();
 
             var due = post is { Status: PostStatus.Published, PublishedAt: DateTimeOffset published }
