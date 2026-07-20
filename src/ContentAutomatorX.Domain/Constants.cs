@@ -44,3 +44,15 @@ public static class SectionTypes
     public const string Footer = "Footer";
     public const string LegacyBody = "LegacyBody";
 }
+
+public static class ChatRoles
+{
+    public const string User = "User";
+    public const string Assistant = "Assistant";
+}
+
+public static class RevisionStacks
+{
+    public const string Undo = "Undo";
+    public const string Redo = "Redo";
+}

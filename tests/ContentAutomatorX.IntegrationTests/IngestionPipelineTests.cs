@@ -40,6 +40,9 @@ public sealed class SaveHookDbContext(AppDbContext inner, Guid targetSourceId, A
     public DbSet<Post> Posts => inner.Posts;
     public DbSet<IssueSection> IssueSections => inner.IssueSections;
     public DbSet<TenantLlmSetting> TenantLlmSettings => inner.TenantLlmSettings;
+    public DbSet<IssueChatMessage> IssueChatMessages => inner.IssueChatMessages;
+    public DbSet<IssueSectionProposal> IssueSectionProposals => inner.IssueSectionProposals;
+    public DbSet<IssueRevision> IssueRevisions => inner.IssueRevisions;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
