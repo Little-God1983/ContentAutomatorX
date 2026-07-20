@@ -35,7 +35,10 @@ public class ProcessRunner : IProcessRunner
             // carry non-ASCII too (tenant voice profile, source content), so stdin gets the same fix.
             StandardOutputEncoding = Utf8NoBom,
             StandardErrorEncoding = Utf8NoBom,
-            StandardInputEncoding = Utf8NoBom,
+            // Unlike the two above, this one must mirror RedirectStandardInput's condition exactly:
+            // .NET throws InvalidOperationException at Process.Start() if StandardInputEncoding is
+            // set while standard input is not redirected (i.e. stdin is null).
+            StandardInputEncoding = stdin is not null ? Utf8NoBom : null,
             UseShellExecute = false,
             CreateNoWindow = true
         };
