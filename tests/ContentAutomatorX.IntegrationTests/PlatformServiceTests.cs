@@ -28,6 +28,7 @@ public sealed class RacingPlatformDbContext(AppDbContext inner, TestDb test, Gui
     public DbSet<Platform> Platforms => inner.Platforms;
     public DbSet<Post> Posts => inner.Posts;
     public DbSet<IssueSection> IssueSections => inner.IssueSections;
+    public DbSet<TenantLlmSetting> TenantLlmSettings => inner.TenantLlmSettings;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
@@ -59,6 +60,7 @@ public sealed class FailingSaveDbContext(AppDbContext inner) : IAppDbContext
     public DbSet<Platform> Platforms => inner.Platforms;
     public DbSet<Post> Posts => inner.Posts;
     public DbSet<IssueSection> IssueSections => inner.IssueSections;
+    public DbSet<TenantLlmSetting> TenantLlmSettings => inner.TenantLlmSettings;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {

@@ -15,5 +15,6 @@ public interface IAppDbContext
     DbSet<Platform> Platforms { get; }
     DbSet<Post> Posts { get; }
     DbSet<IssueSection> IssueSections { get; }
+    DbSet<TenantLlmSetting> TenantLlmSettings { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

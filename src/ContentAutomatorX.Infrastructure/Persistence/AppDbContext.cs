@@ -16,6 +16,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Platform> Platforms => Set<Platform>();
     public DbSet<Post> Posts => Set<Post>();
     public DbSet<IssueSection> IssueSections => Set<IssueSection>();
+    public DbSet<TenantLlmSetting> TenantLlmSettings => Set<TenantLlmSetting>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -32,5 +33,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<IssueSection>().HasIndex(s => new { s.PostId, s.Position });
         b.Entity<IssueSection>()
             .HasOne<Post>().WithMany().HasForeignKey(s => s.PostId).OnDelete(DeleteBehavior.Cascade);
+        // Unique so "at most one row per tenant" is enforced by the database, not
+        // by hoping every writer goes through SaveAsync's upsert. No FK to Tenant:
+        // no tenant-owned entity here declares one (see Platform, Recipe, Source).
+        b.Entity<TenantLlmSetting>().HasIndex(s => s.TenantId).IsUnique();
     }
 }
