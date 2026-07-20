@@ -156,6 +156,7 @@ else
     private async Task SaveAsync()
     {
         if (Ctx.Active is null) return;
+        if (_saving) return;
         var model = _model == CustomOption ? _custom.Trim() : _model;
 
         // Mirror of the service's rule so the error lands on the field. The service
@@ -177,6 +178,10 @@ else
         catch (ArgumentException ex)
         {
             _error = ex.Message;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Save failed: {ex.Message}", Severity.Error);
         }
         finally
         {
