@@ -50,6 +50,16 @@ public static partial class SectionHtmlRenderer
         return sb.ToString();
     }
 
+    /// <summary>The built-in markup for one section, used as TemplateHtmlRenderer's per-section
+    /// fallback when a template has no block for that type. Assumes it sits inside a 600px table
+    /// cell, which the template's shell provides.</summary>
+    public static string RenderSection(IssueSection section, string accent)
+    {
+        var sb = new StringBuilder();
+        AppendSection(sb, section, accent);
+        return sb.ToString();
+    }
+
     private static void AppendSection(StringBuilder sb, IssueSection s, string accent)
     {
         var title = WebUtility.HtmlEncode(s.Title ?? "");
@@ -69,6 +79,17 @@ public static partial class SectionHtmlRenderer
                 sb.AppendLine(EmailHtmlRenderer.RenderFragment(s.BodyMd ?? "", accent));
                 if (IsHttpUrl(s.LinkUrl))
                     sb.AppendLine($"""<p style="margin:0 0 14px;"><a href="{WebUtility.HtmlEncode(s.LinkUrl)}" style="color:{accent};">Read more &rarr;</a></p>""");
+                break;
+
+            case SectionTypes.Video:
+                if (title.Length > 0)
+                    sb.AppendLine($"""<h2 style="font-size:21px;margin:20px 0 10px;color:{accent};">{title}</h2>""");
+                var thumbnail = VideoThumbnail(s);
+                if (thumbnail is not null)
+                    sb.AppendLine($"""<a href="{WebUtility.HtmlEncode(s.LinkUrl)}"><img src="{WebUtility.HtmlEncode(thumbnail)}" alt="{title}" style="max-width:100%;height:auto;border:0;display:block;margin:0 0 10px;" /></a>""");
+                sb.AppendLine(EmailHtmlRenderer.RenderFragment(s.BodyMd ?? "", accent));
+                if (IsHttpUrl(s.LinkUrl))
+                    AppendButton(sb, s.LinkUrl!, s.LinkText ?? "Watch on YouTube", accent);
                 break;
 
             case SectionTypes.Sponsor:
@@ -120,6 +141,12 @@ public static partial class SectionHtmlRenderer
                     AppendMd(sb, s.BodyMd);
                     if (!string.IsNullOrWhiteSpace(s.LinkUrl)) AppendMd(sb, $"[Read more]({s.LinkUrl})");
                     break;
+                case SectionTypes.Video:
+                    if (!string.IsNullOrWhiteSpace(s.Title)) AppendMd(sb, $"## {s.Title}");
+                    AppendMd(sb, s.BodyMd);
+                    if (!string.IsNullOrWhiteSpace(s.LinkUrl))
+                        AppendMd(sb, $"[{s.LinkText ?? "Watch on YouTube"}]({s.LinkUrl})");
+                    break;
                 case SectionTypes.Sponsor:
                     AppendMd(sb, $"**Sponsored{(string.IsNullOrWhiteSpace(s.Title) ? "" : $": {s.Title}")}**");
                     AppendMd(sb, s.BodyMd);
@@ -150,6 +177,12 @@ public static partial class SectionHtmlRenderer
         url is not null &&
         (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
          url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Override wins; otherwise derive from the YouTube URL. Null when neither works.</summary>
+    internal static string? VideoThumbnail(IssueSection s) =>
+        IsHttpUrl(s.ImageUrl) ? s.ImageUrl
+        : YouTubeUrl.TryGetVideoId(s.LinkUrl, out var id) ? YouTubeUrl.FallbackThumbnail(id)
+        : null;
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex AccentRegex();
