@@ -4,7 +4,7 @@
 @using ContentAutomatorX.Web.Services
 @implements IDisposable
 @inject TenantContext Ctx
-@inject ILlmSettingsProvider LlmSettings
+@inject ILlmSettingsProvider Settings
 @inject ISnackbar Snackbar
 
 <MudText Typo="Typo.h4" Class="mb-4">AI Studio</MudText>
@@ -32,7 +32,8 @@ else
                               Variant="Variant.Outlined" HelperText="Only provider today" />
             </MudItem>
             <MudItem xs="12" md="4">
-                <MudSelect T="string" @bind-Value="_model" Label="Model" Variant="Variant.Outlined">
+                <MudSelect T="string" @bind-Value="_model" Label="Model" Variant="Variant.Outlined"
+                           HelperText="@_modelInherited">
                     <MudSelectItem T="string" Value="@("")">Default (CLI decides)</MudSelectItem>
                     <MudSelectItem T="string" Value="@("opus")">Opus</MudSelectItem>
                     <MudSelectItem T="string" Value="@("sonnet")">Sonnet</MudSelectItem>
@@ -42,7 +43,8 @@ else
                 </MudSelect>
             </MudItem>
             <MudItem xs="12" md="4">
-                <MudSelect T="LlmEffort" @bind-Value="_effort" Label="Effort" Variant="Variant.Outlined">
+                <MudSelect T="LlmEffort" @bind-Value="_effort" Label="Effort" Variant="Variant.Outlined"
+                           HelperText="@_effortInherited">
                     <MudSelectItem T="LlmEffort" Value="LlmEffort.Default">Default (CLI decides)</MudSelectItem>
                     <MudSelectItem T="LlmEffort" Value="LlmEffort.Low">low</MudSelectItem>
                     <MudSelectItem T="LlmEffort" Value="LlmEffort.Medium">medium</MudSelectItem>
@@ -107,8 +109,9 @@ else
 </MudGrid>
 
 <MudText Typo="Typo.caption" Class="mt-2 d-block">
-    Resolution order for every ✨: this-run choice → tenant override → job default.
-    See docs/mockups/10-platforms-ai-settings.md.
+    Today the card above is the whole resolution order: this tenant's stored choice,
+    else the appsettings default, else whatever the CLI picks. Per-job and per-run
+    choices are not built yet — see docs/mockups/10-platforms-ai-settings.md.
 </MudText>
 
 @code {
@@ -119,38 +122,84 @@ else
     private string _model = "";
     private string _custom = "";
     private LlmEffort _effort = LlmEffort.Default;
+    private string? _modelInherited;
+    private string? _effortInherited;
     private string? _error;
     private bool _saving;
 
+    // MainLayout owns Ctx.InitializeAsync (it needs JS interop, so it runs after first
+    // render) and raises Changed when it completes. Calling it here too would load the
+    // card twice on every open, with both loads racing on the same scoped AppDbContext.
     protected override async Task OnInitializedAsync()
     {
         Ctx.Changed += OnTenantChanged;
-        await Ctx.InitializeAsync();
         await LoadAsync();
     }
 
     private void OnTenantChanged() => _ = InvokeAsync(async () =>
     {
-        await LoadAsync();
-        StateHasChanged();
+        try
+        {
+            await LoadAsync();
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            // Ctx.Active has already moved to the new tenant. Leaving the previous
+            // tenant's model, effort and name on screen would let the next Save write
+            // tenant A's choice onto tenant B — silently, and across tenants. Blank the
+            // card instead, so what is on screen is never another tenant's data.
+            ClearCard();
+            StateHasChanged();
+            Snackbar.Add($"Failed to load model settings: {ex.Message}", Severity.Error);
+        }
     });
 
     private async Task LoadAsync()
     {
-        if (!Ctx.Initialized || Ctx.Active is null) return;
-        var settings = await LlmSettings.GetAsync(Ctx.Active.Id);
-        _effort = settings.Effort;
-        _error = null;
-        if (settings.Model is "" or "opus" or "sonnet" or "haiku" or "fable")
+        if (!Ctx.Initialized || Ctx.Active is null)
         {
-            _model = settings.Model;
+            ClearCard();
+            return;
+        }
+
+        // The dropdowns bind to what this tenant stored, not to the resolved value:
+        // binding the resolved value would make Save promote an inherited default into
+        // an explicit row, and would make "Default (CLI decides)" unselectable whenever
+        // appsettings names a model. The resolved value is read only to report what an
+        // unset field currently inherits.
+        var stored = await Settings.GetStoredAsync(Ctx.Active.Id);
+        var resolved = await Settings.GetAsync(Ctx.Active.Id);
+
+        _effort = stored.Effort;
+        _error = null;
+        if (stored.Model is "" or "opus" or "sonnet" or "haiku" or "fable")
+        {
+            _model = stored.Model;
             _custom = "";
         }
         else
         {
             _model = CustomOption;
-            _custom = settings.Model;
+            _custom = stored.Model;
         }
+
+        _modelInherited = stored.Model.Length == 0 && resolved.Model.Length > 0
+            ? $"unset — inheriting {resolved.Model} from appsettings"
+            : null;
+        _effortInherited = stored.Effort == LlmEffort.Default && resolved.Effort != LlmEffort.Default
+            ? $"unset — inheriting {LlmSettings.ToStorage(resolved.Effort)} from appsettings"
+            : null;
+    }
+
+    private void ClearCard()
+    {
+        _model = "";
+        _custom = "";
+        _effort = LlmEffort.Default;
+        _modelInherited = null;
+        _effortInherited = null;
+        _error = null;
     }
 
     private async Task SaveAsync()
@@ -172,7 +221,11 @@ else
         _saving = true;
         try
         {
-            await LlmSettings.SaveAsync(Ctx.Active.Id, new LlmSettings(model, _effort));
+            await Settings.SaveAsync(Ctx.Active.Id, new LlmSettings(model, _effort));
+            // Re-read so the card shows what was actually stored: a saved-blank field
+            // becomes "Default", and picks up its inherited-from-appsettings note now
+            // rather than surprising the user on the next visit.
+            await LoadAsync();
             Snackbar.Add($"Model settings saved for {Ctx.Active.Name}.", Severity.Success);
         }
         catch (ArgumentException ex)
