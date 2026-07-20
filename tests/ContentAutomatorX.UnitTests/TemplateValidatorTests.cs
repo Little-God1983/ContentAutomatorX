@@ -73,6 +73,55 @@ public class TemplateValidatorTests
         Assert.Contains("topic", issue.Message);
     }
 
+    [Fact] // E10 — capitalisation must not hide a placeholder from validation
+    public void Capitalised_placeholder_is_still_reported_as_unknown()
+    {
+        // {{Title}} is not in the (lowercase-only) vocabulary. Without RegexOptions.IgnoreCase on
+        // PlaceholderRegex this simply never matches — it is invisible to the validator, is not
+        // counted, is not flagged, and would ship as literal "{{Title}}" text in every email.
+        var html = Valid.Replace("{{title}}", "{{Title}}");
+        var issue = Assert.Single(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("Unknown placeholder"));
+        Assert.Contains("Title", issue.Message);
+        Assert.Contains("topic", issue.Message);
+    }
+
+    [Fact] // Finding 1 regression — line number must account for the marker's own stripped newline
+    public void Unknown_placeholder_line_number_is_exact_when_the_marker_is_on_its_own_line()
+    {
+        // {{titel}} sits on document line 5. The marker for BLOCK: topic is on line 4; its own
+        // line break is stripped by Content.Trim before the validator ever sees the content, so
+        // a line computed from the marker's line undercounts by one.
+        var html = string.Join('\n',
+            "<!-- BLOCK: shell -->",
+            "<html><body>{{sections}}<a href=\"{{unsubscribe_url}}\"></a></body></html>",
+            "<!-- /BLOCK -->",
+            "<!-- BLOCK: topic -->",
+            "<h2>{{titel}}</h2>",
+            "<!-- /BLOCK -->");
+
+        var issue = Assert.Single(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("titel"));
+        Assert.Equal(5, issue.Line);
+    }
+
+    [Fact] // Finding 1 regression — same-line authoring must not be pushed off by the fix either
+    public void Unknown_placeholder_line_number_is_exact_when_marker_and_content_share_a_line()
+    {
+        // {{titel}} sits on document line 4, the same line as the opening marker — no newline is
+        // stripped here, so a correct fix must not add an extra line the way a blanket +1 would.
+        var html = string.Join('\n',
+            "<!-- BLOCK: shell -->",
+            "<html><body>{{sections}}<a href=\"{{unsubscribe_url}}\"></a></body></html>",
+            "<!-- /BLOCK -->",
+            "<!-- BLOCK: topic -->{{titel}}<h2></h2>",
+            "<!-- /BLOCK -->");
+
+        var issue = Assert.Single(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("titel"));
+        Assert.Equal(4, issue.Line);
+    }
+
     [Fact] // E10 — a placeholder legal elsewhere is still illegal here
     public void Placeholder_from_another_block_is_an_error()
     {

@@ -60,7 +60,10 @@ public static partial class TemplateParser
                 }
                 else
                 {
-                    blocks[openName] = new TemplateBlock(openName, content.Trim('\r', '\n'), openLine);
+                    var trimmedContent = content.Trim('\r', '\n');
+                    var leadingTrimmed = content.Length - content.TrimStart('\r', '\n').Length;
+                    var contentLine = LineOf(html, contentStart + leadingTrimmed);
+                    blocks[openName] = new TemplateBlock(openName, trimmedContent, openLine, contentLine);
                 }
                 openName = null;
             }

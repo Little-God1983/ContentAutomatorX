@@ -8,7 +8,12 @@ public enum TemplateIssueLevel { Error, Warning }
 /// so the editor can tell the user where to look.</summary>
 public record TemplateIssue(TemplateIssueLevel Level, int Line, string Message);
 
-public record TemplateBlock(string Name, string Content, int Line);
+/// <summary>Line is the 1-based line of the opening BLOCK marker itself — used for block-level
+/// issues (missing {{sections}}, no-placeholders warning). ContentLine is the 1-based line on
+/// which the trimmed Content actually begins in the source document — Content.Trim('\r','\n')
+/// discards the marker's own line break when the marker sits on its own line, so ContentLine can
+/// differ from Line; within-block issues must anchor to ContentLine, not Line.</summary>
+public record TemplateBlock(string Name, string Content, int Line, int ContentLine);
 
 public record ParsedTemplate(IReadOnlyDictionary<string, TemplateBlock> Blocks,
     IReadOnlyList<TemplateIssue> Issues);

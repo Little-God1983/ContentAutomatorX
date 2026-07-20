@@ -42,7 +42,7 @@ public static partial class TemplateValidator
             {
                 used++;
                 var name = m.Groups["name"].Value;
-                var line = block.Line + TemplateParser.LineOf(block.Content, m.Index) - 1;
+                var line = block.ContentLine + TemplateParser.LineOf(block.Content, m.Index) - 1;
 
                 if (name == "sections" && block.Name != TemplateBlocks.Shell)
                     issues.Add(new TemplateIssue(TemplateIssueLevel.Error, line,
@@ -87,7 +87,7 @@ public static partial class TemplateValidator
 
         foreach (Match m in RegionRegex().Matches(block.Content))
         {
-            var line = block.Line + TemplateParser.LineOf(block.Content, m.Index) - 1;
+            var line = block.ContentLine + TemplateParser.LineOf(block.Content, m.Index) - 1;
             if (m.Groups["open"].Success)
             {
                 var condition = m.Groups["cond"].Value.ToLowerInvariant();
@@ -120,7 +120,10 @@ public static partial class TemplateValidator
                 $"<!-- IF: {open} --> is never closed — add <!-- /IF -->."));
     }
 
-    [GeneratedRegex(@"\{\{\s*(?<name>[a-z_]+)\s*\}\}")]
+    // IgnoreCase so a mis-capitalised placeholder is still matched and reported as unknown — the
+    // vocabulary itself stays lowercase-only (name is NOT normalised), so {{Title}} is seen but
+    // fails the allowed-set check rather than silently passing or being silently accepted.
+    [GeneratedRegex(@"\{\{\s*(?<name>[a-z_]+)\s*\}\}", RegexOptions.IgnoreCase)]
     private static partial Regex PlaceholderRegex();
 
     [GeneratedRegex(@"<!--\s*(?:(?<open>IF)\s*:\s*(?<cond>[A-Za-z_]+)|/IF)\s*-->", RegexOptions.IgnoreCase)]

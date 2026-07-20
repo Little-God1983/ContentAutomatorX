@@ -28,6 +28,29 @@ public class TemplateParserTests
     }
 
     [Fact]
+    public void ContentLine_accounts_for_the_newline_stripped_when_the_marker_sits_on_its_own_line()
+    {
+        // Marker is on line 3; its own line break is discarded by Content.Trim('\r','\n'), so the
+        // trimmed content actually begins on line 4. Line must stay pointing at the marker (3);
+        // ContentLine must point at where the trimmed text really starts (4).
+        var parsed = TemplateParser.Parse("one\ntwo\n<!-- BLOCK: topic -->\nx\n<!-- /BLOCK -->");
+        var block = parsed.Blocks["topic"];
+        Assert.Equal(3, block.Line);
+        Assert.Equal(4, block.ContentLine);
+    }
+
+    [Fact]
+    public void ContentLine_equals_Line_when_marker_and_content_share_a_line()
+    {
+        // No newline is stripped in this authoring style, so ContentLine and Line must agree —
+        // otherwise the fix for the own-line case would just move the off-by-one here instead.
+        var parsed = TemplateParser.Parse("one\ntwo\n<!-- BLOCK: topic -->x<!-- /BLOCK -->");
+        var block = parsed.Blocks["topic"];
+        Assert.Equal(3, block.Line);
+        Assert.Equal(3, block.ContentLine);
+    }
+
+    [Fact]
     public void Tolerates_whitespace_variations_in_the_markers()
     {
         var parsed = TemplateParser.Parse("<!--BLOCK:topic-->x<!--/BLOCK-->");
