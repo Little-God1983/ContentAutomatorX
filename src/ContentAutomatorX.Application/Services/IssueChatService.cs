@@ -101,6 +101,50 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Collects chat, proposals and revisions for issues nobody is working on any more.
+    /// Two rules, because PublishedAt is set only by the MailerLite poll on Pushed → Published: an
+    /// issue that is drafted, discussed and abandoned never gets one, so a publish-only rule would
+    /// leak its thread forever.</summary>
+    public async Task<int> PurgeAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        var postIds = (await db.IssueChatMessages.Select(m => m.PostId).Distinct().ToListAsync(ct))
+            .Union(await db.IssueRevisions.Select(r => r.PostId).Distinct().ToListAsync(ct))
+            .ToList();
+        if (postIds.Count == 0) return 0;
+
+        var posts = await db.Posts.Where(p => postIds.Contains(p.Id)).ToListAsync(ct);
+        // Timestamps are compared client-side: SQLite cannot translate this date arithmetic
+        // alongside the enum status, and its DateTimeOffset ordering is unreliable besides
+        // (see PostSyncService.TickAsync).
+        var messageTimes = await db.IssueChatMessages.Where(m => postIds.Contains(m.PostId))
+            .Select(m => new { m.PostId, m.CreatedAt }).ToListAsync(ct);
+        var revisionTimes = await db.IssueRevisions.Where(r => postIds.Contains(r.PostId))
+            .Select(r => new { r.PostId, r.CreatedAt }).ToListAsync(ct);
+
+        var collected = 0;
+        foreach (var post in posts)
+        {
+            var lastActivity = messageTimes.Where(m => m.PostId == post.Id).Select(m => m.CreatedAt)
+                .Concat(revisionTimes.Where(r => r.PostId == post.Id).Select(r => r.CreatedAt))
+                .DefaultIfEmpty(post.CreatedAt).Max();
+
+            var due = post is { Status: PostStatus.Published, PublishedAt: DateTimeOffset published }
+                ? published.AddDays(30)
+                : lastActivity.AddDays(90);
+            if (now < due) continue;
+
+            db.IssueChatMessages.RemoveRange(
+                await db.IssueChatMessages.Where(m => m.PostId == post.Id).ToListAsync(ct));
+            db.IssueSectionProposals.RemoveRange(
+                await db.IssueSectionProposals.Where(p => p.PostId == post.Id).ToListAsync(ct));
+            db.IssueRevisions.RemoveRange(
+                await db.IssueRevisions.Where(r => r.PostId == post.Id).ToListAsync(ct));
+            collected++;
+        }
+        if (collected > 0) await db.SaveChangesAsync(ct);
+        return collected;
+    }
+
     private async Task<ChatReply> RunTurnAsync(Guid postId, string? ask, bool includeTranscript,
         HashSet<Guid>? restrictTo, CancellationToken ct)
     {
