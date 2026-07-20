@@ -64,18 +64,55 @@ public class ComposerHistoryTests
     }
 
     [Fact]
-    public async Task A_rejected_mutation_leaves_no_revision()
+    public async Task Rejected_and_no_op_mutations_leave_no_revision()
     {
         var w = await IssueComposerServiceTests.BuildWorldAsync();
         using var _ = w.Test;
         var history = new IssueHistoryService(w.Test.Db);
-        var composer = IssueComposerServiceTests.ComposerWith(w, new SequenceLlm("x"), history);
+        var composer = IssueComposerServiceTests.ComposerWith(
+            w, new SequenceLlm(IssueComposerServiceTests.TopicsJsonFor(w.Items)), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        await composer.GenerateTopicsAsync(post.Id, null);   // fill the skeleton so the later call is a no-op
+        var sections = await composer.GetSectionsAsync(post.Id);
+        var before = await w.Test.Db.IssueRevisions.CountAsync(r => r.PostId == post.Id);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.AddSectionAsync(post.Id, SectionTypes.Header));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.RemoveSectionAsync(sections[0].Id));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.RegenerateSectionAsync(sections[2].Id, null));
+        await composer.MoveSectionAsync(sections[0].Id, 1);    // the header cannot move
+        await composer.MoveSectionAsync(sections[1].Id, -1);   // already directly under the header
+        Assert.Equal(0, await composer.GenerateTopicsAsync(post.Id, null));  // nothing left to fill
+
+        Assert.Equal(before, await w.Test.Db.IssueRevisions.CountAsync(r => r.PostId == post.Id));
+    }
+
+    [Fact]
+    public async Task A_failed_generation_leaves_no_revision()
+    {
+        var w = await IssueComposerServiceTests.BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = IssueComposerServiceTests.ComposerWith(w, new SequenceLlm("garbage", "still garbage"), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var before = await w.Test.Db.IssueRevisions.CountAsync(r => r.PostId == post.Id);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.GenerateTopicsAsync(post.Id, null));
+
+        Assert.Equal(before, await w.Test.Db.IssueRevisions.CountAsync(r => r.PostId == post.Id));
+    }
+
+    [Fact]
+    public async Task A_failed_rewrite_leaves_no_revision()
+    {
+        var w = await IssueComposerServiceTests.BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = IssueComposerServiceTests.ComposerWith(w, new FailingLlm(), history);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         var sections = await composer.GetSectionsAsync(post.Id);
         var before = await w.Test.Db.IssueRevisions.CountAsync(r => r.PostId == post.Id);
 
-        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.RemoveSectionAsync(sections[0].Id));
-        await composer.MoveSectionAsync(sections[1].Id, -1);   // already directly under the header: a no-op
+        await Assert.ThrowsAsync<InvalidOperationException>(() => composer.RegenerateSectionAsync(sections[1].Id, null));
 
         Assert.Equal(before, await w.Test.Db.IssueRevisions.CountAsync(r => r.PostId == post.Id));
     }

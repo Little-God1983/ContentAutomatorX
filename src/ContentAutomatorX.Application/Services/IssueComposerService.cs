@@ -171,7 +171,6 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
             .Where(s => s.Type == SectionTypes.Topic && string.IsNullOrWhiteSpace(s.BodyMd) && s.SourceItemId is not null)
             .ToList();
         if (skeletons.Count == 0) return 0;
-        await history.SnapshotAsync(postId, "Generate topics", ct);
 
         var itemIds = skeletons.Select(s => s.SourceItemId!.Value).ToList();
         var items = await db.ContentItems.Where(i => itemIds.Contains(i.Id)).ToListAsync(ct);
@@ -189,6 +188,10 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         if (topics is null)
             throw new InvalidOperationException("The model did not return topic blurbs as JSON — try again.");
 
+        // Snapshot only once the model has actually produced usable topics. Taken before the call,
+        // a failed generation would leave an undo entry that restores the state the issue is
+        // already in — and would clear the redo stack on its way.
+        await history.SnapshotAsync(postId, "Generate topics", ct);
         var byItem = topics.ToDictionary(t => t.ItemId);
         var filled = 0;
         var filledItemIds = new HashSet<Guid>();
@@ -244,8 +247,10 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         {
             throw new InvalidOperationException("Only topics and the header can be regenerated.");
         }
-        await history.SnapshotAsync(section.PostId, "Rewrite section", ct);
         var reply = await llm.GenerateAsync(prompt, settings, ct);
+        // After the call, not before: a failed rewrite must not leave an undo entry that restores
+        // what is already on screen.
+        await history.SnapshotAsync(section.PostId, "Rewrite section", ct);
         section.BodyMd = reply.Text.Trim();
         await db.SaveChangesAsync(ct);
     }
