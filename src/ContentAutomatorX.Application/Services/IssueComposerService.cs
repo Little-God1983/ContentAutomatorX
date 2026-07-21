@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.Application.Services;
 
-public record TopicBlurb(Guid ItemId, string Title, string Blurb);
+public record TopicBlurb(Guid ItemId, string Title, string Blurb, string? Category);
 
 /// <summary>Owns the structured-issue composer: section lifecycle (Task 4) and AI topic
 /// generation (Task 5). An issue always has exactly one Header (first) and one Footer (last);
@@ -210,6 +210,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
             if (!byItem.TryGetValue(section.SourceItemId!.Value, out var topic)) continue;
             section.BodyMd = topic.Blurb;
             if (!string.IsNullOrWhiteSpace(topic.Title)) section.Title = topic.Title;
+            if (!string.IsNullOrWhiteSpace(topic.Category)) section.Category = topic.Category;
             filled++;
             filledItemIds.Add(section.SourceItemId!.Value);
         }
@@ -276,7 +277,8 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         if (!string.IsNullOrWhiteSpace(extraInstructions)) sb.AppendLine($"Extra instructions: {extraInstructions}");
         sb.AppendLine();
         sb.AppendLine("Write one short markdown blurb (2-4 sentences) per item below. Improve the title when it helps.");
-        sb.AppendLine("""Respond with ONLY a JSON array, no prose, no markdown fences: [{"itemId":"<id>","title":"...","blurb":"..."}]""");
+        sb.AppendLine("""Respond with ONLY a JSON array, no prose, no markdown fences: [{"itemId":"<id>","title":"...","blurb":"...","category":"..."}]""");
+        sb.AppendLine("category is a one- or two-word label for the piece, such as Tutorial, News or Release.");
         foreach (var item in items)
         {
             sb.AppendLine($"--- itemId: {item.Id} ---");

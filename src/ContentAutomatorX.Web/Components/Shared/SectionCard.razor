@@ -41,6 +41,12 @@
             <MudDivider Class="my-2" />
             <MudText Typo="Typo.overline" Color="Color.Primary">Proposed</MudText>
             <MudText Typo="Typo.body2" Style="white-space:pre-wrap;">@(Proposal.ProposedBodyMd ?? Section.BodyMd ?? "(empty)")</MudText>
+            @if (Proposal.ProposedCategory is string c)
+            {
+                <MudDivider Class="my-2" />
+                <MudText Typo="Typo.overline">Category</MudText>
+                <MudText Typo="Typo.body2">@(Section.Category ?? "(none)") → @c</MudText>
+            }
             <div class="mt-2 d-flex" style="gap:8px">
                 <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
                            Disabled="@Busy" OnClick="@(() => OnAcceptProposal.InvokeAsync())">Accept</MudButton>
