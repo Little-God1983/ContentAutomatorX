@@ -169,12 +169,22 @@ public class TemplateHtmlRendererTests
     }
 
     [Fact]
-    public void Issue_date_is_formatted_as_month_and_year()
+    public void Issue_date_is_formatted_as_day_month_and_year()
     {
         const string dated = "<!-- BLOCK: shell -->{{issue_date}}{{sections}}{{unsubscribe_url}}<!-- /BLOCK -->";
         var html = TemplateHtmlRenderer.Render([], MakeTenant(), "t", dated,
             new DateTimeOffset(2026, 7, 21, 0, 0, 0, TimeSpan.Zero));
-        Assert.Contains("July 2026", html);
+        Assert.Contains("21 July 2026", html);
+    }
+
+    [Fact] // The day must not carry a leading zero — "d", not "dd".
+    public void Issue_date_has_no_leading_zero_on_single_digit_days()
+    {
+        const string dated = "<!-- BLOCK: shell -->{{issue_date}}{{sections}}{{unsubscribe_url}}<!-- /BLOCK -->";
+        var html = TemplateHtmlRenderer.Render([], MakeTenant(), "t", dated,
+            new DateTimeOffset(2026, 7, 3, 0, 0, 0, TimeSpan.Zero));
+        Assert.Contains("3 July 2026", html);
+        Assert.DoesNotContain("03 July 2026", html);
     }
 
     [Fact] // Finding 2 — an unclosed IF marker must drop to the end of the block, not leak verbatim

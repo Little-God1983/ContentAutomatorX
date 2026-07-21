@@ -35,7 +35,9 @@ public static partial class TemplateHtmlRenderer
             ["tenant_name"] = WebUtility.HtmlEncode(tenant.Name),
             ["accent"] = accent,
             ["issue_title"] = WebUtility.HtmlEncode(title),
-            ["issue_date"] = issueDate.ToString("MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
+            // "d MMMM yyyy" (no leading zero), InvariantCulture so the rendered email reads the same
+            // regardless of the server locale it was generated on.
+            ["issue_date"] = issueDate.ToString("d MMMM yyyy", System.Globalization.CultureInfo.InvariantCulture),
             ["unsubscribe_url"] = SectionHtmlRenderer.UnsubscribeToken
         };
 

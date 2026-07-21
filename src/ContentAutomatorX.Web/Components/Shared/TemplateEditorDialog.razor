@@ -27,6 +27,27 @@
         flex: 1 1 auto;
         resize: none;
     }
+
+    /* flex:0 0 auto so expanding the reference shrinks the editor rather than overflowing the pane. */
+    .template-reference {
+        flex: 0 0 auto;
+        max-height: 32vh;
+        overflow: auto;
+        font-size: 11px;
+        line-height: 1.7;
+    }
+    .template-reference .ref-block { font-family: monospace; font-weight: 600; }
+    .template-reference .ref-state { margin-left: 8px; font-size: 10px; text-transform: uppercase; }
+    .template-reference .ref-token {
+        display: inline-block;
+        margin: 1px 4px 1px 0;
+        padding: 0 4px;
+        border-radius: 3px;
+        background: var(--mud-palette-background-grey);
+        border: 1px solid var(--mud-palette-lines-default);
+        font-family: monospace;
+    }
+    .template-reference .ref-cond { opacity: .75; }
 </style>
 
 <MudDialog>
@@ -51,6 +72,11 @@
                         </CustomContent>
                     </MudFileUpload>
                     <MudText Typo="Typo.caption">@(_html.Length / 1024) KB</MudText>
+                    <MudSpacer />
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => _showReference = !_showReference)"
+                               StartIcon="@(_showReference ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)">
+                        Blocks &amp; placeholders
+                    </MudButton>
                 </div>
                 @* Lines is still required — it is what makes MudTextField render a <textarea> at all —
                    but the CSS below overrides the row-count height so the box grows with the pane. *@
@@ -58,6 +84,42 @@
                               Variant="Variant.Outlined" Class="template-html-editor flex-grow-1"
                               Style="font-family:monospace;font-size:12px"
                               Immediate="true" DebounceInterval="400" />
+                @if (_showReference)
+                {
+                    @* Generated from TemplatePlaceholders/TemplateBlocks — the same data the validator
+                       rejects against — so this panel can never drift from what is actually allowed. *@
+                    <div class="template-reference mt-2">
+                        @foreach (var name in ReferenceBlockOrder)
+                        {
+                            var present = _blocks.Contains(name);
+                            var conditions = TemplatePlaceholders.Conditions(name).Order().ToList();
+                            <div class="mb-2">
+                                <span class="ref-block">&lt;!-- BLOCK: @name --&gt;</span>
+                                <span class="ref-state" style="color:@(present
+                                    ? "var(--mud-palette-success)" : "var(--mud-palette-text-disabled)")">
+                                    @(present ? "defined"
+                                        : name == TemplateBlocks.Shell ? "required — missing" : "missing → built-in design")
+                                </span>
+                                <div>
+                                    @foreach (var p in TemplatePlaceholders.For(name).Order())
+                                    {
+                                        <code class="ref-token">{{@p}}</code>
+                                    }
+                                    @if (conditions.Count > 0)
+                                    {
+                                        @foreach (var c in conditions)
+                                        {
+                                            <code class="ref-token ref-cond">&lt;!-- IF: @c --&gt;</code>
+                                        }
+                                    }
+                                </div>
+                            </div>
+                        }
+                        <MudText Typo="Typo.caption" Class="d-block mt-1">
+                            IF regions cannot nest. Text outside any BLOCK is ignored.
+                        </MudText>
+                    </div>
+                }
             </div>
             <div class="d-flex flex-column" style="flex:1 1 50%; min-width:0">
                 <MudText Typo="Typo.caption" Class="mb-2">Preview — sample issue</MudText>
@@ -111,8 +173,17 @@
 
     private NewsletterTemplate _template = default!;
     private string _name = "", _html = "", _preview = "";
-    private bool _isDefault, _busy, _hasErrors;
+    private bool _isDefault, _busy, _hasErrors, _showReference;
     private IReadOnlyList<TemplateIssue> _issues = [];
+
+    /// <summary>Block names the current text actually defines — drives the defined/missing marker.</summary>
+    private IReadOnlySet<string> _blocks = new HashSet<string>();
+
+    /// <summary>Shell first because it is the one required block and the document everything else
+    /// sits inside; the rest in TemplateBlocks.Optional's order, which is the order they appear in
+    /// a rendered issue. TemplateBlocks.All is a HashSet and has no order worth showing.</summary>
+    private static readonly IReadOnlyList<string> ReferenceBlockOrder =
+        [TemplateBlocks.Shell, .. TemplateBlocks.Optional];
 
     protected override void OnInitialized()
     {
@@ -131,6 +202,7 @@
         {
             _issues = TemplateValidator.Validate(_html);
             _hasErrors = TemplateValidator.HasErrors(_issues);
+            _blocks = TemplateParser.Parse(_html).Blocks.Keys.ToHashSet();
             var rendered = TemplateHtmlRenderer.Render(SampleIssue.Sections, SampleIssue.Tenant,
                 "Signals from the latent space", _html, DateTimeOffset.UtcNow);
             // Keep the last good preview when the new one is empty (no shell yet, mid-typing).
