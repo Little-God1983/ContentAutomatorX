@@ -148,9 +148,11 @@ public static partial class TemplateValidator
     /// way to see it at all. This is a save-time, best-effort catch: it can only see a comment that
     /// is unterminated in the raw source (Input A in the defect report). A comment that is
     /// well-formed in the source but becomes unterminated only once rendering drops the IF region
-    /// that contained its closing "--&gt;" (Input B) is invisible here by construction — the
-    /// validator never runs ApplyRegions — which is exactly why TemplateHtmlRenderer's
-    /// EnsureUnsubscribeLink backstop, not this rule, is the load-bearing half of the fix.</summary>
+    /// that contained its closing "--&gt;" is invisible here by construction — the validator never
+    /// runs ApplyRegions. Nothing catches that case: the render-time backstop no longer inspects
+    /// comments either (see TemplateHtmlRenderer.EnsureUnsubscribeLink for why), so a template of
+    /// that shape can render an issue whose unsubscribe link is swallowed. This rule is the only
+    /// gate for the source-level shape, and it is best-effort.</summary>
     private static void ValidateComments(TemplateBlock block, List<TemplateIssue> issues)
     {
         var dangling = CommentScanner.Find(block.Content).FirstOrDefault(c => !c.Terminated);

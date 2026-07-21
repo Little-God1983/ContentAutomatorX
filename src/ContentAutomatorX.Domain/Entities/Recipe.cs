@@ -17,5 +17,5 @@ public class Recipe
     public string? ScheduleCron { get; set; }          // null = manual only
     public DateTimeOffset? LastRunAt { get; set; }
     public Guid? TargetPlatformId { get; set; } // set → each run also creates a review-queue Post
-    public Guid? NewsletterTemplateId { get; set; }  // null = built-in design
+    public Guid? NewsletterTemplateId { get; set; }  // null = the tenant's default, else built-in
 }

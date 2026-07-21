@@ -94,9 +94,17 @@ public static partial class TemplateHtmlRenderer
         var paragraph = "<p style=\"margin:0;font-size:12px;color:#888888;\">"
             + $"<a href=\"{SectionHtmlRenderer.UnsubscribeToken}\" style=\"color:#888888;\">Unsubscribe</a></p>";
 
-        // Appended at the very end rather than before </body> — no insertion point to search for or
-        // guard against is the entire point of this change. A paragraph after </html> still renders
-        // in every mail client that matters here.
+        // Appended at the very end rather than before </body> — having no insertion point to search
+        // for or guard against is the entire point of this design. A paragraph after </html> renders
+        // normally in a mail client.
+        //
+        // The one case where it does not: if the document ends inside an unterminated HTML comment,
+        // this paragraph is swallowed by that comment along with everything else after it. That can
+        // happen when a comment's closing --> sat inside an IF region that collapsed, so the source
+        // looked well-formed and only some issues break. The validator cannot see it either — it
+        // never runs region collapse. Accepted knowingly: detecting it is the visibility question
+        // this component was rewritten to stop asking, and prepending an unconditional --> would put
+        // literal text into every well-formed document to guard a case that needs a malformed one.
         return html + paragraph;
     }
 

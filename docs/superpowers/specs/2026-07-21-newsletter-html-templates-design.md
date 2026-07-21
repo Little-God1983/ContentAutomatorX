@@ -258,7 +258,10 @@ After assembling the final HTML, `TemplateHtmlRenderer.Render` checks whether `U
 
 The question it was asking cannot be answered here. It needs a conforming HTML parser and a CSS cascade, and mail clients disagree with each other regardless. Visibility is also broader than comments — `display:none`, `font-size:0`, colour-matching, off-screen positioning — and both shipped templates legitimately use `display:none` for the preheader, so it is not even a usable signal.
 
-What the naive check gives up: a token that is present but hidden — commented out, or styled invisible — suppresses the fallback. That failure is visible to the author in the editor's live preview, which renders through this same path, rather than being silent. `TemplateValidator`'s E5 remains the primary gate and does still reject a commented-out token at save time (§8).
+What the naive check gives up, in two shapes:
+
+1. **A token that is present but hidden** — commented out, or styled invisible — suppresses the fallback. Visible to the author in the editor's live preview, which renders through this same path, rather than silent. E5 still rejects a commented-out token at save time (§8).
+2. **The fallback itself can be swallowed.** If the document ends inside an unterminated comment, the appended paragraph is inside it too. That arises when a comment's closing `-->` sat inside an `IF` region that collapsed — so the source looked well-formed and only issues missing that field break. Neither layer catches this: the validator never runs region collapse, and detecting it at render time is the visibility question this component was rewritten to stop asking. Prepending an unconditional `-->` would put literal text into every well-formed document to guard a case that needs a malformed one.
 
 Context that shapes this trade: `MailerLiteClient` creates **draft** campaigns only — sending stays a human act in MailerLite's dashboard, which independently requires an unsubscribe mechanism. A miss here is a quality defect caught by a human before send, not an automatic legal violation. That is not a reason to rely on MailerLite, which is outside this codebase's tests, but it is why hardening a visibility scanner further was not worth the cost.
 
