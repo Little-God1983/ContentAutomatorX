@@ -261,16 +261,18 @@ public class TemplateHtmlRendererTests
     }
 
     [Fact] // The backstop's other half: when the shell truly has no unsubscribe token anywhere, one
-    // must be appended so the token is always present in what leaves the renderer.
+    // must be appended so the token is always present in what leaves the renderer. The naive
+    // presence check no longer hunts for </body> or any other insertion point — the paragraph always
+    // lands at the very end of the document, which is the entire point of the simplification.
     public void Backstop_appends_an_unsubscribe_paragraph_when_the_token_is_genuinely_absent()
     {
         const string html = "<!-- BLOCK: shell --><html><body>{{sections}}</body></html><!-- /BLOCK -->";
         var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
         Assert.Contains(SectionHtmlRenderer.UnsubscribeToken, rendered);
         Assert.Contains("Unsubscribe</a>", rendered);
-        // Inserted before the shell's own closing markup, not tacked on after it blindly.
-        Assert.True(rendered.IndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal)
-                  < rendered.IndexOf("</body>", StringComparison.Ordinal));
+        Assert.EndsWith("</p>", rendered, StringComparison.Ordinal);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(rendered,
+            System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)));
     }
 
     [Fact] // The second confirmed gap: a template whose only unsubscribe token lives in BLOCK: footer
@@ -304,34 +306,10 @@ public class TemplateHtmlRendererTests
         Assert.DoesNotContain("</h2><a ", html); // the video block's own anchor, not the shell's unsubscribe link
     }
 
-    [Fact] // Finding F2 — the render-time backstop. A commented-out unsubscribe link
-    // ("<!-- <a href="{{unsubscribe_url}}">Unsub</a> -->") satisfies a naive Contains() check on the
-    // rendered HTML — the token is textually present — but a subscriber can never see or click it,
-    // since browsers and email clients never render comment contents. TemplateValidator's E5 rule
-    // rejects this at save time (see TemplateValidatorTests), but this proves the render-time
-    // backstop independently catches the same defeat if a bad template ever reaches render anyway.
-    public void Backstop_appends_a_link_when_the_only_token_is_hidden_inside_a_comment()
-    {
-        const string html = """
-            <!-- BLOCK: shell -->
-            <html><body>{{sections}}<!-- <a href="{{unsubscribe_url}}">Unsub</a> --></body></html>
-            <!-- /BLOCK -->
-            """;
-        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
-        // The commented-out one is still there, untouched — plus a real, uncommented one appended.
-        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
-            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
-        Assert.Equal(2, visibleCount);
-        Assert.Contains("Unsubscribe</a>", rendered);
-        // The appended one sits outside the comment that hid the original.
-        var appendedIndex = rendered.LastIndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal);
-        var lastCommentClose = rendered.LastIndexOf("-->", StringComparison.Ordinal);
-        Assert.True(appendedIndex > lastCommentClose);
-    }
-
-    [Fact] // Finding F2 — the flip side: a template whose token sits both inside a hiding comment AND
-    // for real, outside any comment, must render byte-identically with nothing appended — the
-    // backstop must not fire just because a comment happens to be present somewhere in the document.
+    [Fact] // The token's mere textual presence anywhere is enough to suppress the backstop under the
+    // new naive contract — including one sitting inside a hiding comment — as long as a second, real
+    // copy is also present. This is the coexistence half of that contract: nothing appended just
+    // because a comment happens to be present somewhere in the document.
     public void Backstop_does_not_fire_when_a_real_token_coexists_with_a_commented_out_one()
     {
         const string html = """
@@ -345,41 +323,8 @@ public class TemplateHtmlRendererTests
         Assert.Equal(2, visibleCount);   // the commented one and the real one — nothing appended
     }
 
-    // Fourth defeat (Critical) — an unterminated "<!--" swallows everything after it from every real
-    // HTML parser's point of view (eof-in-comment), including a token that is textually present
-    // downstream. The old regex-based scan required a closing "-->" to recognise anything as a
-    // comment at all, so it never saw these as hidden and the backstop stayed silent.
-
-    [Fact] // Input A — a mistyped/edited-out closer directly in the shell. The token is textually
-    // present after the dangling "<!--" but invisible to every client; the backstop must recognise
-    // the comment never closes and emit "-->" before its own fallback, or the fallback would be
-    // swallowed by the very same open comment it exists to work around.
-    public void Backstop_closes_a_dangling_unterminated_comment_before_appending_the_fallback_link()
-    {
-        const string html = """
-            <!-- BLOCK: shell -->
-            <html><body>{{sections}}<!-- old footer <a href="{{unsubscribe_url}}">Unsub</a></body></html>
-            <!-- /BLOCK -->
-            """;
-        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
-        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
-            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
-        Assert.Equal(2, visibleCount);   // the swallowed original, plus the appended fallback
-        Assert.Contains("Unsubscribe</a>", rendered);
-        // The source has no "-->" anywhere at all (the comment is unterminated from start to end of
-        // content), so the ONLY way a "-->" can appear in the output is if the fix emits one to close
-        // the dangling comment before the fallback. Asserting merely appendedIndex > -1 would pass
-        // even with no "-->" ever inserted (LastIndexOf's not-found sentinel) — require it be found.
-        var appendedIndex = rendered.LastIndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal);
-        var lastCommentClose = rendered.LastIndexOf("-->", StringComparison.Ordinal);
-        Assert.True(lastCommentClose >= 0, "expected the dangling comment to be closed with -->");
-        Assert.True(appendedIndex > lastCommentClose);
-    }
-
-    [Fact] // Input B, half 1 — a topic WITH the optional field: the "note" comment wrapping the
-    // collapsible IF region closes properly once the image markup is kept (its "-->" survives), so
-    // the shell's own genuine unsubscribe anchor further down is untouched and the backstop must not
-    // fire at all.
+    [Fact] // A comment elsewhere in the document that happens to close cleanly must not confuse the
+    // naive presence check — the real, uncommented shell anchor is what the check actually finds.
     public void Region_collapse_that_leaves_a_comment_well_formed_needs_no_backstop_help()
     {
         const string template = """
@@ -397,159 +342,6 @@ public class TemplateHtmlRendererTests
         var visibleCount = System.Text.RegularExpressions.Regex.Matches(
             rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
         Assert.Equal(1, visibleCount);   // the real shell anchor, untouched — backstop did not fire
-        Assert.Contains("Unsubscribe</a>", rendered);
-    }
-
-    [Fact] // Input B, half 2 — the data-dependent failure: a topic WITHOUT the optional field drops
-    // the whole IF region, including the "-->" that was going to close "<!-- note ", leaving it
-    // dangling. That dangling comment then swallows the shell's genuine unsubscribe anchor further
-    // down in the assembled document — zero save errors (see
-    // TemplateValidatorTests.Input_B_comment_that_only_becomes_unterminated_after_region_collapse...),
-    // so the backstop is the only thing standing between this template and a commercial email with
-    // no visible unsubscribe link. Same failure shape and same assertion style as the shell-only
-    // Input A test above, just reached through a different route (region collapse, not authoring).
-    public void Region_collapse_that_leaves_a_dangling_comment_is_caught_by_the_backstop()
-    {
-        const string template = """
-            <!-- BLOCK: shell -->
-            <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body></html>
-            <!-- /BLOCK -->
-            <!-- BLOCK: topic -->
-            <p>{{title}}</p><!-- note <!-- IF: image --><img src="{{image_url}}"> --><!-- /IF -->
-            {{body_html}}
-            <!-- /BLOCK -->
-            """;
-        var rendered = TemplateHtmlRenderer.Render(
-            [Section(SectionTypes.Topic, title: "t", body: "b")],   // no image — region collapses
-            MakeTenant(), "t", template, DateTimeOffset.UtcNow);
-        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
-            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
-        Assert.Equal(2, visibleCount);   // the swallowed real anchor, plus the appended fallback
-        Assert.Contains("Unsubscribe</a>", rendered);
-        // As above: neither the shell nor the topic (image absent) leaves any "-->" in the source at
-        // all, so a "-->" in the output can only be the one the fix emits to close the dangling
-        // comment — require it be found, not just compare against the not-found sentinel.
-        var appendedIndex = rendered.LastIndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal);
-        var lastCommentClose = rendered.LastIndexOf("-->", StringComparison.Ordinal);
-        Assert.True(lastCommentClose >= 0, "expected the dangling comment to be closed with -->");
-        Assert.True(appendedIndex > lastCommentClose);
-    }
-
-    // Fifth defeat (Critical, closes the branch) — a TERMINATED comment span can cover the
-    // insertion point just as completely as an unterminated one: if its closing "-->" sits at or
-    // after the index EnsureUnsubscribeLink was about to insert at, the old guard — which only
-    // asked "is there an UNTERMINATED comment at or before insertAt" — stayed silent, and the
-    // fallback link landed inside the very comment that had already swallowed the template's real
-    // unsubscribe anchor. Three independently-constructed ways to produce a terminated span that
-    // covers insertAt, all drawn from the defect report.
-
-    /// <summary>Independent oracle, deliberately NOT built on CommentScanner: the whole point of the
-    /// tests below is to check EnsureUnsubscribeLink's actual insertion point in the RENDERED output
-    /// against real HTML comment semantics, not against the same code path (CommentScanner.Find /
-    /// IsInside) the fix itself calls — reusing that code here would let a shared bug in both places
-    /// pass silently. A raw "index > -1" or "index > someOtherIndex" comparison is not enough for
-    /// this defect specifically (see the trap called out on the fourth-defeat tests above): this
-    /// bug's whole premise is that a "-->" DOES appear at a plausible-looking index in the output —
-    /// it is just the WRONG one, still inside the comment that swallowed the real link. Only walking
-    /// the comment structure and asking "is this exact index inside some span" catches that.</summary>
-    private static bool IsInsideAnyHtmlComment(string html, int index)
-    {
-        var i = 0;
-        while (i < html.Length)
-        {
-            var start = html.IndexOf("<!--", i, StringComparison.Ordinal);
-            if (start < 0 || start > index) return false;
-            var close = html.IndexOf("-->", start + 4, StringComparison.Ordinal);
-            var end = close < 0 ? html.Length : close + 3; // eof-in-comment: swallows to the end
-            if (index >= start && index < end) return true;
-            if (close < 0) return false; // nothing left to scan past an unterminated comment
-            i = end;
-        }
-        return false;
-    }
-
-    [Fact] // Exactly the demonstrating template from the defect report: a real, unconditional,
-    // uncommented {{unsubscribe_url}} in the shell, plus one ordinary explanatory comment between
-    // </body> and </html>. Rendered for a topic with NO image, the topic's own "<!-- optional hero
-    // <!-- IF: image -->...<!-- /IF -->" region collapse drops the "-->" that would have closed
-    // "<!-- optional hero ", so that comment now runs forward and closes at the shell's explanatory
-    // comment's own "-->" — past </body> — swallowing the shell's real anchor along the way. The
-    // same template sends correctly when the topic HAS an image (see
-    // Region_collapse_that_leaves_a_comment_well_formed_needs_no_backstop_help above); this is that
-    // template's silent, data-dependent failure twin: same source, illegal only when the field
-    // driving the IF is empty.
-    public void Backstop_lands_outside_a_terminated_comment_that_swallows_the_last_body_tag()
-    {
-        const string template = """
-            <!-- BLOCK: shell -->
-            <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body>
-            <!-- nothing below this line renders in Outlook -->
-            </html>
-            <!-- /BLOCK -->
-            <!-- BLOCK: topic -->
-            <p>{{title}}</p><!-- optional hero <!-- IF: image --><img src="{{image_url}}"> --><!-- /IF -->
-            {{body_html}}
-            <!-- /BLOCK -->
-            """;
-        var rendered = TemplateHtmlRenderer.Render(
-            [Section(SectionTypes.Topic, title: "t", body: "b")],  // no image — region collapses
-            MakeTenant(), "t", template, DateTimeOffset.UtcNow);
-
-        var token = SectionHtmlRenderer.UnsubscribeToken;
-        var firstIndex = rendered.IndexOf(token, StringComparison.Ordinal);
-        var appendedIndex = rendered.LastIndexOf(token, StringComparison.Ordinal);
-        Assert.NotEqual(firstIndex, appendedIndex); // the swallowed real one, plus the fallback
-
-        // Sanity check on the scenario itself: the real anchor really is swallowed by the dangling
-        // comment — otherwise this test would not be exercising the defect at all.
-        Assert.True(IsInsideAnyHtmlComment(rendered, firstIndex));
-        // The load-bearing assertion: the fallback the backstop appended is NOT inside any comment
-        // span, terminated or not.
-        Assert.False(IsInsideAnyHtmlComment(rendered, appendedIndex));
-        Assert.Contains("Unsubscribe</a>", rendered);
-    }
-
-    [Fact] // Second variant — no IF-collapse involved: the terminated comment covers insertAt
-    // because its own text happens to contain a decoy "</body>" substring that sits textually AFTER
-    // the real, well-formed closing tag. LastIndexOf("</body>") is a plain text search — given two
-    // occurrences it picks whichever is later in the string, comment or not, so an ordinary
-    // changelog-style comment placed after </body></html> can silently steal the insertion point.
-    public void Backstop_is_not_fooled_by_a_decoy_body_tag_inside_a_trailing_comment()
-    {
-        const string html = """
-            <!-- BLOCK: shell -->
-            <html><body>{{sections}}</body></html>
-            <!-- changelog: moved the unsubscribe link above </body> per legal review -->
-            <!-- /BLOCK -->
-            """;
-        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
-
-        var token = SectionHtmlRenderer.UnsubscribeToken;
-        var appendedIndex = rendered.LastIndexOf(token, StringComparison.Ordinal);
-        Assert.True(appendedIndex >= 0);
-        Assert.False(IsInsideAnyHtmlComment(rendered, appendedIndex));
-        Assert.Contains("Unsubscribe</a>", rendered);
-    }
-
-    [Fact] // Third variant — the ONLY "</body>" substring anywhere in the document lives inside a
-    // draft comment describing an older wrapper the author no longer uses; there is no real </body>
-    // tag in the rendered markup at all, so LastIndexOf("</body>") has nowhere else to land but
-    // inside that comment.
-    public void Backstop_is_not_fooled_by_the_only_body_tag_in_the_document_living_inside_a_comment()
-    {
-        const string html = """
-            <!-- BLOCK: shell -->
-            <div>{{sections}}
-            <!-- old draft closed with </body> here, removed per client feedback -->
-            </div>
-            <!-- /BLOCK -->
-            """;
-        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
-
-        var token = SectionHtmlRenderer.UnsubscribeToken;
-        var appendedIndex = rendered.LastIndexOf(token, StringComparison.Ordinal);
-        Assert.True(appendedIndex >= 0);
-        Assert.False(IsInsideAnyHtmlComment(rendered, appendedIndex));
         Assert.Contains("Unsubscribe</a>", rendered);
     }
 

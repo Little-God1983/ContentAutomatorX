@@ -57,76 +57,47 @@ public static partial class TemplateHtmlRenderer
         return EnsureUnsubscribeLink(RenderBlock(shell, shellValues));
     }
 
-    /// <summary>Backstop only — not the normal path. TemplateValidator is the primary gate that
-    /// guarantees every saved template carries a {{unsubscribe_url}} that always renders; this method
-    /// exists because two independent adversarial reviews each found a different way to make that
-    /// validator accept a template that does not actually guarantee the token (see TemplateValidator's
-    /// HasUnsubscribeOutsideIf history). Sending commercial email with no unsubscribe link is a legal
-    /// violation, not a cosmetic bug, so that guarantee should not rest on the validator being perfect.
-    /// If the assembled HTML genuinely has no UnsubscribeToken anywhere — whatever the reason, bad
-    /// template, a section list built by some path that skips EnsureSectionsAsync's header/footer
-    /// seeding, a future validator bug — append a minimal, plainly-styled unsubscribe line so the
-    /// token is always present before this leaves the renderer. A template that already carries the
-    /// token is untouched: this must never alter the output of a correct template.</summary>
+    /// <summary>Backstop only — not the normal path. TemplateValidator's E5 rule is the primary,
+    /// save-time gate that guarantees every saved template carries a {{unsubscribe_url}} that always
+    /// renders; this method exists so that guarantee does not rest solely on E5 being perfect. If the
+    /// assembled HTML genuinely has no UnsubscribeToken anywhere — whatever the reason, bad template,
+    /// a section list built by some path that skips EnsureSectionsAsync's header/footer seeding, a
+    /// future validator bug — append a minimal, plainly-styled unsubscribe line so the token is at
+    /// least present in what leaves the renderer. A template that already carries the token is
+    /// untouched: this must never alter the output of a correct template.
+    ///
+    /// This check is deliberately naive textual presence — Contains(), nothing more. It used to try to
+    /// decide whether the token was actually *visible to a mail client*: walking HTML comment spans,
+    /// tracking whether each was terminated, and picking an insertion point outside all of them. Six
+    /// reviewers each defeated that logic by a different route, and the sixth was introduced by the
+    /// fix for the fifth, in the three lines it touched, despite tests written specifically to pin
+    /// that behaviour and mutation-verified two ways. The conclusion drawn from that run is not that
+    /// the last fix was careless: "given arbitrary author HTML, is this token visible to a mail
+    /// client?" cannot be answered without a conforming HTML parser plus a CSS cascade, and visibility
+    /// is broader than comments anyway — display:none, font-size:0, colour-matched text, off-screen
+    /// positioning all hide a textually-present token just as completely, and both shipped templates
+    /// legitimately use display:none for the preheader, so "hidden by CSS" cannot even be treated as
+    /// always-bad. We are designing the question away instead of answering it.
+    ///
+    /// The accepted trade: a token that is textually present but actually hidden — commented out,
+    /// display:none, or any of the above — will suppress this fallback, and this fallback will not
+    /// fire. That failure is not silent to the author, though: the editor's live preview renders
+    /// through this exact code path, so a template with a hidden token looks broken to the person who
+    /// can fix it, not just to a subscriber later. TemplateValidator's E5 rule remains the real gate
+    /// against this — it runs on the source before any comment or IF region has had a chance to hide
+    /// anything, and stays a hard error at save time.</summary>
     private static string EnsureUnsubscribeLink(string html)
     {
-        var comments = CommentScanner.Find(html);
-        if (HasUnsubscribeOutsideComments(html, comments)) return html;
+        if (html.Contains(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal)) return html;
 
         // Same visual weight as SectionHtmlRenderer.Render's own footer line — small, muted, unobtrusive.
         var paragraph = "<p style=\"margin:0;font-size:12px;color:#888888;\">"
             + $"<a href=\"{SectionHtmlRenderer.UnsubscribeToken}\" style=\"color:#888888;\">Unsubscribe</a></p>";
 
-        var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-        var insertAt = bodyClose >= 0 ? bodyClose : html.Length;
-
-        // The naive "</body>" search above finds the LAST such tag textually, but a comment span
-        // (terminated or not) can still cover that index — e.g. an unterminated "<!--" started before
-        // it (eof-in-comment swallows to end of document), or a perfectly well-formed "<!-- ... -->"
-        // whose own closer happens to sit at or after the last "</body>" (an ordinary explanatory
-        // comment placed after </body></html>, or an IF region's collapse dragging a comment's closer
-        // past it, or a comment whose text itself contains a literal "</body>" that drags this
-        // LastIndexOf search inside the comment). Whichever the cause, the fix is the same: find the
-        // one comment span that actually contains insertAt, not just "is there some unterminated span
-        // before it" — a terminated span hides the insertion point just as completely as an
-        // unterminated one does.
-        var host = comments.FirstOrDefault(c => insertAt >= c.Start && insertAt < c.End);
-        if (host != default)
-        {
-            if (host.Terminated)
-                // Step out past the comment's own closing "-->" instead of inserting inside it —
-                // the fallback then lands in real markup right after the comment that was hiding it.
-                insertAt = host.End;
-            else
-                // Unterminated comment (Input A/B): nothing can close it but us. Emitting "-->" first
-                // closes it right there, so the fallback that follows is actually visible instead of
-                // being hidden inside the same dangling comment it exists to work around.
-                paragraph = "-->" + paragraph;
-        }
-
-        return insertAt < html.Length ? html.Insert(insertAt, paragraph) : html + paragraph;
-    }
-
-    /// <summary>True when UnsubscribeToken (the already-substituted literal, not the {{placeholder}} —
-    /// this runs after RenderBlock) appears somewhere that is not inside an HTML comment. A template
-    /// author can comment out a block while editing (e.g. "<!-- <a href="%%UNSUBSCRIBE%%">Unsub</a>
-    /// -->") and TemplateValidator's HasUnsubscribeOutsideIf rejects that at save time — but this is
-    /// the render-time backstop for the same defeat, so it must apply the identical rule: a token's
-    /// mere presence in the assembled HTML is not enough, since a naive Contains() check (the
-    /// previous implementation) is satisfied by a token that a subscriber can never actually see or
-    /// click. Matches on the rendered text and rejects by index span, same reasoning as
-    /// TemplateValidator's comment/region checks — never rewrite the text being scanned.</summary>
-    private static bool HasUnsubscribeOutsideComments(string html, IReadOnlyList<CommentScanner.CommentSpan> comments)
-    {
-        var token = SectionHtmlRenderer.UnsubscribeToken;
-        var searchFrom = 0;
-        while (true)
-        {
-            var found = html.IndexOf(token, searchFrom, StringComparison.Ordinal);
-            if (found < 0) return false;
-            if (!CommentScanner.IsInside(comments, found)) return true;
-            searchFrom = found + token.Length;
-        }
+        // Appended at the very end rather than before </body> — no insertion point to search for or
+        // guard against is the entire point of this change. A paragraph after </html> still renders
+        // in every mail client that matters here.
+        return html + paragraph;
     }
 
     /// <summary>Regions first, then placeholders: a dropped region's placeholders should never be
