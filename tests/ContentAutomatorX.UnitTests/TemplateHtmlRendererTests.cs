@@ -213,6 +213,62 @@ public class TemplateHtmlRendererTests
         Assert.Equal("", html);
     }
 
+    [Fact] // Item 2 — an empty template must not throw either; it has no shell, same as above.
+    public void An_empty_template_renders_nothing_rather_than_throwing()
+    {
+        var html = TemplateHtmlRenderer.Render([Section(SectionTypes.Divider)], MakeTenant(), "t",
+            "", DateTimeOffset.UtcNow);
+        Assert.Equal("", html);
+    }
+
+    // Item 2 — the render-time backstop. TemplateValidator gates saving, but two independent
+    // adversarial reviews each defeated its unsubscribe rule a different way, so the guarantee that a
+    // sent newsletter carries an unsubscribe link must not rest solely on the validator being perfect.
+
+    [Fact] // The backstop must fire ONLY when the token is genuinely absent — a correct template
+    // (this fixture's shell already carries {{unsubscribe_url}}) must render byte-identically to
+    // what RenderBlock alone would produce, with nothing appended.
+    public void Backstop_does_not_alter_output_when_the_template_already_guarantees_the_token()
+    {
+        const string html = "<!-- BLOCK: shell -->\n<html><body>{{sections}}{{unsubscribe_url}}</body></html>\n<!-- /BLOCK -->";
+        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
+        Assert.Equal($"<html><body>{SectionHtmlRenderer.UnsubscribeToken}</body></html>", rendered);
+    }
+
+    [Fact] // The backstop's other half: when the shell truly has no unsubscribe token anywhere, one
+    // must be appended so the token is always present in what leaves the renderer.
+    public void Backstop_appends_an_unsubscribe_paragraph_when_the_token_is_genuinely_absent()
+    {
+        const string html = "<!-- BLOCK: shell --><html><body>{{sections}}</body></html><!-- /BLOCK -->";
+        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
+        Assert.Contains(SectionHtmlRenderer.UnsubscribeToken, rendered);
+        Assert.Contains("Unsubscribe</a>", rendered);
+        // Inserted before the shell's own closing markup, not tacked on after it blindly.
+        Assert.True(rendered.IndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal)
+                  < rendered.IndexOf("</body>", StringComparison.Ordinal));
+    }
+
+    [Fact] // The second confirmed gap: a template whose only unsubscribe token lives in BLOCK: footer
+    // renders with no token at all when the issue's section list has no footer section. Unreachable
+    // through the UI today (IssueComposerService seeds and protects header/footer), but
+    // TemplateHtmlRenderer.Render is a public method with no such guard, so a section list arriving
+    // by another path must still come out with the token present.
+    public void Section_list_with_no_footer_section_still_has_the_token_via_the_backstop()
+    {
+        const string footerOnlyToken = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            {{body_html}}<a href="{{unsubscribe_url}}">Unsubscribe</a>
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Topic, title: "t", body: "b")], // no footer section at all
+            MakeTenant(), "t", footerOnlyToken, DateTimeOffset.UtcNow);
+        Assert.Contains(SectionHtmlRenderer.UnsubscribeToken, rendered);
+    }
+
     [Fact] // Finding E — the video fixture must not reintroduce the empty-href-anchor defect just
     // fixed on the built-in (SectionHtmlRenderer) path: a video with no usable link must emit no
     // anchor at all, not <a href="">...</a>.

@@ -78,11 +78,22 @@ public class TemplateValidatorTests
     // comparison is ever loosened to OrdinalIgnoreCase, an uppercase token would validate here while
     // still rendering empty — an email with no unsubscribe link and no error anywhere. This test must
     // keep failing if that happens.
+    //
+    // The assertion below checks the distinctive phrase of the *unsubscribe* error, not just the bare
+    // word "unsubscribe" — asserting only Contains("unsubscribe") passes even when the rule under
+    // test (HasUnsubscribeOutsideIf's Ordinal comparison) is broken, for two compounding reasons: (1)
+    // the separate unknown-placeholder check independently rejects any case-mismatched token on its
+    // own, regardless of this rule, and (2) that unrelated message's "Available here: ..." vocabulary
+    // list happens to contain the literal substring "unsubscribe_url", so it too contains
+    // "unsubscribe". Both make the weak assertion pass under an OrdinalIgnoreCase mutation of this
+    // rule, which must fail. Matching the specific "no {{unsubscribe_url}} that is guaranteed to
+    // render" phrase isolates the comparison exactly.
     public void Uppercase_unsubscribe_placeholder_is_rejected_not_silently_accepted()
     {
         var html = Valid.Replace("{{unsubscribe_url}}", "{{UNSUBSCRIBE_URL}}");
         var issues = TemplateValidator.Validate(html);
-        Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+        Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error
+            && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
     }
 
     [Fact] // Finding 4 — a token that appears only outside every block must still be rejected
@@ -151,6 +162,70 @@ public class TemplateValidatorTests
             <!-- /BLOCK -->
             <!-- BLOCK: footer -->
             {{body_html}}<a href="{{unsubscribe_url}}">Unsubscribe</a>
+            <!-- /BLOCK -->
+            """;
+        Assert.DoesNotContain(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    // Item 1 regression — the split-token defeat. HasUnsubscribeOutsideIf used to strip IF regions by
+    // rewriting the text (IfRegionRegex().Replace(content, "")) and scan the rewritten copy. Deleting
+    // a region joins the characters on either side, which can *invent* a placeholder that does not
+    // exist in the source. None of the templates below contain a genuine, unbroken {{unsubscribe_url}}
+    // anywhere: the token is spliced across an IF marker in a footer block, so it is not a real
+    // placeholder in the original text at all. The old code's text-rewrite would (depending on where
+    // the split falls) either splice the pieces back into a fake match and wrongly accept, or leave a
+    // real token permanently broken — both silent. The fix matches on the ORIGINAL content and rejects
+    // any match whose span falls inside an IF region, so these must all still be flagged as missing a
+    // guaranteed unsubscribe link.
+    [Theory]
+    [InlineData("{{unsub<!-- IF: body -->.<!-- /IF -->scribe_url}}")]
+    [InlineData("{{<!-- IF: body -->x<!-- /IF -->unsubscribe_url}}")]
+    [InlineData("{{unsubscribe_url<!-- IF: body -->x<!-- /IF -->}}")]
+    public void Split_unsubscribe_token_around_an_IF_marker_is_still_rejected(string splitToken)
+    {
+        var html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            {{body_html}}
+            """ + splitToken + "\n<!-- /BLOCK -->";
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error
+              && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+    }
+
+    [Fact] // Item 1 regression — a lower-case marker form (e.g. authored as "<!--if : body-->") must
+    // not change the outcome: the split token is still not a real placeholder in the original text,
+    // so it must still be rejected regardless of the IF marker's own casing/spacing.
+    public void Split_unsubscribe_token_around_a_lowercase_IF_marker_is_still_rejected()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            {{body_html}}{{unsub<!--if : body-->.<!--/if-->scribe_url}}
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error
+              && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+    }
+
+    [Fact] // Item 1 regression — the accepted case that a naive "reject anything touching an IF
+    // region" fix could break: a footer with both an IF region AND a genuine, unbroken token outside
+    // it must still validate clean, matching Unsubscribe_token_in_footer_outside_any_IF_is_accepted
+    // but with an actual IF region present in the same block this time.
+    public void Unsubscribe_token_outside_an_IF_region_that_is_also_present_in_the_same_block_is_accepted()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            <!-- IF: body -->{{body_html}}<!-- /IF --><a href="{{unsubscribe_url}}">Unsubscribe</a>
             <!-- /BLOCK -->
             """;
         Assert.DoesNotContain(TemplateValidator.Validate(html),

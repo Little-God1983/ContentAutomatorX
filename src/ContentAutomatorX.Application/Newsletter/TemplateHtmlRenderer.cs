@@ -45,7 +45,30 @@ public static partial class TemplateHtmlRenderer
             ["preheader"] = Preheader(sections),
             ["sections"] = body.ToString()
         };
-        return RenderBlock(shell, shellValues);
+        return EnsureUnsubscribeLink(RenderBlock(shell, shellValues));
+    }
+
+    /// <summary>Backstop only — not the normal path. TemplateValidator is the primary gate that
+    /// guarantees every saved template carries a {{unsubscribe_url}} that always renders; this method
+    /// exists because two independent adversarial reviews each found a different way to make that
+    /// validator accept a template that does not actually guarantee the token (see TemplateValidator's
+    /// HasUnsubscribeOutsideIf history). Sending commercial email with no unsubscribe link is a legal
+    /// violation, not a cosmetic bug, so that guarantee should not rest on the validator being perfect.
+    /// If the assembled HTML genuinely has no UnsubscribeToken anywhere — whatever the reason, bad
+    /// template, a section list built by some path that skips EnsureSectionsAsync's header/footer
+    /// seeding, a future validator bug — append a minimal, plainly-styled unsubscribe line so the
+    /// token is always present before this leaves the renderer. A template that already carries the
+    /// token is untouched: this must never alter the output of a correct template.</summary>
+    private static string EnsureUnsubscribeLink(string html)
+    {
+        if (html.Contains(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal)) return html;
+
+        // Same visual weight as SectionHtmlRenderer.Render's own footer line — small, muted, unobtrusive.
+        var paragraph = "<p style=\"margin:0;font-size:12px;color:#888888;\">"
+            + $"<a href=\"{SectionHtmlRenderer.UnsubscribeToken}\" style=\"color:#888888;\">Unsubscribe</a></p>";
+
+        var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
+        return bodyClose >= 0 ? html.Insert(bodyClose, paragraph) : html + paragraph;
     }
 
     /// <summary>Regions first, then placeholders: a dropped region's placeholders should never be

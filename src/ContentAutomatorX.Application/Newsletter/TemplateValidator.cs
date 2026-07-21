@@ -141,14 +141,27 @@ public static partial class TemplateValidator
                 $"<!-- IF: {open} --> is never closed — add <!-- /IF -->."));
     }
 
-    /// <summary>True when {{unsubscribe_url}} appears in content with the bodies of every
-    /// <!-- IF -->...<!-- /IF --> region removed first — i.e. the token sits somewhere that is not
-    /// conditional on a field being non-empty. IF regions are validated elsewhere to be non-nested,
-    /// so a single non-recursive strip is sufficient; a malformed (unclosed) region simply fails to
-    /// match here and is reported separately by ValidateRegions.</summary>
-    private static bool HasUnsubscribeOutsideIf(string content) =>
-        PlaceholderRegex().Matches(IfRegionRegex().Replace(content, ""))
-            .Any(m => m.Groups["name"].Value == "unsubscribe_url");
+    /// <summary>True when {{unsubscribe_url}} appears in content outside every
+    /// <!-- IF -->...<!-- /IF --> region — i.e. the token sits somewhere that is not conditional on
+    /// a field being non-empty. Placeholders are matched against the ORIGINAL content and a match is
+    /// rejected only if its own span falls inside an IF-region span; the content itself is never
+    /// rewritten. Deleting IF regions from the text before scanning (the earlier approach) can splice
+    /// the characters on either side of a deleted region together and either invent a placeholder
+    /// that never existed in the source (e.g. "{{unsub<!-- IF: body -->.<!-- /IF -->scribe_url}}"
+    /// collapsing into "{{unsubscribe_url}}") or, when the region is instead kept because its
+    /// condition is true, leave the real token permanently split and broken — the opposite failure
+    /// mode, silent both times. Matching on the original text sidesteps this: a token straddling an
+    /// IF marker is not a contiguous {{name}} match in the source and correctly fails to satisfy the
+    /// rule either way. IF regions are validated elsewhere to be non-nested, so a single
+    /// non-recursive region match is sufficient; a malformed (unclosed) region simply fails to match
+    /// here and is reported separately by ValidateRegions.</summary>
+    private static bool HasUnsubscribeOutsideIf(string content)
+    {
+        var regions = IfRegionRegex().Matches(content);
+        return PlaceholderRegex().Matches(content).Any(m =>
+            m.Groups["name"].Value == "unsubscribe_url"
+            && !regions.Any(r => m.Index >= r.Index && m.Index < r.Index + r.Length));
+    }
 
     // IgnoreCase so a mis-capitalised placeholder is still matched and reported as unknown — the
     // vocabulary itself stays lowercase-only (name is NOT normalised), so {{Title}} is seen but
