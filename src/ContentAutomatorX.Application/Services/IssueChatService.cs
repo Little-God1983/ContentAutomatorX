@@ -277,6 +277,14 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             {
                 category = null;
                 dropped++;
+                // A category-only edit (title and body both untouched) has nothing left to propose
+                // once its category is nulled — storing it anyway would add a proposal card with
+                // ProposedTitle, ProposedBodyMd and ProposedCategory all null (a no-op the user could
+                // "Apply" and change nothing) and count the same edit as both stored AND dropped.
+                if (edit.Title is null && edit.BodyMd is null)
+                {
+                    continue;
+                }
             }
 
             // At most one pending proposal per section — a later suggestion supersedes an earlier

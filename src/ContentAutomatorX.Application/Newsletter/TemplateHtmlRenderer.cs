@@ -70,14 +70,25 @@ public static partial class TemplateHtmlRenderer
     /// token is untouched: this must never alter the output of a correct template.</summary>
     private static string EnsureUnsubscribeLink(string html)
     {
-        if (HasUnsubscribeOutsideComments(html)) return html;
+        var comments = CommentScanner.Find(html);
+        if (HasUnsubscribeOutsideComments(html, comments)) return html;
 
         // Same visual weight as SectionHtmlRenderer.Render's own footer line — small, muted, unobtrusive.
         var paragraph = "<p style=\"margin:0;font-size:12px;color:#888888;\">"
             + $"<a href=\"{SectionHtmlRenderer.UnsubscribeToken}\" style=\"color:#888888;\">Unsubscribe</a></p>";
 
         var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
-        return bodyClose >= 0 ? html.Insert(bodyClose, paragraph) : html + paragraph;
+        var insertAt = bodyClose >= 0 ? bodyClose : html.Length;
+
+        // An unterminated comment (Input A/B in the defect report — a mistyped closer, or one an IF
+        // region's collapse took with it) swallows everything from its own "<!--" to the end of the
+        // document, eof-in-comment, including whatever </body> we're about to insert before. Emitting
+        // "-->" first closes it right there, so the fallback that follows is actually visible instead
+        // of being hidden inside the same dangling comment it exists to work around.
+        if (comments.Any(c => !c.Terminated && insertAt >= c.Start))
+            paragraph = "-->" + paragraph;
+
+        return bodyClose >= 0 ? html.Insert(insertAt, paragraph) : html + paragraph;
     }
 
     /// <summary>True when UnsubscribeToken (the already-substituted literal, not the {{placeholder}} —
@@ -89,16 +100,15 @@ public static partial class TemplateHtmlRenderer
     /// previous implementation) is satisfied by a token that a subscriber can never actually see or
     /// click. Matches on the rendered text and rejects by index span, same reasoning as
     /// TemplateValidator's comment/region checks — never rewrite the text being scanned.</summary>
-    private static bool HasUnsubscribeOutsideComments(string html)
+    private static bool HasUnsubscribeOutsideComments(string html, IReadOnlyList<CommentScanner.CommentSpan> comments)
     {
-        var comments = CommentRegex().Matches(html);
         var token = SectionHtmlRenderer.UnsubscribeToken;
         var searchFrom = 0;
         while (true)
         {
             var found = html.IndexOf(token, searchFrom, StringComparison.Ordinal);
             if (found < 0) return false;
-            if (!comments.Any(c => found >= c.Index && found < c.Index + c.Length)) return true;
+            if (!CommentScanner.IsInside(comments, found)) return true;
             searchFrom = found + token.Length;
         }
     }
@@ -234,10 +244,4 @@ public static partial class TemplateHtmlRenderer
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex AccentRegex();
-
-    // Generic HTML comment span, used only to keep EnsureUnsubscribeLink's backstop honest (see its
-    // own doc comment) — a token that only ever appears inside a comment is invisible to the
-    // subscriber and must not count as "already present".
-    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
-    private static partial Regex CommentRegex();
 }

@@ -232,6 +232,27 @@ public class IssueChatServiceTests
         Assert.Null(proposal.ProposedCategory);
     }
 
+    [Fact] // Fix — a category-only edit on a section type with no category concept must not become
+    // a no-op proposal. StoreProposalsAsync nulls the category (as the test above confirms) but
+    // previously still called db.IssueSectionProposals.Add unconditionally afterward — with Title,
+    // BodyMd and Category all null, that stores a proposal card that changes nothing when accepted,
+    // and counts the one edit as BOTH stored (ProposalCount) AND dropped (DroppedEdits). Once
+    // nothing survives the category nulling, the edit must be dropped entirely and counted once.
+    public async Task A_category_only_edit_on_a_section_type_with_no_category_is_dropped_not_stored()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var reply = $$"""
+            {"reply":"Tagged it.","edits":[{"sectionId":"{{sections[2].Id}}","category":"Ads"}]}
+            """;
+
+        var result = await Chat(test, new SequenceLlm(reply)).SendAsync(post.Id, "tag the sponsor");
+
+        Assert.Equal(0, result.ProposalCount);
+        Assert.Equal(1, result.DroppedEdits);
+        Assert.Empty(await test.Db.IssueSectionProposals.ToListAsync());
+    }
+
     [Fact]
     public async Task RegenerateAll_targets_header_and_topics_only_and_writes_no_chat_messages()
     {

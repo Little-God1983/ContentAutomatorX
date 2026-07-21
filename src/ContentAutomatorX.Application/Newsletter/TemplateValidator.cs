@@ -54,6 +54,7 @@ public static partial class TemplateValidator
             }
 
             ValidateRegions(block, conditions, issues);
+            ValidateComments(block, issues);
 
             // Divider is the one block with nothing to substitute, by design.
             if (used == 0 && block.Name != TemplateBlocks.Divider)
@@ -141,6 +142,26 @@ public static partial class TemplateValidator
                 $"<!-- IF: {open} --> is never closed — add <!-- /IF -->."));
     }
 
+    /// <summary>Mirrors ValidateRegions' unclosed-IF rule for the general case: an unterminated
+    /// "&lt;!--" has no closing "--&gt;" to find, so unlike every other construct here it can never
+    /// be reported by matching a self-contained pattern — CommentScanner's EOF fallback is the only
+    /// way to see it at all. This is a save-time, best-effort catch: it can only see a comment that
+    /// is unterminated in the raw source (Input A in the defect report). A comment that is
+    /// well-formed in the source but becomes unterminated only once rendering drops the IF region
+    /// that contained its closing "--&gt;" (Input B) is invisible here by construction — the
+    /// validator never runs ApplyRegions — which is exactly why TemplateHtmlRenderer's
+    /// EnsureUnsubscribeLink backstop, not this rule, is the load-bearing half of the fix.</summary>
+    private static void ValidateComments(TemplateBlock block, List<TemplateIssue> issues)
+    {
+        var dangling = CommentScanner.Find(block.Content).FirstOrDefault(c => !c.Terminated);
+        if (dangling == default) return;
+
+        var line = block.ContentLine + TemplateParser.LineOf(block.Content, dangling.Start) - 1;
+        issues.Add(new TemplateIssue(TemplateIssueLevel.Error, line,
+            $"A comment starting here in BLOCK: {block.Name} is never closed — add --> or it hides "
+            + "everything after it, including any unsubscribe link, from every email client."));
+    }
+
     /// <summary>True when {{unsubscribe_url}} appears in content outside every
     /// <!-- IF -->...<!-- /IF --> region AND outside every HTML comment — i.e. the token sits
     /// somewhere that is not conditional on a field being non-empty, and is not hidden from the
@@ -157,21 +178,22 @@ public static partial class TemplateValidator
     /// token straddling an IF marker is not a contiguous {{name}} match in the source and correctly
     /// fails to satisfy the rule either way. IF regions are validated elsewhere to be non-nested, so
     /// a single non-recursive region match is sufficient; a malformed (unclosed) region simply fails
-    /// to match here and is reported separately by ValidateRegions. CommentRegex is intentionally
-    /// non-greedy and generic — it matches any "<!--...-->" span, including the load-bearing
-    /// "<!-- IF: cond -->" / "<!-- /IF -->" markers themselves, but since a marker's own span never
-    /// contains a "{{...}}" placeholder (it closes at its own first "-->"), matching them causes no
-    /// harm; it simply means a hiding comment placed anywhere in the block — not just ones written
-    /// around the unsubscribe link specifically — correctly removes any placeholder inside it from
-    /// consideration.</summary>
+    /// to match here and is reported separately by ValidateRegions. CommentScanner is a generic,
+    /// linear HTML-comment scan — it finds any "<!--...-->" span (or an unterminated "<!--" running
+    /// to end of content, which a regex-based "<!--.*?-->" cannot see at all — see CommentScanner's
+    /// own doc comment), including the load-bearing "<!-- IF: cond -->" / "<!-- /IF -->" markers
+    /// themselves, but since a marker's own span never contains a "{{...}}" placeholder (it closes at
+    /// its own first "-->"), matching them causes no harm; it simply means a hiding comment placed
+    /// anywhere in the block — not just ones written around the unsubscribe link specifically —
+    /// correctly removes any placeholder inside it from consideration.</summary>
     private static bool HasUnsubscribeOutsideIf(string content)
     {
         var regions = IfRegionRegex().Matches(content);
-        var comments = CommentRegex().Matches(content);
+        var comments = CommentScanner.Find(content);
         return PlaceholderRegex().Matches(content).Any(m =>
             m.Groups["name"].Value == "unsubscribe_url"
             && !regions.Any(r => m.Index >= r.Index && m.Index < r.Index + r.Length)
-            && !comments.Any(c => m.Index >= c.Index && m.Index < c.Index + c.Length));
+            && !CommentScanner.IsInside(comments, m.Index));
     }
 
     // IgnoreCase so a mis-capitalised placeholder is still matched and reported as unknown — the
@@ -186,10 +208,4 @@ public static partial class TemplateValidator
     [GeneratedRegex(@"<!--\s*IF\s*:\s*[A-Za-z_]+\s*-->.*?<!--\s*/IF\s*-->",
         RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex IfRegionRegex();
-
-    // Generic HTML comment span, used only to keep the unsubscribe token's placement rule honest
-    // (see HasUnsubscribeOutsideIf) — a token that only ever appears inside a comment is invisible
-    // to the subscriber and must not satisfy the "guaranteed to render" requirement.
-    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
-    private static partial Regex CommentRegex();
 }

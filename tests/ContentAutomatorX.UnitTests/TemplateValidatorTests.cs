@@ -307,6 +307,107 @@ public class TemplateValidatorTests
               && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
     }
 
+    // Fourth defeat (Critical) — an unterminated "<!--" has no closing "-->", so it is invisible to
+    // a regex that requires one, yet a real HTML parser (eof-in-comment) still swallows everything
+    // after it, including a token that is textually present downstream. Both inputs below are drawn
+    // directly from the defect report.
+
+    [Fact] // Input A — a mistyped/edited-out closer. The old regex-based comment scan reported zero
+    // errors here because CommentRegex (requiring "-->") never matched the dangling "<!-- old
+    // footer" span, so the token looked "outside every comment" even though no email client will
+    // ever render it or anything after it.
+    public void Input_A_unclosed_comment_hides_the_unsubscribe_link_and_is_rejected()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<!-- old footer <a href="{{unsubscribe_url}}">Unsub</a></body></html>
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error
+              && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+    }
+
+    [Fact] // New rule (part 3 of the fix) — report the unterminated comment itself, not just its
+    // consequence for the unsubscribe check, so the author can find and fix a mistyped closer. The
+    // unsubscribe token sits BEFORE the dangling comment here specifically to isolate this rule from
+    // the unsubscribe-link rule — this template has a perfectly good, visible unsubscribe link and
+    // must still be flagged for the unterminated comment on its own merits.
+    public void Unterminated_comment_inside_a_block_is_an_error()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a><!-- oops, no closer</body></html>
+            <!-- /BLOCK -->
+            """;
+        var issues = TemplateValidator.Validate(html);
+        // The specific "not guaranteed to render" phrase, not a bare Contains("unsubscribe") — the
+        // new unterminated-comment message below legitimately mentions "unsubscribe link" itself
+        // while explaining the risk, so a loose substring check would false-positive on its own text.
+        Assert.DoesNotContain(issues, i => i.Level == TemplateIssueLevel.Error
+            && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+        Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error
+            && i.Message.Contains("never closed") && i.Message.Contains("comment"));
+    }
+
+    [Fact] // Input B — the render-time-only half of the defeat. The source here is well-formed: the
+    // "<!-- note ... -->" span around the collapsible IF region has a real, present "-->" in the
+    // raw text, so the validator (which only ever looks at the raw source, never at what ApplyRegions
+    // produces after dropping a region) has nothing to reject. The comment only becomes unterminated
+    // once rendering drops the IF region and takes the closing "-->" that lived inside it along —
+    // which is exactly why the render-time backstop (TemplateHtmlRendererTests) is the load-bearing
+    // half of this fix, not this validator rule.
+    public void Input_B_comment_that_only_becomes_unterminated_after_region_collapse_is_not_caught_at_save_time()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: topic -->
+            <p>{{title}}</p><!-- note <!-- IF: image --><img src="{{image_url}}"> --><!-- /IF -->
+            {{body_html}}
+            <!-- /BLOCK -->
+            """;
+        var errors = TemplateValidator.Validate(html).Where(i => i.Level == TemplateIssueLevel.Error).ToList();
+        Assert.Empty(errors);
+    }
+
+    // Not-over-strict re-confirmations for the new comment scan specifically.
+
+    [Fact] // The downlevel-revealed Outlook trick relies on real HTML comment semantics: a comment
+    // ends at the FIRST "-->" after its "<!--", regardless of any "<!--" appearing in between. Here
+    // "<!--[if !mso]><!-->" is one short, well-formed comment (its own "-->" sits inside the trailing
+    // "<!-->"), so the anchor between it and "<!--<![endif]-->" is genuinely visible to every
+    // non-Outlook client and must satisfy the unsubscribe rule like any other visible token.
+    public void Outlook_downlevel_revealed_comment_around_the_unsubscribe_link_is_accepted()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<!--[if !mso]><!--><a href="{{unsubscribe_url}}">Unsubscribe</a><!--<![endif]--></body></html>
+            <!-- /BLOCK -->
+            """;
+        Assert.DoesNotContain(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // The comment scan has no special knowledge of BLOCK/IF marker syntax — it is a generic
+    // "<!-- ... -->" scan. Unusual internal whitespace and casing in a marker must not change how
+    // much text it is treated as covering: it is still just its own short, self-closing comment span,
+    // and a genuine, uncommented, un-conditioned unsubscribe link right after it must still validate.
+    public void Unsubscribe_token_is_still_accepted_next_to_an_oddly_spaced_and_cased_IF_marker()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            <!--  If  :  Body  -->{{body_html}}<!--/if--><a href="{{unsubscribe_url}}">Unsubscribe</a>
+            <!-- /BLOCK -->
+            """;
+        Assert.DoesNotContain(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
     [Fact]
     public void The_starter_template_still_validates_with_no_errors()
     {

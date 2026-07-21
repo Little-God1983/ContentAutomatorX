@@ -345,6 +345,126 @@ public class TemplateHtmlRendererTests
         Assert.Equal(2, visibleCount);   // the commented one and the real one — nothing appended
     }
 
+    // Fourth defeat (Critical) — an unterminated "<!--" swallows everything after it from every real
+    // HTML parser's point of view (eof-in-comment), including a token that is textually present
+    // downstream. The old regex-based scan required a closing "-->" to recognise anything as a
+    // comment at all, so it never saw these as hidden and the backstop stayed silent.
+
+    [Fact] // Input A — a mistyped/edited-out closer directly in the shell. The token is textually
+    // present after the dangling "<!--" but invisible to every client; the backstop must recognise
+    // the comment never closes and emit "-->" before its own fallback, or the fallback would be
+    // swallowed by the very same open comment it exists to work around.
+    public void Backstop_closes_a_dangling_unterminated_comment_before_appending_the_fallback_link()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<!-- old footer <a href="{{unsubscribe_url}}">Unsub</a></body></html>
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
+        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
+            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
+        Assert.Equal(2, visibleCount);   // the swallowed original, plus the appended fallback
+        Assert.Contains("Unsubscribe</a>", rendered);
+        // The source has no "-->" anywhere at all (the comment is unterminated from start to end of
+        // content), so the ONLY way a "-->" can appear in the output is if the fix emits one to close
+        // the dangling comment before the fallback. Asserting merely appendedIndex > -1 would pass
+        // even with no "-->" ever inserted (LastIndexOf's not-found sentinel) — require it be found.
+        var appendedIndex = rendered.LastIndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal);
+        var lastCommentClose = rendered.LastIndexOf("-->", StringComparison.Ordinal);
+        Assert.True(lastCommentClose >= 0, "expected the dangling comment to be closed with -->");
+        Assert.True(appendedIndex > lastCommentClose);
+    }
+
+    [Fact] // Input B, half 1 — a topic WITH the optional field: the "note" comment wrapping the
+    // collapsible IF region closes properly once the image markup is kept (its "-->" survives), so
+    // the shell's own genuine unsubscribe anchor further down is untouched and the backstop must not
+    // fire at all.
+    public void Region_collapse_that_leaves_a_comment_well_formed_needs_no_backstop_help()
+    {
+        const string template = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: topic -->
+            <p>{{title}}</p><!-- note <!-- IF: image --><img src="{{image_url}}"> --><!-- /IF -->
+            {{body_html}}
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Topic, title: "t", body: "b", image: "https://example.com/a.png")],
+            MakeTenant(), "t", template, DateTimeOffset.UtcNow);
+        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
+            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
+        Assert.Equal(1, visibleCount);   // the real shell anchor, untouched — backstop did not fire
+        Assert.Contains("Unsubscribe</a>", rendered);
+    }
+
+    [Fact] // Input B, half 2 — the data-dependent failure: a topic WITHOUT the optional field drops
+    // the whole IF region, including the "-->" that was going to close "<!-- note ", leaving it
+    // dangling. That dangling comment then swallows the shell's genuine unsubscribe anchor further
+    // down in the assembled document — zero save errors (see
+    // TemplateValidatorTests.Input_B_comment_that_only_becomes_unterminated_after_region_collapse...),
+    // so the backstop is the only thing standing between this template and a commercial email with
+    // no visible unsubscribe link. Same failure shape and same assertion style as the shell-only
+    // Input A test above, just reached through a different route (region collapse, not authoring).
+    public void Region_collapse_that_leaves_a_dangling_comment_is_caught_by_the_backstop()
+    {
+        const string template = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: topic -->
+            <p>{{title}}</p><!-- note <!-- IF: image --><img src="{{image_url}}"> --><!-- /IF -->
+            {{body_html}}
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Topic, title: "t", body: "b")],   // no image — region collapses
+            MakeTenant(), "t", template, DateTimeOffset.UtcNow);
+        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
+            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
+        Assert.Equal(2, visibleCount);   // the swallowed real anchor, plus the appended fallback
+        Assert.Contains("Unsubscribe</a>", rendered);
+        // As above: neither the shell nor the topic (image absent) leaves any "-->" in the source at
+        // all, so a "-->" in the output can only be the one the fix emits to close the dangling
+        // comment — require it be found, not just compare against the not-found sentinel.
+        var appendedIndex = rendered.LastIndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal);
+        var lastCommentClose = rendered.LastIndexOf("-->", StringComparison.Ordinal);
+        Assert.True(lastCommentClose >= 0, "expected the dangling comment to be closed with -->");
+        Assert.True(appendedIndex > lastCommentClose);
+    }
+
+    [Fact] // Not-over-strict — the Outlook downlevel-revealed trick must render with no backstop
+    // help needed: the anchor is genuinely outside every comment span under real HTML semantics.
+    public void Outlook_downlevel_revealed_comment_needs_no_backstop_help()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<!--[if !mso]><!--><a href="{{unsubscribe_url}}">Unsubscribe</a><!--<![endif]--></body></html>
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
+        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
+            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
+        Assert.Equal(1, visibleCount);
+    }
+
+    [Fact] // Robustness re-confirmation — a template reaching render with an unterminated "<!--"
+    // must never throw. It has no "</body>" to insert before either, exercising the "append at the
+    // very end" fallback path of EnsureUnsubscribeLink at the same time.
+    public void Unclosed_comment_does_not_throw()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<!-- unterminated, no closer anywhere
+            <!-- /BLOCK -->
+            """;
+        var exception = Record.Exception(() => TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Divider)], MakeTenant(), "t", html, DateTimeOffset.UtcNow));
+        Assert.Null(exception);
+    }
+
     [Fact] // Finding F6 — Preheader used to strip * _ ` # unconditionally, which mangled an
     // intra-word underscore into "wellknown". ReadingTime.EmphasisRegex already solved exactly this
     // with a boundary-aware pattern; Preheader must use the same approach.
