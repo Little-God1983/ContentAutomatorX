@@ -48,7 +48,7 @@
         }
     </DialogContent>
     <DialogActions>
-        @if (_template.Id != Guid.Empty)
+        @if (!IsNew)
         {
             <MudButton Color="Color.Error" Disabled="@_busy" OnClick="DeleteAsync">Delete</MudButton>
         }
@@ -62,6 +62,15 @@
 @code {
     [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
     [Parameter, EditorRequired] public NewsletterTemplate Template { get; set; } = default!;
+
+    /// <summary>True when this dialog was opened for a template that has never been saved
+    /// (Recipes.razor's NewTemplateAsync). The template's Id is never a reliable signal for this —
+    /// every entity in this codebase defaults Id to a fresh Guid.NewGuid() on construction, so an
+    /// unsaved template already carries a non-empty id and Id != Guid.Empty is always true. Delete
+    /// must be hidden here rather than inferred, since deleting a never-saved template is a silent
+    /// no-op (NewsletterTemplateService.DeleteAsync finds no row) that would otherwise still show a
+    /// "Template deleted." success snackbar.</summary>
+    [Parameter] public bool IsNew { get; set; }
 
     private NewsletterTemplate _template = default!;
     private string _name = "", _html = "", _preview = "";
