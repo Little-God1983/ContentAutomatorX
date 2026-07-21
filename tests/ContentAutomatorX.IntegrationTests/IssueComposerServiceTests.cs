@@ -107,14 +107,14 @@ public class IssueComposerServiceTests
     public static IssueComposerService ComposerWith(World w, ILlmBackend llm, IssueHistoryService history) =>
         new(w.Test.Db, llm,
             new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-                llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
-            new StubLlmSettings(), history);
+                llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db)),
+            new StubLlmSettings(), history, new NewsletterTemplateService(w.Test.Db));
 
     private static IssueComposerService Composer(World w, ILlmBackend llm, StubLlmSettings? settings = null) =>
         new(w.Test.Db, llm,
             new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-                llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
-            settings ?? new StubLlmSettings(), new IssueHistoryService(w.Test.Db));
+                llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db)),
+            settings ?? new StubLlmSettings(), new IssueHistoryService(w.Test.Db), new NewsletterTemplateService(w.Test.Db));
 
     [Fact]
     public async Task CreateFromItems_builds_header_topics_footer_with_contiguous_positions()
@@ -402,7 +402,7 @@ public class IssueComposerServiceTests
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Sectioned issue");
         await composer.GenerateTopicsAsync(post.Id, null);
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-            llm, w.Platforms, w.MailerLite, new StubLlmSettings());
+            llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         var pushed = await posts.PushAsync(post.Id);
 
@@ -424,7 +424,7 @@ public class IssueComposerServiceTests
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings()),
-            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings());
+            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
         await posts.SaveIssueMetaAsync(post.Id, "t", new string('x', 256), null);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => posts.PushAsync(post.Id));
@@ -441,7 +441,7 @@ public class IssueComposerServiceTests
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Old");
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings()),
-            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings());
+            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         await posts.SaveIssueMetaAsync(post.Id, "New title", "Subj", "Pv");
 
@@ -462,7 +462,7 @@ public class IssueComposerServiceTests
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         await composer.GenerateTopicsAsync(post.Id, null);
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-            llm, w.Platforms, w.MailerLite, new StubLlmSettings());
+            llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         var ideas = await posts.SubjectIdeasAsync(post.Id);
 

@@ -91,6 +91,7 @@ builder.Services.AddScoped<DraftService>();
 builder.Services.AddScoped<RunService>();
 builder.Services.AddScoped<PlatformService>();
 builder.Services.AddScoped<PostService>();
+builder.Services.AddScoped<NewsletterTemplateService>();
 builder.Services.AddScoped<IssueHistoryService>();
 builder.Services.AddScoped<IssueComposerService>();
 builder.Services.AddScoped<IssueChatService>();

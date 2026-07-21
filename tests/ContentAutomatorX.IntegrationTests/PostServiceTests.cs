@@ -84,7 +84,8 @@ public class PostServiceTests
         var creds = new InMemoryCredentials();
         var platforms = new PlatformService(test.Db, creds, ml);
         var generation = new GenerationPipeline(test.Db, new FakeLlm(llmReply), new FakeDelivery(), new StubLlmSettings());
-        var posts = new PostService(test.Db, generation, new FakeLlm("[\"s1\",\"s2\",\"s3\",\"s4\",\"s5\"]"), platforms, ml, new StubLlmSettings());
+        var posts = new PostService(test.Db, generation, new FakeLlm("[\"s1\",\"s2\",\"s3\",\"s4\",\"s5\"]"), platforms, ml, new StubLlmSettings(),
+            new NewsletterTemplateService(test.Db));
         return new World(test, posts, platforms, ml, tenant, recipe, sourceA, sourceB);
     }
 
@@ -245,7 +246,7 @@ public class PostServiceTests
         var badLlm = new FakeLlm("this is not a JSON array");
         var postsWithBadSubjectLlm = new PostService(w.Test.Db,
             new GenerationPipeline(w.Test.Db, badLlm, new FakeDelivery(), new StubLlmSettings()), badLlm, w.Platforms, w.MailerLite,
-            new StubLlmSettings());
+            new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => postsWithBadSubjectLlm.SubjectIdeasAsync(post.Id));
 
@@ -263,7 +264,7 @@ public class PostServiceTests
         var settings = new StubLlmSettings(new LlmSettings("haiku", LlmEffort.Low));
         var postsWithStub = new PostService(w.Test.Db,
             new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()), llm, w.Platforms, w.MailerLite,
-            settings);
+            settings, new NewsletterTemplateService(w.Test.Db));
 
         await postsWithStub.SubjectIdeasAsync(post.Id);
 
@@ -409,7 +410,7 @@ public class PostServiceTests
         var postSvcA = new PostService(contextA,
             new GenerationPipeline(contextA, new FakeLlm("# First\nbody"), new FakeDelivery(), new StubLlmSettings()),
             new FakeLlm("[]"), new PlatformService(contextA, new InMemoryCredentials(), w.MailerLite), w.MailerLite,
-            new StubLlmSettings());
+            new StubLlmSettings(), new NewsletterTemplateService(contextA));
         var trackedByA = await postSvcA.GetAsync(post.Id);
         Assert.Equal(firstDraftId, trackedByA!.DraftId);
 
@@ -417,7 +418,7 @@ public class PostServiceTests
         var postSvcB = new PostService(contextB,
             new GenerationPipeline(contextB, new FakeLlm("# Second\nnew body"), new FakeDelivery(), new StubLlmSettings()),
             new FakeLlm("[]"), new PlatformService(contextB, new InMemoryCredentials(), w.MailerLite), w.MailerLite,
-            new StubLlmSettings());
+            new StubLlmSettings(), new NewsletterTemplateService(contextB));
         await postSvcB.ComposeAsync(post.Id, itemIds, null);
 
         var fresh = await postSvcA.GetFreshAsync(post.Id);

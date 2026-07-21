@@ -15,7 +15,7 @@ public record TopicBlurb(Guid ItemId, string Title, string Blurb);
 /// generation (Task 5). An issue always has exactly one Header (first) and one Footer (last);
 /// positions stay 0-based and contiguous after every mutation.</summary>
 public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService posts,
-    ILlmSettingsProvider llmSettings, IssueHistoryService history)
+    ILlmSettingsProvider llmSettings, IssueHistoryService history, NewsletterTemplateService templates)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -147,8 +147,11 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
         var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
         var sections = await GetSectionsAsync(postId, ct);
-        return SectionHtmlRenderer.Render(sections, tenant, title)
-            .Replace(SectionHtmlRenderer.UnsubscribeToken, "#");
+        var template = await templates.ResolveForPostAsync(postId, ct);
+        var html = template is null
+            ? SectionHtmlRenderer.Render(sections, tenant, title)
+            : TemplateHtmlRenderer.Render(sections, tenant, title, template.Html, post.CreatedAt);
+        return html.Replace(SectionHtmlRenderer.UnsubscribeToken, "#");
     }
 
     private static void Renumber(List<IssueSection> ordered)

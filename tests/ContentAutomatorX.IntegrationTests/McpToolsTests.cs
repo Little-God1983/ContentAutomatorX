@@ -88,7 +88,8 @@ public class McpToolsTests : IDisposable
         var creds = new InMemoryCredentials();
         var platforms = new PlatformService(test.Db, creds, ml);
         var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings());
-        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml, new StubLlmSettings());
+        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml, new StubLlmSettings(),
+            new NewsletterTemplateService(test.Db));
 
         var json = await ContentXTools.PushPost(posts, Guid.NewGuid().ToString());
 
@@ -289,7 +290,8 @@ public class McpToolsTests : IDisposable
         var creds = new InMemoryCredentials();
         var platforms = new PlatformService(test.Db, creds, ml);
         var generation = new GenerationPipeline(test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings());
-        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml, new StubLlmSettings());
+        var posts = new PostService(test.Db, generation, new FakeLlm(), platforms, ml, new StubLlmSettings(),
+            new NewsletterTemplateService(test.Db));
 
         var json = await ContentXTools.ListPosts(posts, tenant.Id.ToString());
 
