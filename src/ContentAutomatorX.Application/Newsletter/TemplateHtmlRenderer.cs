@@ -80,15 +80,31 @@ public static partial class TemplateHtmlRenderer
         var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
         var insertAt = bodyClose >= 0 ? bodyClose : html.Length;
 
-        // An unterminated comment (Input A/B in the defect report — a mistyped closer, or one an IF
-        // region's collapse took with it) swallows everything from its own "<!--" to the end of the
-        // document, eof-in-comment, including whatever </body> we're about to insert before. Emitting
-        // "-->" first closes it right there, so the fallback that follows is actually visible instead
-        // of being hidden inside the same dangling comment it exists to work around.
-        if (comments.Any(c => !c.Terminated && insertAt >= c.Start))
-            paragraph = "-->" + paragraph;
+        // The naive "</body>" search above finds the LAST such tag textually, but a comment span
+        // (terminated or not) can still cover that index — e.g. an unterminated "<!--" started before
+        // it (eof-in-comment swallows to end of document), or a perfectly well-formed "<!-- ... -->"
+        // whose own closer happens to sit at or after the last "</body>" (an ordinary explanatory
+        // comment placed after </body></html>, or an IF region's collapse dragging a comment's closer
+        // past it, or a comment whose text itself contains a literal "</body>" that drags this
+        // LastIndexOf search inside the comment). Whichever the cause, the fix is the same: find the
+        // one comment span that actually contains insertAt, not just "is there some unterminated span
+        // before it" — a terminated span hides the insertion point just as completely as an
+        // unterminated one does.
+        var host = comments.FirstOrDefault(c => insertAt >= c.Start && insertAt < c.End);
+        if (host != default)
+        {
+            if (host.Terminated)
+                // Step out past the comment's own closing "-->" instead of inserting inside it —
+                // the fallback then lands in real markup right after the comment that was hiding it.
+                insertAt = host.End;
+            else
+                // Unterminated comment (Input A/B): nothing can close it but us. Emitting "-->" first
+                // closes it right there, so the fallback that follows is actually visible instead of
+                // being hidden inside the same dangling comment it exists to work around.
+                paragraph = "-->" + paragraph;
+        }
 
-        return bodyClose >= 0 ? html.Insert(insertAt, paragraph) : html + paragraph;
+        return insertAt < html.Length ? html.Insert(insertAt, paragraph) : html + paragraph;
     }
 
     /// <summary>True when UnsubscribeToken (the already-substituted literal, not the {{placeholder}} —
