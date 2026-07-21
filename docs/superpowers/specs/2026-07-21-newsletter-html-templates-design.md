@@ -249,7 +249,15 @@ This means a hostile RSS item cannot inject markup through a section body, and c
 
 The preview iframe carries a `sandbox` attribute without `allow-scripts` (§7.2), so even a template containing a `<script>` cannot reach the Blazor circuit.
 
-### 5.5 Reading time
+### 5.5 The unsubscribe backstop
+
+Added during implementation, after two independent reviewers each defeated the save-time rule by a different route: a token inside an `IF` region that collapses, and a token split across a stripped region boundary so that the check reassembled one that did not exist.
+
+After assembling the final HTML, `TemplateHtmlRenderer.Render` checks for `UnsubscribeToken` and, if it is absent, appends a minimal muted unsubscribe paragraph before `</body>`.
+
+It fires only when the token is genuinely missing, so a correct template renders byte-identically. It should never fire in practice — `TemplateValidator` is the primary gate. It exists because the cost of a miss is a legal violation rather than a cosmetic defect, and a guarantee that rests on one text-matching rule being perfect is not a guarantee.
+
+### 5.6 Reading time
 
 ```
 words   = whitespace-delimited token count of BodyMd with markdown syntax stripped
@@ -358,7 +366,7 @@ Sample image URLs point at `placehold.co`, matching the reference template, so t
 | E2 | HTML exceeds 512 KB |
 | E3 | No `<!-- BLOCK: shell -->` |
 | E4 | `shell` does not contain `{{sections}}` |
-| E5 | `{{unsubscribe_url}}` appears nowhere in the template |
+| E5 | No `{{unsubscribe_url}}` that is guaranteed to render — see below |
 | E6 | Unknown block name |
 | E7 | Duplicate block name |
 | E8 | `<!-- BLOCK: -->` without a matching `<!-- /BLOCK -->` |
@@ -369,7 +377,15 @@ Sample image URLs point at `placehold.co`, matching the reference template, so t
 | E13 | Nested `<!-- IF: -->` |
 | E14 | Unknown `IF` condition for the enclosing block |
 
-**E5 is the one that matters most.** The unsubscribe link is a legal requirement, and a template is the single place a user could delete it without noticing. Checking the whole template rather than the footer block specifically means a design that puts unsubscribe in the shell still passes.
+**E5 is the one that matters most.** The unsubscribe link is a legal requirement, and a template is the single place a user could delete it without noticing.
+
+Its original form — "the token appears somewhere in some block" — proved too weak, and was defeated twice during implementation. It now requires a token that will actually render: one that appears in the `shell` or `footer` block (the two guaranteed to be emitted for every issue, since an issue always has exactly one header and one footer and neither can be deleted) and that sits **outside** every `IF` region, since a region collapses when its field is empty. When the template has no `footer` block, only the `shell` can satisfy the rule — the footer section then falls back to the built-in per-section renderer, which emits the section body alone.
+
+The region check matches placeholders against the original text and rejects those whose index falls inside a region span. It must not strip regions and rescan the result: deleting a region joins the text either side, which can assemble a token that was never there.
+
+The name comparison is `Ordinal` on purpose. The renderer's value lookup is `Ordinal`, so `{{UNSUBSCRIBE_URL}}` would resolve to empty; accepting it here would ship an email with no link and no error anywhere.
+
+§5.5's render-time backstop is the second line of defence behind all of this.
 
 ### 8.2 Warnings — save proceeds
 
