@@ -109,11 +109,22 @@ builder.Services.AddHostedService<ChatRetentionJob>();
 builder.Services.AddMudServices();
 // MaximumReceiveMessageSize defaults to 32KB. A tenant's own hand-written newsletter template
 // (TemplateValidator.MaxBytes allows up to 512KB) is edited live in a plain <textarea> whose
-// *entire* value round-trips to the server on every keystroke (Blazor Server sends the whole
-// bound string, not a diff) — a real-sized template (tens of KB) blows past the 32KB default,
-// and SignalR silently closes the circuit with no error surfaced to the user: typing just stops
-// updating the preview/validation, with no indication why. Raised to comfortably exceed the
-// template size limit plus JSON/protocol framing overhead.
+// *entire* value round-trips to the server on every keystroke — Blazor Server sends the whole
+// bound string, not a diff. The 23KB reference template disconnected the circuit on the first
+// keystroke, and the failure is silent: no toast, no visible reconnect, the textarea keeps
+// accepting input while the preview and error list quietly stop updating, so Save stays enabled
+// after a real typo with nothing on screen to explain why.
+//
+// 23KB tripping a 32KB limit is not explained by JSON escaping — that measures at 1.03x on this
+// file. The likely cause is Blazor's binding protocol carrying the value more than once per event
+// dispatch (EventFieldInfo alongside ChangeEventArgs.Value). Sizing off that: a max-size 512KB
+// template projects to roughly 1.0-1.1MB on the wire, so 2MB is about 2x headroom. Not measured
+// at the 512KB ceiling — if that is ever raised, re-measure rather than scaling this figure.
+//
+// Trade-off, accepted deliberately: this is a global hub option, so it applies to every circuit
+// in the app, not just the template editor — Blazor Server cannot scope it per component. A
+// larger ceiling means a larger memory commitment per malicious message. This app binds to
+// localhost by default; revisit if it is ever exposed publicly.
 builder.Services.AddRazorComponents().AddInteractiveServerComponents()
     .AddHubOptions(o => o.MaximumReceiveMessageSize = 2 * 1024 * 1024);
 builder.Services.AddMcpServer().WithHttpTransport().WithToolsFromAssembly();
