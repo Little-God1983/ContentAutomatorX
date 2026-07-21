@@ -366,15 +366,25 @@ public class TemplateValidatorTests
     }
 
     [Fact]
-    public void The_reference_template_is_not_yet_annotated_and_that_is_expected()
+    public void The_reference_template_validates_with_no_errors()
     {
-        // docs/user-braindumps/preview.html carries BLOCK comments but no placeholders yet —
-        // Task 10 converts it. This test documents the current state so the conversion has a
-        // before-and-after, and fails loudly if someone converts it without updating this.
         var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..",
-            "docs", "user-braindumps", "preview.html");
-        if (!File.Exists(path)) return; // not shipped with the test output on all machines
+            "docs", "user-braindumps", "preview-template.html");
+        Assert.True(File.Exists(path), $"Reference template not found at {Path.GetFullPath(path)}");
+
         var issues = TemplateValidator.Validate(File.ReadAllText(path));
-        Assert.True(TemplateValidator.HasErrors(issues));
+        var errors = issues.Where(i => i.Level == TemplateIssueLevel.Error).ToList();
+        Assert.True(errors.Count == 0,
+            "Reference template has errors:\n" + string.Join("\n", errors.Select(e => $"line {e.Line}: {e.Message}")));
+    }
+
+    [Fact]
+    public void The_reference_template_defines_every_block()
+    {
+        var path = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..",
+            "docs", "user-braindumps", "preview-template.html");
+        var parsed = TemplateParser.Parse(File.ReadAllText(path));
+        foreach (var name in TemplateBlocks.All)
+            Assert.True(parsed.Blocks.ContainsKey(name), $"Missing BLOCK: {name}");
     }
 }

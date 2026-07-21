@@ -107,7 +107,15 @@ builder.Services.AddHostedService<ChatRetentionJob>();
 
 // --- UI + MCP ---
 builder.Services.AddMudServices();
-builder.Services.AddRazorComponents().AddInteractiveServerComponents();
+// MaximumReceiveMessageSize defaults to 32KB. A tenant's own hand-written newsletter template
+// (TemplateValidator.MaxBytes allows up to 512KB) is edited live in a plain <textarea> whose
+// *entire* value round-trips to the server on every keystroke (Blazor Server sends the whole
+// bound string, not a diff) — a real-sized template (tens of KB) blows past the 32KB default,
+// and SignalR silently closes the circuit with no error surfaced to the user: typing just stops
+// updating the preview/validation, with no indication why. Raised to comfortably exceed the
+// template size limit plus JSON/protocol framing overhead.
+builder.Services.AddRazorComponents().AddInteractiveServerComponents()
+    .AddHubOptions(o => o.MaximumReceiveMessageSize = 2 * 1024 * 1024);
 builder.Services.AddMcpServer().WithHttpTransport().WithToolsFromAssembly();
 
 var app = builder.Build();
