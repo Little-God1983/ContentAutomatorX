@@ -66,15 +66,32 @@ public static partial class TemplateValidator
             issues.Add(new TemplateIssue(TemplateIssueLevel.Error, shell.Line,
                 "BLOCK: shell must contain {{sections}} — otherwise no section is ever emitted."));
 
-        // Checked across the whole template rather than inside the footer, so a design that puts
-        // unsubscribe in the shell still passes. This is a legal requirement, not a style rule.
+        // This is a legal requirement, not a style rule: commercial email must carry an unsubscribe
+        // link. A token's mere presence anywhere in the source is not enough — it must be guaranteed
+        // to survive into every rendered email. That means: (1) it must sit in a block that always
+        // renders for every issue — shell or footer, since an issue always has exactly one header and
+        // one footer and neither can be deleted — and (2) it must sit outside any <!-- IF --> region,
+        // since a region collapses to nothing when its field is empty and would take the token with
+        // it. A token only inside sponsor/video/button (sections an issue may simply not have) or only
+        // inside a collapsible IF region does not satisfy this. If the template defines no BLOCK:
+        // footer at all, the footer section falls back to SectionHtmlRenderer.RenderSection, which
+        // never emits the built-in unsubscribe link (that comes from Render's document footer, which
+        // the template path never calls) — so in that case only the shell can carry the requirement.
         // Recognition goes through PlaceholderRegex — the same rule as every other placeholder in
         // this file — so {{ unsubscribe_url }} (internal whitespace) is accepted like any other
-        // placeholder, rather than being falsely rejected by a stricter literal-string check.
-        if (!parsed.Blocks.Values.Any(b => PlaceholderRegex().Matches(b.Content)
-                .Any(m => m.Groups["name"].Value == "unsubscribe_url")))
+        // placeholder, rather than being falsely rejected by a stricter literal-string check. The
+        // captured name is compared with ordinal equality (the default for ==) deliberately: the
+        // renderer's value dictionary lookup is also Ordinal (StringComparer.Ordinal), so a mis-cased
+        // token such as {{UNSUBSCRIBE_URL}} would resolve to "" at render time and must not be
+        // accepted here as satisfying the rule either — do not change this to OrdinalIgnoreCase.
+        var shellHasUnsubscribe = shell is not null && HasUnsubscribeOutsideIf(shell.Content);
+        var footerHasUnsubscribe = parsed.Blocks.TryGetValue(TemplateBlocks.Footer, out var footerBlock)
+            && HasUnsubscribeOutsideIf(footerBlock.Content);
+        if (!shellHasUnsubscribe && !footerHasUnsubscribe)
             issues.Add(new TemplateIssue(TemplateIssueLevel.Error, 1,
-                "The template contains no {{unsubscribe_url}} — commercial email must carry an unsubscribe link."));
+                "The template has no {{unsubscribe_url}} that is guaranteed to render: place it in "
+                + "BLOCK: shell, or in BLOCK: footer outside any <!-- IF --> region — commercial email "
+                + "must always carry an unsubscribe link."));
 
         foreach (var name in TemplateBlocks.Optional.Where(n => !parsed.Blocks.ContainsKey(n)))
             issues.Add(new TemplateIssue(TemplateIssueLevel.Warning, 1,
@@ -124,6 +141,15 @@ public static partial class TemplateValidator
                 $"<!-- IF: {open} --> is never closed — add <!-- /IF -->."));
     }
 
+    /// <summary>True when {{unsubscribe_url}} appears in content with the bodies of every
+    /// <!-- IF -->...<!-- /IF --> region removed first — i.e. the token sits somewhere that is not
+    /// conditional on a field being non-empty. IF regions are validated elsewhere to be non-nested,
+    /// so a single non-recursive strip is sufficient; a malformed (unclosed) region simply fails to
+    /// match here and is reported separately by ValidateRegions.</summary>
+    private static bool HasUnsubscribeOutsideIf(string content) =>
+        PlaceholderRegex().Matches(IfRegionRegex().Replace(content, ""))
+            .Any(m => m.Groups["name"].Value == "unsubscribe_url");
+
     // IgnoreCase so a mis-capitalised placeholder is still matched and reported as unknown — the
     // vocabulary itself stays lowercase-only (name is NOT normalised), so {{Title}} is seen but
     // fails the allowed-set check rather than silently passing or being silently accepted.
@@ -132,4 +158,8 @@ public static partial class TemplateValidator
 
     [GeneratedRegex(@"<!--\s*(?:(?<open>IF)\s*:\s*(?<cond>[A-Za-z_]+)|/IF)\s*-->", RegexOptions.IgnoreCase)]
     private static partial Regex RegionRegex();
+
+    [GeneratedRegex(@"<!--\s*IF\s*:\s*[A-Za-z_]+\s*-->.*?<!--\s*/IF\s*-->",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    private static partial Regex IfRegionRegex();
 }

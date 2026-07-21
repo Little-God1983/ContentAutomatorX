@@ -102,6 +102,9 @@ public static partial class EmailHtmlRenderer
     // Same rule as StyleAnchor, applied to Markdig's image syntax. A non-http(s) src (e.g.
     // javascript: or data:) never reaches a mail client or browser today, but the renderer's
     // scheme check must hold for every URL-bearing value, images included — not anchors only.
+    // This also rejects relative and protocol-relative URLs (/images/a.png, //cdn.example.com/a.png)
+    // deliberately: a sent email has no base URL to resolve them against, so they would never load
+    // for a subscriber — matching the pre-existing anchor check, which rejects relative hrefs too.
     private static string StyleImg(Match m)
     {
         var url = m.Groups["src"].Value.Trim();
@@ -111,6 +114,10 @@ public static partial class EmailHtmlRenderer
             : "<img src=\"\" />";
     }
 
-    [GeneratedRegex("<img src=\"(?<src>[^\"]*)\"(?<rest>[^>]*)>")]
+    // No "rest" capture here (unlike AnchorRegex/StyleAnchor): StyleImg never needs the trailing
+    // attributes on their own — the safe branch returns m.Value (the whole original tag) verbatim,
+    // and the unsafe branch replaces the tag wholesale, so there is nothing for a separate group to
+    // feed back into the replacement.
+    [GeneratedRegex("<img src=\"(?<src>[^\"]*)\"[^>]*>")]
     private static partial Regex ImgRegex();
 }

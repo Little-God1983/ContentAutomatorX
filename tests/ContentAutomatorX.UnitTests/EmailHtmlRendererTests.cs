@@ -117,6 +117,21 @@ public class EmailHtmlRendererTests
         Assert.Contains("<img src=\"https://ex.com/x.png\"", html);
     }
 
+    [Fact] // Finding B — decision recorded, not a behaviour change: relative and protocol-relative
+    // image URLs are rejected deliberately, same as the pre-existing anchor check. A sent email has
+    // no base URL, so neither would ever resolve for a subscriber; this pins that as intended even
+    // though it does affect the in-browser composer preview for legacy free-markdown issues, where
+    // such URLs previously displayed.
+    public void Rejects_relative_and_protocol_relative_image_urls()
+    {
+        var html = EmailHtmlRenderer.Render(
+            "![a](/images/a.png) ![b](//cdn.example.com/a.png) ![ok](https://ex.com/x.png)", "Test");
+
+        Assert.DoesNotContain("src=\"/images/a.png\"", html);
+        Assert.DoesNotContain("src=\"//cdn.example.com/a.png\"", html);
+        Assert.Contains("<img src=\"https://ex.com/x.png\"", html);
+    }
+
     [Fact]
     public void Null_and_empty_markdown_render_the_shell_without_crashing()
     {

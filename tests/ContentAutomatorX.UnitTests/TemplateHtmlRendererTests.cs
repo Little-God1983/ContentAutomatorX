@@ -23,7 +23,7 @@ public class TemplateHtmlRendererTests
         <!-- /BLOCK -->
         <!-- BLOCK: video -->
         <!-- IF: thumbnail --><img class="thumb" src="{{thumbnail_url}}" /><!-- /IF -->
-        <h2>{{title}}</h2><a href="{{video_url}}">{{link_text}}</a>
+        <h2>{{title}}</h2><!-- IF: video --><a href="{{video_url}}">{{link_text}}</a><!-- /IF -->
         <!-- /BLOCK -->
         <!-- BLOCK: divider --><hr class="rule" /><!-- /BLOCK -->
         <!-- BLOCK: footer -->{{body_html}}<p>{{sender_identity}}</p><!-- /BLOCK -->
@@ -211,6 +211,24 @@ public class TemplateHtmlRendererTests
         var html = TemplateHtmlRenderer.Render([Section(SectionTypes.Divider)], MakeTenant(), "t",
             "<!-- BLOCK: topic -->x<!-- /BLOCK -->", DateTimeOffset.UtcNow);
         Assert.Equal("", html);
+    }
+
+    [Fact] // Finding E — the video fixture must not reintroduce the empty-href-anchor defect just
+    // fixed on the built-in (SectionHtmlRenderer) path: a video with no usable link must emit no
+    // anchor at all, not <a href="">...</a>.
+    public void Video_section_with_no_usable_link_emits_no_anchor()
+    {
+        var html = RenderOne(Section(SectionTypes.Video, title: "No link", body: "b"));
+        Assert.DoesNotContain("href=\"\"", html);
+        Assert.DoesNotContain("</h2><a ", html); // the video block's own anchor, not the shell's unsubscribe link
+    }
+
+    [Fact] // Finding E — the flip side: a good link must still produce the anchor.
+    public void Video_section_with_a_good_link_still_emits_the_anchor()
+    {
+        var html = RenderOne(Section(SectionTypes.Video, title: "v",
+            link: "https://youtu.be/dQw4w9WgXcQ", linkText: "Watch"));
+        Assert.Contains("<a href=\"https://youtu.be/dQw4w9WgXcQ\">Watch</a>", html);
     }
 
     [Fact]

@@ -141,6 +141,43 @@ public class SectionHtmlRendererTests
         Assert.Contains("<img src=\"https://img.example.com/x.png\"", html);
     }
 
+    [Theory] // Finding C — widen rejection coverage beyond the single javascript: case already
+    // covered above: mixed case, a leading space that defeats a naive StartsWith, and other
+    // dangerous schemes must all leave the thumbnail unwrapped.
+    [InlineData("javascript:alert(1)")]
+    [InlineData("JavaScript:alert(1)")]
+    [InlineData(" javascript:alert(1)")]
+    [InlineData("data:text/html,x")]
+    [InlineData("vbscript:msgbox(1)")]
+    public void Video_thumbnail_with_unsafe_link_scheme_has_no_anchor(string unsafeLinkUrl)
+    {
+        var section = new IssueSection
+        {
+            Position = 0, Type = SectionTypes.Video, Title = "V",
+            ImageUrl = "https://img.example.com/x.png", LinkUrl = unsafeLinkUrl
+        };
+        var html = SectionHtmlRenderer.RenderSection(section, EmailHtmlRenderer.DefaultAccent);
+        Assert.DoesNotContain("<a ", html);
+        Assert.DoesNotContain("<a>", html);
+        Assert.Contains("<img src=\"https://img.example.com/x.png\"", html);
+    }
+
+    [Fact] // Finding C — the positive branch of the Finding-1 fix was untested: nothing proved a
+    // valid https LinkUrl still wraps the thumbnail in an anchor. Deleting the anchor from the
+    // ternary entirely would leave the rest of the suite green without this.
+    public void Video_thumbnail_with_valid_link_is_wrapped_in_an_anchor_with_the_correct_href()
+    {
+        var section = new IssueSection
+        {
+            Position = 0, Type = SectionTypes.Video, Title = "V",
+            ImageUrl = "https://img.example.com/x.png", LinkUrl = "https://youtu.be/dQw4w9WgXcQ"
+        };
+        var html = SectionHtmlRenderer.RenderSection(section, EmailHtmlRenderer.DefaultAccent);
+        Assert.Contains(
+            "<a href=\"https://youtu.be/dQw4w9WgXcQ\"><img src=\"https://img.example.com/x.png\"", html);
+        Assert.Contains("</a>", html);
+    }
+
     [Fact]
     public void ToMarkdown_exports_all_section_types_without_the_compliance_footer()
     {

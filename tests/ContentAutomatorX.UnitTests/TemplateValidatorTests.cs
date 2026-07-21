@@ -72,6 +72,19 @@ public class TemplateValidatorTests
         Assert.DoesNotContain(issues, i => i.Message.Contains("unsubscribe"));
     }
 
+    [Fact] // Finding D — the captured placeholder name is compared with ordinal equality on purpose:
+    // TemplateHtmlRenderer's value dictionary lookup is also Ordinal (StringComparer.Ordinal), so
+    // {{UNSUBSCRIBE_URL}} would resolve to "" at render time and silently ship with no link. If this
+    // comparison is ever loosened to OrdinalIgnoreCase, an uppercase token would validate here while
+    // still rendering empty — an email with no unsubscribe link and no error anywhere. This test must
+    // keep failing if that happens.
+    public void Uppercase_unsubscribe_placeholder_is_rejected_not_silently_accepted()
+    {
+        var html = Valid.Replace("{{unsubscribe_url}}", "{{UNSUBSCRIBE_URL}}");
+        var issues = TemplateValidator.Validate(html);
+        Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
     [Fact] // Finding 4 — a token that appears only outside every block must still be rejected
     public void Unsubscribe_placeholder_outside_every_block_is_still_an_error()
     {
@@ -91,6 +104,57 @@ public class TemplateValidatorTests
         var issues = TemplateValidator.Validate(html);
         Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("never closed"));
         Assert.Contains(issues, i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // Finding A (Important) — a token inside an IF region that can collapse must not satisfy
+    // the rule: an issue whose footer BodyMd is empty (Tenant.DefaultFooterMd defaults to "") would
+    // render with no unsubscribe link at all, even though this template "validates clean" today.
+    public void Unsubscribe_token_only_inside_a_collapsing_IF_region_in_footer_is_rejected()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            <!-- IF: body -->{{body_html}}<a href="{{unsubscribe_url}}">Unsubscribe</a><!-- /IF -->
+            <p>{{sender_identity}}</p>
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // Finding A (Important) — a token that only lives in a block that may render zero times
+    // (sponsor/video/button — none of which is guaranteed for every issue) must not satisfy the
+    // rule: an issue without that section type renders with no unsubscribe link anywhere.
+    public void Unsubscribe_token_only_in_a_block_that_may_render_zero_times_is_rejected()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: sponsor -->
+            <p>{{title}}</p><a href="{{unsubscribe_url}}">Unsubscribe</a>
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // Finding A — the footer is one of the two blocks guaranteed to render for every issue,
+    // so a token placed there outside any IF region must still be accepted.
+    public void Unsubscribe_token_in_footer_outside_any_IF_is_accepted()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            {{body_html}}<a href="{{unsubscribe_url}}">Unsubscribe</a>
+            <!-- /BLOCK -->
+            """;
+        Assert.DoesNotContain(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
     }
 
     [Fact] // E10
