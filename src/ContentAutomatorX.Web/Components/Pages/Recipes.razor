@@ -77,7 +77,7 @@ else
         </MudSelect>
         <div class="d-flex align-center" style="gap:8px">
             <MudSelect T="Guid?" @bind-Value="_newsletterTemplateId" Label="Newsletter template" Class="flex-grow-1">
-                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Built-in design</MudSelectItem>
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Tenant default (built-in if none)</MudSelectItem>
                 @foreach (var nt in _newsletterTemplates)
                 {
                     <MudSelectItem T="Guid?" Value="@((Guid?)nt.Id)">@nt.Name@(nt.IsDefault ? " (default)" : "")</MudSelectItem>
@@ -168,7 +168,8 @@ else
             var parameters = new DialogParameters<TemplateEditorDialog>
             {
                 { x => x.Template, template },
-                { x => x.IsNew, isNew }
+                { x => x.IsNew, isNew },
+                { x => x.TenantId, Ctx.Active!.Id }
             };
             var options = new DialogOptions { FullScreen = true, CloseButton = true };
             var dialog = await DialogService.ShowAsync<TemplateEditorDialog>("Newsletter template", parameters, options);

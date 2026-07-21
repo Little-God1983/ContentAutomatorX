@@ -142,25 +142,36 @@ public static partial class TemplateValidator
     }
 
     /// <summary>True when {{unsubscribe_url}} appears in content outside every
-    /// <!-- IF -->...<!-- /IF --> region — i.e. the token sits somewhere that is not conditional on
-    /// a field being non-empty. Placeholders are matched against the ORIGINAL content and a match is
-    /// rejected only if its own span falls inside an IF-region span; the content itself is never
-    /// rewritten. Deleting IF regions from the text before scanning (the earlier approach) can splice
-    /// the characters on either side of a deleted region together and either invent a placeholder
-    /// that never existed in the source (e.g. "{{unsub<!-- IF: body -->.<!-- /IF -->scribe_url}}"
-    /// collapsing into "{{unsubscribe_url}}") or, when the region is instead kept because its
-    /// condition is true, leave the real token permanently split and broken — the opposite failure
-    /// mode, silent both times. Matching on the original text sidesteps this: a token straddling an
-    /// IF marker is not a contiguous {{name}} match in the source and correctly fails to satisfy the
-    /// rule either way. IF regions are validated elsewhere to be non-nested, so a single
-    /// non-recursive region match is sufficient; a malformed (unclosed) region simply fails to match
-    /// here and is reported separately by ValidateRegions.</summary>
+    /// <!-- IF -->...<!-- /IF --> region AND outside every HTML comment — i.e. the token sits
+    /// somewhere that is not conditional on a field being non-empty, and is not hidden from the
+    /// subscriber by being commented out (e.g. "<!-- <a href="{{unsubscribe_url}}">Unsub</a> -->",
+    /// left behind by someone commenting out a block while editing — a routine authoring action,
+    /// not an adversarial one). Placeholders are matched against the ORIGINAL content and a match is
+    /// rejected only if its own span falls inside an IF-region or comment span; the content itself is
+    /// never rewritten. Deleting regions from the text before scanning (the earlier approach) can
+    /// splice the characters on either side of a deleted region together and either invent a
+    /// placeholder that never existed in the source (e.g. "{{unsub<!-- IF: body -->.<!-- /IF
+    /// -->scribe_url}}" collapsing into "{{unsubscribe_url}}") or, when the region is instead kept
+    /// because its condition is true, leave the real token permanently split and broken — the
+    /// opposite failure mode, silent both times. Matching on the original text sidesteps this: a
+    /// token straddling an IF marker is not a contiguous {{name}} match in the source and correctly
+    /// fails to satisfy the rule either way. IF regions are validated elsewhere to be non-nested, so
+    /// a single non-recursive region match is sufficient; a malformed (unclosed) region simply fails
+    /// to match here and is reported separately by ValidateRegions. CommentRegex is intentionally
+    /// non-greedy and generic — it matches any "<!--...-->" span, including the load-bearing
+    /// "<!-- IF: cond -->" / "<!-- /IF -->" markers themselves, but since a marker's own span never
+    /// contains a "{{...}}" placeholder (it closes at its own first "-->"), matching them causes no
+    /// harm; it simply means a hiding comment placed anywhere in the block — not just ones written
+    /// around the unsubscribe link specifically — correctly removes any placeholder inside it from
+    /// consideration.</summary>
     private static bool HasUnsubscribeOutsideIf(string content)
     {
         var regions = IfRegionRegex().Matches(content);
+        var comments = CommentRegex().Matches(content);
         return PlaceholderRegex().Matches(content).Any(m =>
             m.Groups["name"].Value == "unsubscribe_url"
-            && !regions.Any(r => m.Index >= r.Index && m.Index < r.Index + r.Length));
+            && !regions.Any(r => m.Index >= r.Index && m.Index < r.Index + r.Length)
+            && !comments.Any(c => m.Index >= c.Index && m.Index < c.Index + c.Length));
     }
 
     // IgnoreCase so a mis-capitalised placeholder is still matched and reported as unknown — the
@@ -175,4 +186,10 @@ public static partial class TemplateValidator
     [GeneratedRegex(@"<!--\s*IF\s*:\s*[A-Za-z_]+\s*-->.*?<!--\s*/IF\s*-->",
         RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex IfRegionRegex();
+
+    // Generic HTML comment span, used only to keep the unsubscribe token's placement rule honest
+    // (see HasUnsubscribeOutsideIf) — a token that only ever appears inside a comment is invisible
+    // to the subscriber and must not satisfy the "guaranteed to render" requirement.
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
+    private static partial Regex CommentRegex();
 }

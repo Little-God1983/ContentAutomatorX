@@ -232,6 +232,90 @@ public class TemplateValidatorTests
             i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
     }
 
+    // Finding F2 — a routine authoring accident (commenting out a block while editing) can leave
+    // {{unsubscribe_url}} sitting inside an ordinary HTML comment. E5 previously passed because the
+    // token is a genuine placeholder outside every IF region — it just never reaches the subscriber,
+    // since browsers and email clients never render comment contents at all.
+
+    [Fact]
+    public void Unsubscribe_token_hidden_inside_an_ordinary_html_comment_is_rejected()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <!DOCTYPE html><html><body>
+            {{sections}}
+            <!-- <a href="{{unsubscribe_url}}">Unsub</a> -->
+            </body></html>
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error
+              && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+    }
+
+    [Fact] // The load-bearing IF/BLOCK markers are themselves HTML comments — the comment check must
+    // not treat a genuine, uncommented token as hidden just because IF markers sit nearby in the
+    // same block. This is Unsubscribe_token_in_footer_outside_any_IF_is_accepted's sibling, but with
+    // a hiding comment ALSO present elsewhere in the same block, to prove the two checks don't interact.
+    public void Unsubscribe_token_outside_a_comment_is_still_accepted_even_with_a_hiding_comment_elsewhere_in_the_block()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            <!-- A stray editing note, not hiding anything relevant -->
+            {{body_html}}<a href="{{unsubscribe_url}}">Unsubscribe</a>
+            <!-- /BLOCK -->
+            """;
+        Assert.DoesNotContain(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error && i.Message.Contains("unsubscribe"));
+    }
+
+    [Fact] // Re-confirms the two previously-closed defeats are not reopened by the comment fix: a
+    // token inside a collapsing IF region must still be rejected even with no comments involved at all.
+    public void Comment_fix_does_not_reopen_the_collapsing_IF_region_defeat()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            <!-- IF: body -->{{body_html}}<a href="{{unsubscribe_url}}">Unsubscribe</a><!-- /IF -->
+            <p>{{sender_identity}}</p>
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error
+              && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+    }
+
+    [Fact] // Re-confirms the split-token-around-an-IF-marker defeat is not reopened either: this is
+    // still not a contiguous {{unsubscribe_url}} in the source, comments or not.
+    public void Comment_fix_does_not_reopen_the_split_token_defeat()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}</body></html>
+            <!-- /BLOCK -->
+            <!-- BLOCK: footer -->
+            {{body_html}}{{unsub<!-- IF: body -->.<!-- /IF -->scribe_url}}
+            <!-- /BLOCK -->
+            """;
+        Assert.Contains(TemplateValidator.Validate(html),
+            i => i.Level == TemplateIssueLevel.Error
+              && i.Message.Contains("no {{unsubscribe_url}} that is guaranteed to render"));
+    }
+
+    [Fact]
+    public void The_starter_template_still_validates_with_no_errors()
+    {
+        var issues = TemplateValidator.Validate(StarterTemplate.Html);
+        var errors = issues.Where(i => i.Level == TemplateIssueLevel.Error).ToList();
+        Assert.True(errors.Count == 0,
+            "Starter template has errors:\n" + string.Join("\n", errors.Select(e => $"line {e.Line}: {e.Message}")));
+    }
+
     [Fact] // E10
     public void Unknown_placeholder_is_an_error_naming_the_block()
     {

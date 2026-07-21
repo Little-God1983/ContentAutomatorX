@@ -76,9 +76,9 @@ public class NewsletterTemplateServiceTests
         var service = Service(t);
 
         var first = new NewsletterTemplate { TenantId = tenantId, Name = "A", Html = MinimalHtml, IsDefault = true };
-        await service.SaveAsync(first);
+        await service.SaveAsync(first, tenantId);
         var second = new NewsletterTemplate { TenantId = tenantId, Name = "B", Html = MinimalHtml, IsDefault = true };
-        await service.SaveAsync(second);
+        await service.SaveAsync(second, tenantId);
 
         var all = await service.ListAsync(tenantId);
         Assert.Single(all, x => x.IsDefault);
@@ -95,18 +95,20 @@ public class NewsletterTemplateServiceTests
         var service = Service(t);
 
         var first = new NewsletterTemplate { TenantId = tenantId, Name = "A", Html = MinimalHtml, IsDefault = true };
-        await service.SaveAsync(first);
+        await service.SaveAsync(first, tenantId);
         var second = new NewsletterTemplate { TenantId = tenantId, Name = "B", Html = MinimalHtml };
-        await service.SaveAsync(second);
+        await service.SaveAsync(second, tenantId);
 
-        // Simulate a caller (e.g. the template editor UI) that hands SaveAsync a TenantId that does
-        // not match the row's real owner — either mangled to another tenant, or left at the default.
+        // Simulate a caller (e.g. the template editor UI) that hands SaveAsync an entity whose own
+        // TenantId field does not match the row's real owner — either mangled to another tenant, or
+        // left at the default — while the explicit tenantId parameter (the authoritative source,
+        // e.g. TenantContext.Active.Id) is correct. The entity's own field must still be ignored.
         var bogusTenantId = wrongNotEmpty ? Guid.NewGuid() : Guid.Empty;
         var updatePayload = new NewsletterTemplate
         {
             Id = second.Id, TenantId = bogusTenantId, Name = "B", Html = MinimalHtml, IsDefault = true
         };
-        await service.SaveAsync(updatePayload);
+        await service.SaveAsync(updatePayload, tenantId);
 
         var all = await service.ListAsync(tenantId);
         var defaults = all.Where(x => x.IsDefault).ToList();
@@ -123,8 +125,8 @@ public class NewsletterTemplateServiceTests
         var mine = Guid.NewGuid();
         var theirs = Guid.NewGuid();
 
-        await service.SaveAsync(new NewsletterTemplate { TenantId = mine, Name = "Mine", Html = MinimalHtml, IsDefault = true });
-        await service.SaveAsync(new NewsletterTemplate { TenantId = theirs, Name = "Theirs", Html = MinimalHtml, IsDefault = true });
+        await service.SaveAsync(new NewsletterTemplate { TenantId = mine, Name = "Mine", Html = MinimalHtml, IsDefault = true }, mine);
+        await service.SaveAsync(new NewsletterTemplate { TenantId = theirs, Name = "Theirs", Html = MinimalHtml, IsDefault = true }, theirs);
 
         Assert.Single(await service.ListAsync(mine));
         Assert.True((await service.ListAsync(theirs)).Single().IsDefault);
@@ -134,12 +136,13 @@ public class NewsletterTemplateServiceTests
     public async Task Save_rejects_a_template_with_validation_errors()
     {
         using var t = TestDb.Create();
+        var tenantId = Guid.NewGuid();
         var template = new NewsletterTemplate
         {
-            TenantId = Guid.NewGuid(), Name = "Broken",
+            TenantId = tenantId, Name = "Broken",
             Html = "<!-- BLOCK: shell -->no slot, no unsubscribe<!-- /BLOCK -->"
         };
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(t).SaveAsync(template));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Service(t).SaveAsync(template, tenantId));
         Assert.Empty(await t.Db.NewsletterTemplates.ToListAsync());
     }
 
@@ -150,7 +153,7 @@ public class NewsletterTemplateServiceTests
         var tenantId = Guid.NewGuid();
         var service = Service(t);
         var template = new NewsletterTemplate { TenantId = tenantId, Name = "A", Html = MinimalHtml };
-        await service.SaveAsync(template);
+        await service.SaveAsync(template, tenantId);
 
         t.Db.Recipes.Add(new Recipe
         {
@@ -159,7 +162,7 @@ public class NewsletterTemplateServiceTests
         });
         await t.Db.SaveChangesAsync();
 
-        await service.DeleteAsync(template.Id);
+        await service.DeleteAsync(template.Id, tenantId);
 
         Assert.Empty(await t.Db.NewsletterTemplates.ToListAsync());
         Assert.Null((await t.Db.Recipes.SingleAsync()).NewsletterTemplateId);
@@ -173,8 +176,8 @@ public class NewsletterTemplateServiceTests
         var service = Service(t);
         var chosen = new NewsletterTemplate { TenantId = tenantId, Name = "Chosen", Html = MinimalHtml };
         var fallback = new NewsletterTemplate { TenantId = tenantId, Name = "Default", Html = MinimalHtml, IsDefault = true };
-        await service.SaveAsync(fallback);
-        await service.SaveAsync(chosen);
+        await service.SaveAsync(fallback, tenantId);
+        await service.SaveAsync(chosen, tenantId);
 
         var recipe = new Recipe
         {
@@ -199,7 +202,7 @@ public class NewsletterTemplateServiceTests
         var tenantId = Guid.NewGuid();
         var service = Service(t);
         await service.SaveAsync(new NewsletterTemplate
-            { TenantId = tenantId, Name = "Default", Html = MinimalHtml, IsDefault = true });
+            { TenantId = tenantId, Name = "Default", Html = MinimalHtml, IsDefault = true }, tenantId);
 
         Guid? recipeId = null;
         if (withRecipe)
@@ -223,8 +226,9 @@ public class NewsletterTemplateServiceTests
         using var t = TestDb.Create();
         var mine = Guid.NewGuid();
         var service = Service(t);
-        var theirs = new NewsletterTemplate { TenantId = Guid.NewGuid(), Name = "Theirs", Html = MinimalHtml };
-        await service.SaveAsync(theirs);
+        var theirsTenantId = Guid.NewGuid();
+        var theirs = new NewsletterTemplate { TenantId = theirsTenantId, Name = "Theirs", Html = MinimalHtml };
+        await service.SaveAsync(theirs, theirsTenantId);
 
         var recipe = new Recipe { TenantId = mine, Name = "R", Kind = "Newsletter",
             PromptTemplateId = Guid.NewGuid(), NewsletterTemplateId = theirs.Id };
@@ -247,5 +251,54 @@ public class NewsletterTemplateServiceTests
         await t.Db.SaveChangesAsync();
 
         Assert.Null(await Service(t).ResolveForPostAsync(post.Id));
+    }
+
+    // Finding F3 — GetAsync, SaveAsync's existing-row lookup and DeleteAsync located a row by Id
+    // alone with no tenant predicate. Only ListAsync was scoped. Not currently reachable through the
+    // UI (every id it sees comes from a tenant-scoped ListAsync call first), but the spec asserts
+    // tenant scoping is enforced by an explicit .Where in the service, and it was true of one method
+    // in four. These two tests cover SaveAsync and DeleteAsync now that both take an explicit
+    // tenantId. GetAsync had zero callers anywhere in the codebase and was deleted rather than fixed
+    // — see the report for the reasoning.
+
+    [Fact] // F3 — SaveAsync's existing-row lookup must be scoped by the explicit tenantId, not just
+    // Id, so a caller that supplies another tenant's template id cannot overwrite that tenant's row
+    // by passing its own tenantId alongside it.
+    public async Task SaveAsync_does_not_let_a_caller_overwrite_another_tenants_template_by_id()
+    {
+        using var t = TestDb.Create();
+        var ownerTenantId = Guid.NewGuid();
+        var attackerTenantId = Guid.NewGuid();
+        var service = Service(t);
+
+        var original = new NewsletterTemplate { TenantId = ownerTenantId, Name = "Original", Html = MinimalHtml };
+        await service.SaveAsync(original, ownerTenantId);
+
+        var hijack = new NewsletterTemplate
+            { Id = original.Id, TenantId = attackerTenantId, Name = "Hijacked", Html = MinimalHtml };
+        // Rejecting the attempt outright (e.g. a duplicate-key exception, since the tenant-scoped
+        // lookup finds nothing and falls through to insert a row whose id is already taken) is an
+        // acceptable outcome here — the only thing that must never happen is a silent overwrite.
+        try { await service.SaveAsync(hijack, attackerTenantId); } catch { }
+
+        var stored = await t.Db.NewsletterTemplates.SingleAsync(x => x.Id == original.Id);
+        Assert.Equal("Original", stored.Name);
+        Assert.Equal(ownerTenantId, stored.TenantId);
+    }
+
+    [Fact] // F3 — DeleteAsync must be scoped by tenant too: a caller that knows another tenant's
+    // template id must not be able to delete it by passing its own tenantId.
+    public async Task DeleteAsync_does_not_delete_a_row_owned_by_another_tenant()
+    {
+        using var t = TestDb.Create();
+        var ownerTenantId = Guid.NewGuid();
+        var attackerTenantId = Guid.NewGuid();
+        var service = Service(t);
+        var template = new NewsletterTemplate { TenantId = ownerTenantId, Name = "Mine", Html = MinimalHtml };
+        await service.SaveAsync(template, ownerTenantId);
+
+        await service.DeleteAsync(template.Id, attackerTenantId);
+
+        Assert.NotNull(await t.Db.NewsletterTemplates.SingleOrDefaultAsync(x => x.Id == template.Id));
     }
 }

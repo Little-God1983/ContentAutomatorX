@@ -205,20 +205,45 @@ public class TemplateHtmlRendererTests
         Assert.DoesNotContain("Wrong header.", html.Split("</span>")[0]);
     }
 
-    [Fact]
-    public void A_template_with_no_shell_renders_nothing_rather_than_throwing()
+    [Fact] // Robustness re-confirmation — TemplateValidator rejects a nested IF at save time, but the
+    // renderer must still never throw if a bad template reaches it anyway (E13 bypassed some other
+    // way). ApplyRegions is a linear scan with no recursion, so a nested marker is just consumed as
+    // part of whichever region closes first — odd output, never an exception.
+    public void Nested_if_region_does_not_throw()
     {
-        var html = TemplateHtmlRenderer.Render([Section(SectionTypes.Divider)], MakeTenant(), "t",
-            "<!-- BLOCK: topic -->x<!-- /BLOCK -->", DateTimeOffset.UtcNow);
-        Assert.Equal("", html);
+        const string nested = """
+            <!-- BLOCK: shell -->{{sections}}{{unsubscribe_url}}<!-- /BLOCK -->
+            <!-- BLOCK: topic -->
+            <!-- IF: image --><!-- IF: link --><img src="{{image_url}}" /><!-- /IF --><!-- /IF -->
+            <h2>{{title}}</h2>
+            <!-- /BLOCK -->
+            """;
+        var exception = Record.Exception(() => TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Topic, title: "t", image: "https://example.com/a.png", link: "https://example.com")],
+            MakeTenant(), "t", nested, DateTimeOffset.UtcNow));
+        Assert.Null(exception);
     }
 
-    [Fact] // Item 2 — an empty template must not throw either; it has no shell, same as above.
-    public void An_empty_template_renders_nothing_rather_than_throwing()
+    [Fact] // Finding F4 — a template with no shell used to render "", which bypasses
+    // EnsureUnsubscribeLink entirely (PostService.PushAsync takes the return value unconditionally
+    // when the issue has sections) and would push an empty, link-less campaign body. It must instead
+    // fall back to the built-in renderer, the same backstop philosophy as a missing individual block.
+    public void A_template_with_no_shell_falls_back_to_the_built_in_design_rather_than_rendering_empty()
+    {
+        var html = TemplateHtmlRenderer.Render([Section(SectionTypes.Topic, title: "Fallback", body: "b")],
+            MakeTenant(), "t", "<!-- BLOCK: topic -->x<!-- /BLOCK -->", DateTimeOffset.UtcNow);
+        Assert.NotEmpty(html);
+        Assert.Contains("Fallback", html);
+        Assert.Contains(SectionHtmlRenderer.UnsubscribeToken, html);
+    }
+
+    [Fact] // Finding F4's other half — an empty template has no shell either, same fix applies.
+    public void An_empty_template_falls_back_to_the_built_in_design_rather_than_rendering_empty()
     {
         var html = TemplateHtmlRenderer.Render([Section(SectionTypes.Divider)], MakeTenant(), "t",
             "", DateTimeOffset.UtcNow);
-        Assert.Equal("", html);
+        Assert.NotEmpty(html);
+        Assert.Contains(SectionHtmlRenderer.UnsubscribeToken, html);
     }
 
     // Item 2 — the render-time backstop. TemplateValidator gates saving, but two independent
@@ -277,6 +302,60 @@ public class TemplateHtmlRendererTests
         var html = RenderOne(Section(SectionTypes.Video, title: "No link", body: "b"));
         Assert.DoesNotContain("href=\"\"", html);
         Assert.DoesNotContain("</h2><a ", html); // the video block's own anchor, not the shell's unsubscribe link
+    }
+
+    [Fact] // Finding F2 — the render-time backstop. A commented-out unsubscribe link
+    // ("<!-- <a href="{{unsubscribe_url}}">Unsub</a> -->") satisfies a naive Contains() check on the
+    // rendered HTML — the token is textually present — but a subscriber can never see or click it,
+    // since browsers and email clients never render comment contents. TemplateValidator's E5 rule
+    // rejects this at save time (see TemplateValidatorTests), but this proves the render-time
+    // backstop independently catches the same defeat if a bad template ever reaches render anyway.
+    public void Backstop_appends_a_link_when_the_only_token_is_hidden_inside_a_comment()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body>{{sections}}<!-- <a href="{{unsubscribe_url}}">Unsub</a> --></body></html>
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
+        // The commented-out one is still there, untouched — plus a real, uncommented one appended.
+        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
+            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
+        Assert.Equal(2, visibleCount);
+        Assert.Contains("Unsubscribe</a>", rendered);
+        // The appended one sits outside the comment that hid the original.
+        var appendedIndex = rendered.LastIndexOf(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal);
+        var lastCommentClose = rendered.LastIndexOf("-->", StringComparison.Ordinal);
+        Assert.True(appendedIndex > lastCommentClose);
+    }
+
+    [Fact] // Finding F2 — the flip side: a template whose token sits both inside a hiding comment AND
+    // for real, outside any comment, must render byte-identically with nothing appended — the
+    // backstop must not fire just because a comment happens to be present somewhere in the document.
+    public void Backstop_does_not_fire_when_a_real_token_coexists_with_a_commented_out_one()
+    {
+        const string html = """
+            <!-- BLOCK: shell -->
+            <html><body><!-- <a href="{{unsubscribe_url}}">old</a> -->{{sections}}<a href="{{unsubscribe_url}}">Unsubscribe</a></body></html>
+            <!-- /BLOCK -->
+            """;
+        var rendered = TemplateHtmlRenderer.Render([], MakeTenant(), "t", html, DateTimeOffset.UtcNow);
+        var visibleCount = System.Text.RegularExpressions.Regex.Matches(
+            rendered, System.Text.RegularExpressions.Regex.Escape(SectionHtmlRenderer.UnsubscribeToken)).Count;
+        Assert.Equal(2, visibleCount);   // the commented one and the real one — nothing appended
+    }
+
+    [Fact] // Finding F6 — Preheader used to strip * _ ` # unconditionally, which mangled an
+    // intra-word underscore into "wellknown". ReadingTime.EmphasisRegex already solved exactly this
+    // with a boundary-aware pattern; Preheader must use the same approach.
+    public void Preheader_keeps_an_intra_word_underscore()
+    {
+        var html = TemplateHtmlRenderer.Render(
+            [Section(SectionTypes.Header, body: "A well_known technique, and **bold** too.")],
+            MakeTenant(), "t", Template, DateTimeOffset.UtcNow);
+        var preheader = html.Split("<span class=\"pre\">")[1].Split("</span>")[0];
+        Assert.Contains("well_known", preheader);
+        Assert.DoesNotContain("**", preheader);
     }
 
     [Fact] // Finding E — the flip side: a good link must still produce the anchor.

@@ -17,7 +17,16 @@ public static partial class TemplateHtmlRenderer
         string templateHtml, DateTimeOffset issueDate)
     {
         var parsed = TemplateParser.Parse(templateHtml);
-        if (!parsed.Blocks.TryGetValue(TemplateBlocks.Shell, out var shell)) return "";
+        if (!parsed.Blocks.TryGetValue(TemplateBlocks.Shell, out var shell))
+            // Backstop that should never fire: TemplateValidator's E3 rule blocks saving a template
+            // with no BLOCK: shell, so reaching this needs a validator bug or a row written straight
+            // to the database. Returning "" here used to bypass EnsureUnsubscribeLink entirely —
+            // PostService.PushAsync takes whatever this returns unconditionally when the issue has
+            // sections, so an empty string became an empty campaign body with no unsubscribe link at
+            // all. Falling back to the built-in renderer instead guarantees the issue still goes out
+            // with real content and its own unsubscribe footer, the same guarantee EnsureUnsubscribeLink
+            // exists to provide for every other template defect.
+            return SectionHtmlRenderer.Render(sections, tenant, title);
 
         var branding = TenantBranding.Parse(tenant.BrandingJson);
         var accent = SafeAccent(branding.AccentColorHex);
@@ -61,7 +70,7 @@ public static partial class TemplateHtmlRenderer
     /// token is untouched: this must never alter the output of a correct template.</summary>
     private static string EnsureUnsubscribeLink(string html)
     {
-        if (html.Contains(SectionHtmlRenderer.UnsubscribeToken, StringComparison.Ordinal)) return html;
+        if (HasUnsubscribeOutsideComments(html)) return html;
 
         // Same visual weight as SectionHtmlRenderer.Render's own footer line — small, muted, unobtrusive.
         var paragraph = "<p style=\"margin:0;font-size:12px;color:#888888;\">"
@@ -69,6 +78,29 @@ public static partial class TemplateHtmlRenderer
 
         var bodyClose = html.LastIndexOf("</body>", StringComparison.OrdinalIgnoreCase);
         return bodyClose >= 0 ? html.Insert(bodyClose, paragraph) : html + paragraph;
+    }
+
+    /// <summary>True when UnsubscribeToken (the already-substituted literal, not the {{placeholder}} —
+    /// this runs after RenderBlock) appears somewhere that is not inside an HTML comment. A template
+    /// author can comment out a block while editing (e.g. "<!-- <a href="%%UNSUBSCRIBE%%">Unsub</a>
+    /// -->") and TemplateValidator's HasUnsubscribeOutsideIf rejects that at save time — but this is
+    /// the render-time backstop for the same defeat, so it must apply the identical rule: a token's
+    /// mere presence in the assembled HTML is not enough, since a naive Contains() check (the
+    /// previous implementation) is satisfied by a token that a subscriber can never actually see or
+    /// click. Matches on the rendered text and rejects by index span, same reasoning as
+    /// TemplateValidator's comment/region checks — never rewrite the text being scanned.</summary>
+    private static bool HasUnsubscribeOutsideComments(string html)
+    {
+        var comments = CommentRegex().Matches(html);
+        var token = SectionHtmlRenderer.UnsubscribeToken;
+        var searchFrom = 0;
+        while (true)
+        {
+            var found = html.IndexOf(token, searchFrom, StringComparison.Ordinal);
+            if (found < 0) return false;
+            if (!comments.Any(c => found >= c.Index && found < c.Index + c.Length)) return true;
+            searchFrom = found + token.Length;
+        }
     }
 
     /// <summary>Regions first, then placeholders: a dropped region's placeholders should never be
@@ -171,7 +203,8 @@ public static partial class TemplateHtmlRenderer
     {
         var header = sections.OrderBy(s => s.Position).FirstOrDefault(s => s.Type == SectionTypes.Header);
         if (string.IsNullOrWhiteSpace(header?.BodyMd)) return "";
-        var text = MarkdownSyntaxRegex().Replace(header.BodyMd, "").Replace('\n', ' ').Trim();
+        var text = MarkdownSyntaxRegex().Replace(header.BodyMd, "");
+        text = MarkdownEmphasisRegex().Replace(text, "").Replace('\n', ' ').Trim();
         if (text.Length > 200) text = text[..200];
         return WebUtility.HtmlEncode(text);
     }
@@ -189,9 +222,22 @@ public static partial class TemplateHtmlRenderer
     [GeneratedRegex(@"<!--\s*/IF\s*-->", RegexOptions.IgnoreCase)]
     private static partial Regex RegionCloseRegex();
 
-    [GeneratedRegex(@"[#*_`]+")]
+    [GeneratedRegex(@"[#`]+")]
     private static partial Regex MarkdownSyntaxRegex();
+
+    // * and _ carry markdown meaning (bold/italic) only at a word boundary — same reasoning and
+    // pattern as ReadingTime.EmphasisRegex. An intra-word underscore ("well_known") has word
+    // characters on both immediate sides and must be left alone, or ordinary prose gets mangled in
+    // the inbox preview line.
+    [GeneratedRegex(@"(?<!\w)[*_]+|[*_]+(?!\w)")]
+    private static partial Regex MarkdownEmphasisRegex();
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex AccentRegex();
+
+    // Generic HTML comment span, used only to keep EnsureUnsubscribeLink's backstop honest (see its
+    // own doc comment) — a token that only ever appears inside a comment is invisible to the
+    // subscriber and must not count as "already present".
+    [GeneratedRegex(@"<!--.*?-->", RegexOptions.Singleline)]
+    private static partial Regex CommentRegex();
 }

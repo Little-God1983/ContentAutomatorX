@@ -72,6 +72,11 @@
     /// "Template deleted." success snackbar.</summary>
     [Parameter] public bool IsNew { get; set; }
 
+    /// <summary>The authoritative tenant for Save/Delete — sourced from Recipes.razor's TenantContext,
+    /// not from Template.TenantId, which NewsletterTemplateService now treats as untrusted (see its
+    /// own comments): this dialog has no TenantContext of its own, so the caller must hand it in.</summary>
+    [Parameter, EditorRequired] public Guid TenantId { get; set; }
+
     private NewsletterTemplate _template = default!;
     private string _name = "", _html = "", _preview = "";
     private bool _isDefault, _busy, _hasErrors;
@@ -137,7 +142,7 @@
             _template.Name = _name;
             _template.Html = _html;
             _template.IsDefault = _isDefault;
-            await Templates.SaveAsync(_template);
+            await Templates.SaveAsync(_template, TenantId);
             Snackbar.Add("Template saved.", Severity.Success);
             Dialog.Close(DialogResult.Ok(_template));
         }
@@ -153,7 +158,7 @@
         _busy = true;
         try
         {
-            await Templates.DeleteAsync(_template.Id);
+            await Templates.DeleteAsync(_template.Id, TenantId);
             Snackbar.Add("Template deleted.", Severity.Success);
             Dialog.Close(DialogResult.Ok((NewsletterTemplate?)null));
         }

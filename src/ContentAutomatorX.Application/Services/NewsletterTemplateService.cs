@@ -11,12 +11,14 @@ public class NewsletterTemplateService(IAppDbContext db)
         await db.NewsletterTemplates.Where(t => t.TenantId == tenantId)
             .OrderBy(t => t.Name).ToListAsync(ct);
 
-    public Task<NewsletterTemplate?> GetAsync(Guid id, CancellationToken ct = default) =>
-        db.NewsletterTemplates.FirstOrDefaultAsync(t => t.Id == id, ct);
-
     /// <summary>Creates or updates. Validation runs here rather than in the UI so a template can
-    /// never reach the database in a state that would send an email with no unsubscribe link.</summary>
-    public async Task SaveAsync(NewsletterTemplate template, CancellationToken ct = default)
+    /// never reach the database in a state that would send an email with no unsubscribe link.
+    /// tenantId is the authoritative owner for both the existing-row lookup and the insert path —
+    /// never template.TenantId, which is a caller-supplied field the UI's form state could omit,
+    /// mangle, or (were this ever reachable from anywhere other than a tenant-scoped list) forge to
+    /// reach a row it does not own. There is no foreign key and no database constraint enforcing
+    /// tenant ownership, so this explicit predicate is the only thing that does.</summary>
+    public async Task SaveAsync(NewsletterTemplate template, Guid tenantId, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(template.Name))
             throw new InvalidOperationException("Give the template a name.");
@@ -26,17 +28,16 @@ public class NewsletterTemplateService(IAppDbContext db)
             throw new InvalidOperationException("Fix the template errors first: "
                 + string.Join(" ", issues.Where(i => i.Level == TemplateIssueLevel.Error).Select(i => i.Message)));
 
-        var existing = await db.NewsletterTemplates.FirstOrDefaultAsync(t => t.Id == template.Id, ct);
+        var existing = await db.NewsletterTemplates
+            .FirstOrDefaultAsync(t => t.Id == template.Id && t.TenantId == tenantId, ct);
         if (existing is null)
         {
+            template.TenantId = tenantId;
             template.UpdatedAt = DateTimeOffset.UtcNow;
             db.NewsletterTemplates.Add(template);
         }
         else
         {
-            // template.TenantId is never trusted for an update — existing.TenantId (the row's real
-            // owner) is what drives the sibling-clearing query below, so a caller-supplied TenantId
-            // that is missing or wrong cannot misdirect it.
             existing.Name = template.Name;
             existing.Html = template.Html;
             existing.IsDefault = template.IsDefault;
@@ -44,22 +45,20 @@ public class NewsletterTemplateService(IAppDbContext db)
         }
 
         // At most one default per tenant, enforced here because the EF SQLite provider has no
-        // filtered unique index and this service is the only writer. Filter by the authoritative
-        // tenant — existing.TenantId on update, template.TenantId only on insert — never by the
-        // caller-supplied template.TenantId on an update, which the UI's form state could omit or
-        // mangle.
-        var ownerTenantId = existing?.TenantId ?? template.TenantId;
+        // filtered unique index and this service is the only writer. Filtered by the same
+        // authoritative tenantId used above — never by template.TenantId.
         if (template.IsDefault)
             foreach (var other in await db.NewsletterTemplates
-                         .Where(t => t.TenantId == ownerTenantId && t.Id != template.Id).ToListAsync(ct))
+                         .Where(t => t.TenantId == tenantId && t.Id != template.Id).ToListAsync(ct))
                 other.IsDefault = false;
 
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task DeleteAsync(Guid id, CancellationToken ct = default)
+    public async Task DeleteAsync(Guid id, Guid tenantId, CancellationToken ct = default)
     {
-        var template = await db.NewsletterTemplates.FirstOrDefaultAsync(t => t.Id == id, ct);
+        var template = await db.NewsletterTemplates
+            .FirstOrDefaultAsync(t => t.Id == id && t.TenantId == tenantId, ct);
         if (template is null) return;
 
         // No FK from Recipe, so nothing clears these for us. Left dangling they would fall through

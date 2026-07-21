@@ -209,6 +209,29 @@ public class IssueChatServiceTests
         Assert.Equal(sections[2].Id, (await test.Db.IssueSectionProposals.SingleAsync()).SectionId);
     }
 
+    [Fact] // F5 — free chat applies no type filter, so the model can propose a category on a
+    // section type that has no category concept (only Topic renders {{category}} —
+    // TemplatePlaceholders.BlockSpecific). It must be dropped, not stored: stored-but-unrenderable
+    // would also be silently wiped the next time the section card is expanded and Apply is clicked
+    // (SectionCard.HasCategory() is Topic-only, and Apply is a full-field replace).
+    public async Task A_proposed_category_on_a_section_type_with_no_category_is_dropped()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var reply = $$"""
+            {"reply":"Tagged it.","edits":[{"sectionId":"{{sections[2].Id}}","bodyMd":"better ad","category":"Ads"}]}
+            """;
+
+        var result = await Chat(test, new SequenceLlm(reply)).SendAsync(post.Id, "fix the sponsor and tag it");
+
+        Assert.Equal(1, result.ProposalCount);
+        Assert.Equal(1, result.DroppedEdits);   // the category component, not the whole edit
+        var proposal = await test.Db.IssueSectionProposals.SingleAsync();
+        Assert.Equal(sections[2].Id, proposal.SectionId);   // Sponsor — the rest of the edit still lands
+        Assert.Equal("better ad", proposal.ProposedBodyMd);
+        Assert.Null(proposal.ProposedCategory);
+    }
+
     [Fact]
     public async Task RegenerateAll_targets_header_and_topics_only_and_writes_no_chat_messages()
     {

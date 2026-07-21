@@ -262,6 +262,23 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
                 dropped++;
                 continue;
             }
+
+            // Free chat applies no type filter (restrictTo is null), so the model can propose a
+            // category on a section type that has none — a Footer, Divider or Video. It would be
+            // stored and shown in the proposal panel, but only Topic sections ever render
+            // {{category}}, so it would never actually appear — and the next time the user expands
+            // that card and clicks Apply, SectionCard's full-replace write would silently wipe it,
+            // since SectionCard.HasCategory() is Topic-only and never shows a field for it to
+            // survive in. Drop it here, in code, rather than relying on the prompt telling the model
+            // not to propose one — and count it the same way an out-of-scope edit is counted, so the
+            // UI can report it instead of silently proposing less than the reply claimed.
+            var category = edit.Category;
+            if (category is not null && !SectionTypes.HasCategory(section.Type))
+            {
+                category = null;
+                dropped++;
+            }
+
             // At most one pending proposal per section — a later suggestion supersedes an earlier
             // one rather than queueing behind it. The unique index enforces this too.
             var previous = existing.FirstOrDefault(p => p.SectionId == edit.SectionId);
@@ -274,7 +291,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             {
                 PostId = postId, SectionId = section.Id,
                 ProposedTitle = edit.Title, ProposedBodyMd = edit.BodyMd,
-                ProposedCategory = edit.Category,
+                ProposedCategory = category,
                 BaselineBodyMd = section.BodyMd ?? "", BaselineTitle = section.Title,
                 BaselineCategory = section.Category
             });
