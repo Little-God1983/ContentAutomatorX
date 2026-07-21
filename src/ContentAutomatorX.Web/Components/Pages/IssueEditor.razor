@@ -118,6 +118,7 @@ else
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Sponsor))">Sponsor block</MudMenuItem>
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Button))">Button / CTA</MudMenuItem>
                     <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Divider))">Divider</MudMenuItem>
+                    <MudMenuItem OnClick="@(() => AddSectionAsync(SectionTypes.Video))">Video</MudMenuItem>
                 </MudMenu>
                 <MudTextField @bind-Value="_extraInstructions"
                               Label="Extra instructions (used by Generate and every ✨)" Lines="2" Class="mt-3" />
@@ -304,7 +305,7 @@ else
         RunMutationAsync(c => c.AddSectionAsync(PostId, type), "Add");
 
     private Task ApplyAsync(IssueSection s, SectionCard.SectionEdit e) =>
-        RunMutationAsync(c => c.UpdateSectionAsync(s.Id, e.Title, e.BodyMd, e.ImageUrl, e.LinkUrl, e.LinkText), "Save");
+        RunMutationAsync(c => c.UpdateSectionAsync(s.Id, e.Title, e.BodyMd, e.ImageUrl, e.LinkUrl, e.LinkText, e.Category), "Save");
 
     private async Task GenerateAsync()
     {

@@ -56,17 +56,21 @@
             {
                 <MudTextField @bind-Value="_title" Label="@(Section.Type == SectionTypes.Sponsor ? "Sponsor name" : "Title")" />
             }
+            @if (HasCategory())
+            {
+                <MudTextField @bind-Value="_category" Label="Category (e.g. Tutorial, News)" />
+            }
             @if (HasBody())
             {
                 <MudTextField @bind-Value="_body" Label="Text (markdown)" Lines="6" Style="font-family:monospace" />
             }
             @if (HasImage())
             {
-                <MudTextField @bind-Value="_image" Label="@(Section.Type == SectionTypes.Sponsor ? "Logo URL (https)" : "Image URL (https)")" />
+                <MudTextField @bind-Value="_image" Label="@ImageLabel()" />
             }
             @if (HasLink())
             {
-                <MudTextField @bind-Value="_link" Label="Link URL (https)" />
+                <MudTextField @bind-Value="_link" Label="@LinkLabel()" />
             }
             @if (HasLinkText())
             {
@@ -82,7 +86,8 @@
 </MudPaper>
 
 @code {
-    public record SectionEdit(string? Title, string? BodyMd, string? ImageUrl, string? LinkUrl, string? LinkText);
+    public record SectionEdit(string? Title, string? BodyMd, string? ImageUrl, string? LinkUrl,
+        string? LinkText, string? Category);
 
     [Parameter, EditorRequired] public IssueSection Section { get; set; } = default!;
     [Parameter] public int TopicNumber { get; set; }
@@ -98,31 +103,44 @@
     [Parameter] public EventCallback OnRejectProposal { get; set; }
 
     private bool _expanded;
-    private string _title = "", _body = "", _image = "", _link = "", _linkText = "";
+    private string _title = "", _body = "", _image = "", _link = "", _linkText = "", _category = "";
 
     private void ToggleExpand()
     {
         _expanded = !_expanded;
         if (_expanded)
-            (_title, _body, _image, _link, _linkText) = (Section.Title ?? "", Section.BodyMd ?? "",
-                Section.ImageUrl ?? "", Section.LinkUrl ?? "", Section.LinkText ?? "");
+            (_title, _body, _image, _link, _linkText, _category) = (Section.Title ?? "",
+                Section.BodyMd ?? "", Section.ImageUrl ?? "", Section.LinkUrl ?? "",
+                Section.LinkText ?? "", Section.Category ?? "");
     }
 
     private async Task Apply()
     {
         await OnApply.InvokeAsync(new SectionEdit(NullIfEmpty(_title), NullIfEmpty(_body),
-            NullIfEmpty(_image), NullIfEmpty(_link), NullIfEmpty(_linkText)));
+            NullIfEmpty(_image), NullIfEmpty(_link), NullIfEmpty(_linkText), NullIfEmpty(_category)));
         _expanded = false;
     }
 
     private static string? NullIfEmpty(string s) => string.IsNullOrWhiteSpace(s) ? null : s;
 
     private bool Movable() => Section.Type is not (SectionTypes.Header or SectionTypes.Footer);
-    private bool HasTitle() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor;
+    private bool HasTitle() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor or SectionTypes.Video;
+    private bool HasCategory() => Section.Type is SectionTypes.Topic;
     private bool HasBody() => Section.Type is not (SectionTypes.Button or SectionTypes.Divider);
-    private bool HasImage() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor;
-    private bool HasLink() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor or SectionTypes.Button;
-    private bool HasLinkText() => Section.Type is SectionTypes.Sponsor or SectionTypes.Button;
+    private bool HasImage() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor or SectionTypes.Video;
+    private bool HasLink() => Section.Type is SectionTypes.Topic or SectionTypes.Sponsor
+        or SectionTypes.Button or SectionTypes.Video;
+    private bool HasLinkText() => Section.Type is SectionTypes.Sponsor or SectionTypes.Button or SectionTypes.Video;
+
+    private string ImageLabel() => Section.Type switch
+    {
+        SectionTypes.Sponsor => "Logo URL (https)",
+        SectionTypes.Video => "Thumbnail URL (optional — derived from the video when blank)",
+        _ => "Image URL (https)"
+    };
+
+    private string LinkLabel() => Section.Type == SectionTypes.Video
+        ? "YouTube URL" : "Link URL (https)";
 
     private string Label() => Section.Type switch
     {
@@ -132,6 +150,7 @@
         SectionTypes.Divider => "— Divider —",
         SectionTypes.Button => $"Button: {Section.LinkText ?? "(set label)"}",
         SectionTypes.Sponsor => $"Sponsor: {Section.Title ?? "(set name)"}",
+        SectionTypes.Video => $"Video: {Section.Title ?? "(set title)"}",
         _ => $"{TopicNumber}. {Section.Title ?? "(untitled topic)"}"
     };
 
@@ -142,6 +161,7 @@
         SectionTypes.Sponsor => Icons.Material.Filled.Campaign,
         SectionTypes.Button => Icons.Material.Filled.SmartButton,
         SectionTypes.Divider => Icons.Material.Filled.HorizontalRule,
+        SectionTypes.Video => Icons.Material.Filled.PlayCircleOutline,
         _ => Icons.Material.Filled.Article
     };
 }

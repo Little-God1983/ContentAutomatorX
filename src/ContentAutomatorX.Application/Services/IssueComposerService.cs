@@ -90,7 +90,8 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
     }
 
     public async Task UpdateSectionAsync(Guid sectionId, string? title, string? bodyMd,
-        string? imageUrl, string? linkUrl, string? linkText, CancellationToken ct = default)
+        string? imageUrl, string? linkUrl, string? linkText, string? category,
+        CancellationToken ct = default)
     {
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
         await history.SnapshotAsync(section.PostId, "Edit section", ct);
@@ -99,6 +100,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         section.ImageUrl = imageUrl;
         section.LinkUrl = linkUrl;
         section.LinkText = linkText;
+        section.Category = category;
         await db.SaveChangesAsync(ct);
     }
 
