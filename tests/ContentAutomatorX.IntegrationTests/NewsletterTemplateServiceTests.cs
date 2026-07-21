@@ -85,6 +85,36 @@ public class NewsletterTemplateServiceTests
         Assert.Equal("B", all.Single(x => x.IsDefault).Name);
     }
 
+    [Theory]
+    [InlineData(true)]   // wrong tenant id — belongs to a different (real) tenant
+    [InlineData(false)]  // empty tenant id — as if the UI form omitted the field
+    public async Task Setting_default_uses_the_rows_real_tenant_even_if_the_caller_passes_a_bad_one(bool wrongNotEmpty)
+    {
+        using var t = TestDb.Create();
+        var tenantId = Guid.NewGuid();
+        var service = Service(t);
+
+        var first = new NewsletterTemplate { TenantId = tenantId, Name = "A", Html = MinimalHtml, IsDefault = true };
+        await service.SaveAsync(first);
+        var second = new NewsletterTemplate { TenantId = tenantId, Name = "B", Html = MinimalHtml };
+        await service.SaveAsync(second);
+
+        // Simulate a caller (e.g. the template editor UI) that hands SaveAsync a TenantId that does
+        // not match the row's real owner — either mangled to another tenant, or left at the default.
+        var bogusTenantId = wrongNotEmpty ? Guid.NewGuid() : Guid.Empty;
+        var updatePayload = new NewsletterTemplate
+        {
+            Id = second.Id, TenantId = bogusTenantId, Name = "B", Html = MinimalHtml, IsDefault = true
+        };
+        await service.SaveAsync(updatePayload);
+
+        var all = await service.ListAsync(tenantId);
+        var defaults = all.Where(x => x.IsDefault).ToList();
+        Assert.Single(defaults);
+        Assert.Equal("B", defaults.Single().Name);
+        Assert.Equal(tenantId, defaults.Single().TenantId);
+    }
+
     [Fact]
     public async Task Default_is_scoped_to_one_tenant()
     {

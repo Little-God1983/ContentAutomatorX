@@ -34,6 +34,9 @@ public class NewsletterTemplateService(IAppDbContext db)
         }
         else
         {
+            // template.TenantId is never trusted for an update — existing.TenantId (the row's real
+            // owner) is what drives the sibling-clearing query below, so a caller-supplied TenantId
+            // that is missing or wrong cannot misdirect it.
             existing.Name = template.Name;
             existing.Html = template.Html;
             existing.IsDefault = template.IsDefault;
@@ -41,10 +44,14 @@ public class NewsletterTemplateService(IAppDbContext db)
         }
 
         // At most one default per tenant, enforced here because the EF SQLite provider has no
-        // filtered unique index and this service is the only writer.
+        // filtered unique index and this service is the only writer. Filter by the authoritative
+        // tenant — existing.TenantId on update, template.TenantId only on insert — never by the
+        // caller-supplied template.TenantId on an update, which the UI's form state could omit or
+        // mangle.
+        var ownerTenantId = existing?.TenantId ?? template.TenantId;
         if (template.IsDefault)
             foreach (var other in await db.NewsletterTemplates
-                         .Where(t => t.TenantId == template.TenantId && t.Id != template.Id).ToListAsync(ct))
+                         .Where(t => t.TenantId == ownerTenantId && t.Id != template.Id).ToListAsync(ct))
                 other.IsDefault = false;
 
         await db.SaveChangesAsync(ct);
