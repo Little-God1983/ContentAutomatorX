@@ -1,0 +1,157 @@
+@using ContentAutomatorX.Application.Newsletter
+@using ContentAutomatorX.Application.Services
+@using ContentAutomatorX.Domain.Entities
+@using Microsoft.AspNetCore.Components.Forms
+@inject NewsletterTemplateService Templates
+@inject ISnackbar Snackbar
+
+<MudDialog>
+    <TitleContent>
+        <div class="d-flex align-center" style="gap:8px">
+            <MudTextField @bind-Value="_name" Label="Template name" Margin="Margin.Dense" Class="flex-grow-1" />
+            <MudSwitch @bind-Value="_isDefault" Color="Color.Primary" Label="Tenant default" />
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="d-flex" style="gap:12px; height:65vh">
+            <div class="d-flex flex-column" style="flex:1 1 50%; min-width:0">
+                <div class="d-flex align-center mb-2" style="gap:8px">
+                    <MudFileUpload T="IBrowserFile" Accept=".html,.htm" FilesChanged="UploadAsync">
+                        <CustomContent>
+                            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="@context.OpenFilePickerAsync"
+                                       StartIcon="@Icons.Material.Filled.UploadFile">Upload .html</MudButton>
+                        </CustomContent>
+                    </MudFileUpload>
+                    <MudText Typo="Typo.caption">@(_html.Length / 1024) KB</MudText>
+                </div>
+                <MudTextField @bind-Value="_html" @bind-Value:after="OnHtmlChanged" Lines="24"
+                              Variant="Variant.Outlined" Style="font-family:monospace;font-size:12px"
+                              Immediate="true" DebounceInterval="400" />
+            </div>
+            <div class="d-flex flex-column" style="flex:1 1 50%; min-width:0">
+                <MudText Typo="Typo.caption" Class="mb-2">Preview — sample issue</MudText>
+                <iframe sandbox srcdoc="@_preview" title="Template preview"
+                        style="flex:1;width:100%;border:1px solid var(--mud-palette-lines-default);background:#fff"></iframe>
+            </div>
+        </div>
+        @if (_issues.Count > 0)
+        {
+            <div class="mt-2" style="max-height:18vh;overflow:auto">
+                @foreach (var issue in _issues)
+                {
+                    <MudText Typo="Typo.caption" Class="d-block"
+                             Color="@(issue.Level == TemplateIssueLevel.Error ? Color.Error : Color.Warning)">
+                        @(issue.Level == TemplateIssueLevel.Error ? "✗" : "⚠") line @issue.Line — @issue.Message
+                    </MudText>
+                }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_template.Id != Guid.Empty)
+        {
+            <MudButton Color="Color.Error" Disabled="@_busy" OnClick="DeleteAsync">Delete</MudButton>
+        }
+        <MudSpacer />
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_busy || _hasErrors)" OnClick="SaveAsync">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public NewsletterTemplate Template { get; set; } = default!;
+
+    private NewsletterTemplate _template = default!;
+    private string _name = "", _html = "", _preview = "";
+    private bool _isDefault, _busy, _hasErrors;
+    private IReadOnlyList<TemplateIssue> _issues = [];
+
+    protected override void OnInitialized()
+    {
+        _template = Template;
+        _name = _template.Name;
+        _html = _template.Html;
+        _isDefault = _template.IsDefault;
+        OnHtmlChanged();
+    }
+
+    /// <summary>Never throws: a broken template must leave the editor usable, and there is no
+    /// ErrorBoundary in this app — an exception here would tear down the circuit.</summary>
+    private void OnHtmlChanged()
+    {
+        try
+        {
+            _issues = TemplateValidator.Validate(_html);
+            _hasErrors = TemplateValidator.HasErrors(_issues);
+            var rendered = TemplateHtmlRenderer.Render(SampleIssue.Sections, SampleIssue.Tenant,
+                "Signals from the latent space", _html, DateTimeOffset.UtcNow);
+            // Keep the last good preview when the new one is empty (no shell yet, mid-typing).
+            if (!string.IsNullOrWhiteSpace(rendered))
+                _preview = rendered.Replace(SectionHtmlRenderer.UnsubscribeToken, "#");
+        }
+        catch (Exception ex)
+        {
+            _issues = [new TemplateIssue(TemplateIssueLevel.Error, 1, $"Preview failed: {ex.Message}")];
+            _hasErrors = true;
+        }
+    }
+
+    private async Task UploadAsync(IBrowserFile? file)
+    {
+        if (file is null) return;
+        try
+        {
+            if (file.Size > TemplateValidator.MaxBytes)
+            {
+                Snackbar.Add($"That file is larger than {TemplateValidator.MaxBytes / 1024} KB.", Severity.Error);
+                return;
+            }
+            using var stream = file.OpenReadStream(TemplateValidator.MaxBytes);
+            using var reader = new StreamReader(stream);
+            _html = await reader.ReadToEndAsync();
+            if (string.IsNullOrWhiteSpace(_name)) _name = Path.GetFileNameWithoutExtension(file.Name);
+            OnHtmlChanged();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Could not read that file: {ex.Message}", Severity.Error);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        _busy = true;
+        try
+        {
+            _template.Name = _name;
+            _template.Html = _html;
+            _template.IsDefault = _isDefault;
+            await Templates.SaveAsync(_template);
+            Snackbar.Add("Template saved.", Severity.Success);
+            Dialog.Close(DialogResult.Ok(_template));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Templates.DeleteAsync(_template.Id);
+            Snackbar.Add("Template deleted.", Severity.Success);
+            Dialog.Close(DialogResult.Ok((NewsletterTemplate?)null));
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+}
