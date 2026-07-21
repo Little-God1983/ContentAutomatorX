@@ -1,6 +1,6 @@
 # Newsletter HTML Templates — Design
 
-**Status:** Approved, not yet implemented
+**Status:** Implemented. Amended during implementation — see §5.5, §8 and §12.
 **Date:** 2026-07-21
 **Supersedes:** nothing. Extends the issue composer (`2026-07-19-issue-composer-design.md`) and the chat/regenerate feature (`2026-07-20-issue-chat-and-regenerate-design.md`).
 
@@ -32,7 +32,8 @@ Until Spec 2 lands, video thumbnails are the raw YouTube still with no play tria
 - Syntax highlighting in the editor (needs a JS editor component; plain monospace textarea for now)
 - Template version history / rollback
 - Localized reading-time text (English only; `Recipe.Language` is not consulted)
-- Per-issue template switching in the composer UI (the column exists and is stamped at creation; no picker yet)
+- Per-issue template switching. There is no per-issue column at all — resolution walks `Post → Recipe` (§3.2, §5.1) — so preview and push resolve independently and can disagree if a recipe's template or the tenant default changes in between.
+- Forcing the built-in design on one recipe while the tenant owns a default. `NewsletterTemplateId = null` means "tenant default if one exists", and the dropdown is labelled accordingly. A third state would be needed.
 
 ## 2. Decisions
 
@@ -211,7 +212,7 @@ public static string Render(
     IReadOnlyList<IssueSection> sections,
     Tenant tenant,
     string title,
-    NewsletterTemplate template,
+    string templateHtml,
     DateTimeOffset issueDate)
 ```
 
@@ -251,11 +252,15 @@ The preview iframe carries a `sandbox` attribute without `allow-scripts` (§7.2)
 
 ### 5.5 The unsubscribe backstop
 
-Added during implementation, after two independent reviewers each defeated the save-time rule by a different route: a token inside an `IF` region that collapses, and a token split across a stripped region boundary so that the check reassembled one that did not exist.
+After assembling the final HTML, `TemplateHtmlRenderer.Render` checks whether `UnsubscribeToken` appears in the output and, if it does not, appends a minimal muted unsubscribe paragraph at the end. A correct template renders byte-identically.
 
-After assembling the final HTML, `TemplateHtmlRenderer.Render` checks for `UnsubscribeToken` and, if it is absent, appends a minimal muted unsubscribe paragraph before `</body>`.
+**The check is deliberately naive — textual presence, nothing more — and that is the second design of this component.** The first tried to decide whether the author's token was *actually visible to a mail client*, scanning HTML comment spans and choosing an insertion point outside them. Six reviewers defeated it by six different routes; the sixth was introduced by the fix for the fifth, in the three lines that fix touched, despite tests written to pin exactly that behaviour and mutation-verified two ways.
 
-It fires only when the token is genuinely missing, so a correct template renders byte-identically. It should never fire in practice — `TemplateValidator` is the primary gate. It exists because the cost of a miss is a legal violation rather than a cosmetic defect, and a guarantee that rests on one text-matching rule being perfect is not a guarantee.
+The question it was asking cannot be answered here. It needs a conforming HTML parser and a CSS cascade, and mail clients disagree with each other regardless. Visibility is also broader than comments — `display:none`, `font-size:0`, colour-matching, off-screen positioning — and both shipped templates legitimately use `display:none` for the preheader, so it is not even a usable signal.
+
+What the naive check gives up: a token that is present but hidden — commented out, or styled invisible — suppresses the fallback. That failure is visible to the author in the editor's live preview, which renders through this same path, rather than being silent. `TemplateValidator`'s E5 remains the primary gate and does still reject a commented-out token at save time (§8).
+
+Context that shapes this trade: `MailerLiteClient` creates **draft** campaigns only — sending stays a human act in MailerLite's dashboard, which independently requires an unsubscribe mechanism. A miss here is a quality defect caught by a human before send, not an automatic legal violation. That is not a reason to rely on MailerLite, which is outside this codebase's tests, but it is why hardening a visibility scanner further was not worth the cost.
 
 ### 5.6 Reading time
 
@@ -281,7 +286,9 @@ When a Video section's `ImageUrl` is empty, the thumbnail is derived from `LinkU
 
 Video-id extraction handles four URL shapes: `youtube.com/watch?v=ID`, `youtu.be/ID`, `youtube.com/shorts/ID`, `youtube.com/embed/ID`. Query strings and fragments are stripped. An unrecognised URL yields no id, `{{thumbnail_url}}` resolves empty, and the `IF: thumbnail` region collapses.
 
-`maxresdefault.jpg` exists only for videos uploaded above 720p, so it cannot be used blindly — a dead image in a sent newsletter is worse than a low-resolution one. On saving a Video section, the composer issues a `HEAD` request for `https://img.youtube.com/vi/{id}/maxresdefault.jpg` and stores the resolved URL, falling back to `https://img.youtube.com/vi/{id}/hqdefault.jpg`, which always exists.
+`maxresdefault.jpg` exists only for videos uploaded above 720p, so it cannot be used blindly — a dead image in a sent newsletter is worse than a low-resolution one.
+
+**As shipped, the renderer always uses `https://img.youtube.com/vi/{id}/hqdefault.jpg`, which exists for every video** (480×360, slightly soft in the 536px slot). `IYouTubeThumbnailResolver` — which `HEAD`-probes for `maxresdefault.jpg` and falls back — is implemented, registered and tested, but **has no production caller**: wiring it means an async probe on the Video-section save path, which was not built. Either wire it or delete it; leaving it registered but unreachable is the current state and is dead code.
 
 The probe lives behind `IYouTubeThumbnailResolver` in `Domain.Abstractions`, implemented in Infrastructure over `HttpClient` — matching how `IDraftDelivery` and the connectors are already structured, and keeping Application free of HTTP. A probe failure (timeout, offline) falls back to `hqdefault.jpg` rather than blocking the save.
 
@@ -444,6 +451,18 @@ Every editor and dialog event handler is wrapped in try/catch. There is no `Erro
 
 Per the repo's convention, integration tests run against a real file-backed SQLite database via `TestDb.Create()`.
 
-## 12. Open questions
+## 12. Amendments made during implementation
 
-None blocking. Deferred by explicit decision, recorded in §1.2 and §1.3.
+Recorded so this document describes the code as it actually shipped.
+
+1. **`Post` gained no column.** `Post.RecipeId` already existed, so resolution walks `Post → Recipe → template` (§3.2, §5.1). The consequence — preview and push resolving independently — is in §1.3.
+2. **E5 was rewritten twice** (§8), after reviewers defeated the original "token appears somewhere" rule with a token inside a collapsing `IF` and then with a token split across a stripped region boundary.
+3. **The render-time backstop was added, then simplified** (§5.5). It no longer attempts to determine visibility.
+4. **`Category` is not covered by undo for free.** `IssueHistoryService.SectionSnapshot` is an explicit field list, not entity serialization, so it had to be added in three places.
+5. **SignalR's `MaximumReceiveMessageSize` was raised to 2 MB** in `Program.cs`. Blazor Server round-trips the entire bound `<textarea>` on every keystroke, so editing a real-sized template exceeded the 32 KB default and closed the circuit — silently, with the preview and error list simply ceasing to update.
+6. **The YouTube `maxres` probe is not wired** (§6.2).
+
+### Known gaps
+
+- Cover images and video thumbnails in the converted reference template are **not clickable**. The no-nesting rule (§4.3) cannot express "a linked image that degrades to an unlinked one when there is no link" without either losing the image on link-less sections or reintroducing the wrong-guard defect class. The user's original design has clickable covers; this is a product decision, not a bug.
+- HTML's bogus-comment productions (`<?php`, `<!x`) and abrupt-close forms (`<!-->`, `--!>`) are not modelled by `CommentScanner`, so E5 is over-strict on the latter and blind to the former.

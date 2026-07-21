@@ -9,10 +9,15 @@ namespace ContentAutomatorX.Application.Newsletter;
 /// which is what let a mistyped or edited-out closing "--&gt;" hide a genuine unsubscribe link (and
 /// everything after it) from every reader while looking, to the validator, like ordinary text.
 ///
-/// One linear left-to-right scan, shared by TemplateValidator (save-time gate) and
-/// TemplateHtmlRenderer (render-time backstop) so the two independent HTML-comment-awareness checks
-/// — which must agree on exactly what counts as "hidden inside a comment" — cannot drift apart the
-/// way two hand-maintained copies of the same regex eventually did.
+/// One linear left-to-right scan, used only by TemplateValidator, for two save-time checks: rule
+/// E5's "the unsubscribe token must not be hidden inside a comment", and the "your comment is never
+/// closed" authoring hint.
+///
+/// The render-time backstop deliberately does NOT use this. It once did, and asking "is this token
+/// visible to a mail client?" was defeated six times in a row — the sixth by the fix for the fifth.
+/// The question needs a conforming HTML parser plus a CSS cascade to answer, and visibility is
+/// broader than comments anyway (display:none, font-size:0, colour-matching), so the backstop now
+/// asks only whether the token is textually present. See TemplateHtmlRenderer.EnsureUnsubscribeLink.
 ///
 /// Deliberately has no knowledge of "&lt;!-- BLOCK: … --&gt;" or "&lt;!-- IF: … --&gt;" markers.
 /// Both are themselves ordinary, well-formed HTML comments (they open with "&lt;!--" and close at
