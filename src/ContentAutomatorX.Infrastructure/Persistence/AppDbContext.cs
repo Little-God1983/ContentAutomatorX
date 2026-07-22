@@ -37,10 +37,15 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<IssueSection>().HasIndex(s => new { s.PostId, s.Position });
         b.Entity<IssueSection>()
             .HasOne<Post>().WithMany().HasForeignKey(s => s.PostId).OnDelete(DeleteBehavior.Cascade);
-        // Unique so "at most one row per tenant" is enforced by the database, not
-        // by hoping every writer goes through SaveAsync's upsert. No FK to Tenant:
-        // no tenant-owned entity here declares one (see Platform, Recipe, Source).
-        b.Entity<TenantLlmSetting>().HasIndex(s => s.TenantId).IsUnique();
+        // Unique so "at most one row per (tenant, job)" is enforced by the database, not by hoping
+        // every writer goes through SaveAsync's upsert. No FK to Tenant: no tenant-owned entity here
+        // declares one (see Platform, Recipe, Source). Two indexes because SQLite treats NULLs as
+        // distinct in a unique index: the composite guards the per-job override rows (Job non-null),
+        // and a filtered index guards the single tenant-default row (Job IS NULL) — the composite
+        // alone would let two default rows coexist for one tenant.
+        b.Entity<TenantLlmSetting>().HasIndex(s => new { s.TenantId, s.Job }).IsUnique();
+        b.Entity<TenantLlmSetting>().HasIndex(s => s.TenantId).IsUnique()
+            .HasFilter("\"Job\" IS NULL");
         b.Entity<IssueChatMessage>().HasIndex(m => m.PostId);
         b.Entity<IssueChatMessage>()
             .HasOne<Post>().WithMany().HasForeignKey(m => m.PostId).OnDelete(DeleteBehavior.Cascade);

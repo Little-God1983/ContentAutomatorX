@@ -27,14 +27,16 @@ public class StubLlmSettings(LlmSettings? settings = null) : ILlmSettingsProvide
 {
     private readonly LlmSettings _settings = settings ?? LlmSettings.Inherit;
     public Guid? LastTenantId { get; private set; }
-    public Task<LlmSettings> GetAsync(Guid tenantId, CancellationToken ct = default)
+    public string? LastJob { get; private set; }
+    public Task<LlmSettings> GetAsync(Guid tenantId, string? job = null, CancellationToken ct = default)
     {
         LastTenantId = tenantId;
+        LastJob = job;
         return Task.FromResult(_settings);
     }
-    public Task<LlmSettings> GetStoredAsync(Guid tenantId, CancellationToken ct = default) =>
+    public Task<LlmSettings> GetStoredAsync(Guid tenantId, string? job = null, CancellationToken ct = default) =>
         Task.FromResult(_settings);
-    public Task SaveAsync(Guid tenantId, LlmSettings settings, CancellationToken ct = default) =>
+    public Task SaveAsync(Guid tenantId, LlmSettings settings, string? job = null, CancellationToken ct = default) =>
         Task.CompletedTask;
 }
 
@@ -135,6 +137,7 @@ public class LlmResearchConnectorTests
         await new LlmResearchConnector(llm, settings).FetchAsync(source);
 
         Assert.Equal(tenantId, settings.LastTenantId);
+        Assert.Equal(LlmJobs.Research, settings.LastJob);   // resolves under the research job override
         Assert.Equal("haiku", llm.LastSettings!.Model);
         Assert.Equal(LlmEffort.Low, llm.LastSettings!.Effort);
     }

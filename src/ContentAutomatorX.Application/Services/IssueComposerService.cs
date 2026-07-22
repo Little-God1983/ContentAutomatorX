@@ -5,6 +5,7 @@ using ContentAutomatorX.Application.Persistence;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.Application.Services;
@@ -185,7 +186,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var itemIds = skeletons.Select(s => s.SourceItemId!.Value).ToList();
         var items = await db.ContentItems.Where(i => itemIds.Contains(i.Id)).ToListAsync(ct);
         var prompt = BuildTopicsPrompt(tenant, recipe, items, extraInstructions);
-        var settings = await llmSettings.GetAsync(tenant.Id, ct);
+        var settings = await llmSettings.GetAsync(tenant.Id, LlmJobs.TopicBlurbs, ct);
 
         List<TopicBlurb>? topics = null;
         for (var attempt = 1; attempt <= 2 && topics is null; attempt++)
@@ -224,7 +225,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
         var post = await db.Posts.SingleAsync(p => p.Id == section.PostId, ct);
         var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
-        var settings = await llmSettings.GetAsync(tenant.Id, ct);
+        var settings = await llmSettings.GetAsync(tenant.Id, LlmJobs.RegenerateSection, ct);
         var voice = string.IsNullOrWhiteSpace(tenant.VoiceProfile) ? "" : $"Voice: {tenant.VoiceProfile}\n";
         var extra = string.IsNullOrWhiteSpace(instruction) ? "" : $"Extra instructions: {instruction}\n";
         string prompt;

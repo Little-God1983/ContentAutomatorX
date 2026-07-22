@@ -188,7 +188,7 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
             body = draft.Body;
         }
         var excerpt = body.Length <= 4000 ? body : body[..4000];
-        var settings = await llmSettings.GetAsync(post.TenantId, ct);
+        var settings = await llmSettings.GetAsync(post.TenantId, LlmJobs.SubjectIdeas, ct);
         var prompt = $"""
             Write 5 email subject lines for this newsletter issue. Punchy, concrete, <60 chars, no clickbait.
             Respond with ONLY a JSON array of 5 strings, no prose, no markdown fences.

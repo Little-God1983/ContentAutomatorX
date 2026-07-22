@@ -3,6 +3,7 @@ using ContentAutomatorX.Application.Persistence;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.Application.Services;
@@ -179,7 +180,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             : [];
 
         var prompt = BuildPrompt(tenant, recipe, sections, restrictTo, transcript, ask);
-        var settings = await llmSettings.GetAsync(tenant.Id, ct);
+        var settings = await llmSettings.GetAsync(tenant.Id, LlmJobs.ComposerChat, ct);
 
         ChatReply? reply = null;
         for (var attempt = 1; attempt <= 2 && reply is null; attempt++)
