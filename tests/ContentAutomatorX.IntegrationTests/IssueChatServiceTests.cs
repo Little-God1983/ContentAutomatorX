@@ -1,10 +1,45 @@
+using System.Runtime.CompilerServices;
 using ContentAutomatorX.Application.Services;
 using ContentAutomatorX.Domain;
 using ContentAutomatorX.Domain.Abstractions;
 using ContentAutomatorX.Domain.Entities;
+using ContentAutomatorX.Domain.Models;
 using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.IntegrationTests;
+
+/// <summary>A streaming backend that emits the reply in delta chunks, then a final authoritative
+/// chunk — like ClaudeCliBackend's stream-json path, without the CLI.</summary>
+public class StreamingSequenceLlm(params string[] replies) : IStreamingLlmBackend
+{
+    private int _n;
+    public string Name => "streaming-seq";
+
+    public Task<LlmResult> GenerateAsync(string prompt, LlmSettings settings, CancellationToken ct = default) =>
+        Task.FromResult(new LlmResult(replies[Math.Min(_n, replies.Length - 1)], "stream-seq-model"));
+
+    public async IAsyncEnumerable<LlmChunk> StreamAsync(string prompt, LlmSettings settings,
+        [EnumeratorCancellation] CancellationToken ct = default)
+    {
+        var reply = replies[Math.Min(_n++, replies.Length - 1)];
+        var step = Math.Max(1, reply.Length / 3);
+        for (var i = 0; i < reply.Length; i += step)
+        {
+            ct.ThrowIfCancellationRequested();
+            yield return new LlmChunk(reply.Substring(i, Math.Min(step, reply.Length - i)));
+            await Task.Yield();
+        }
+        yield return new LlmChunk(reply, IsFinal: true, Model: "stream-seq-model");
+    }
+}
+
+/// <summary>Collects IProgress reports inline (the service calls Report synchronously during the
+/// stream), so a test can assert on them without Progress&lt;T&gt;'s asynchronous posting.</summary>
+public sealed class CapturingProgress : IProgress<string>
+{
+    public List<string> Reports { get; } = [];
+    public void Report(string value) => Reports.Add(value);
+}
 
 public class IssueChatServiceTests
 {
@@ -468,5 +503,50 @@ public class IssueChatServiceTests
         var proposal = await t.Db.IssueSectionProposals.SingleAsync();
         await chat.AcceptAsync(proposal.Id, force: false);   // must not throw
         Assert.Equal("New body.", (await t.Db.IssueSections.SingleAsync(s => s.Id == sectionId)).BodyMd);
+    }
+
+    // ---- #18: streaming ----
+
+    [Fact]
+    public async Task A_streaming_turn_reports_progress_and_still_parses_the_complete_reply()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var reply = ReplyJson("Shortened it.", (sections[1].Id, "shorter"));
+        var chat = Chat(test, new StreamingSequenceLlm(reply));
+        var progress = new CapturingProgress();
+
+        var result = await chat.SendAsync(post.Id, "make topic A shorter", progress);
+
+        // The reply is parsed from the complete accumulated text, exactly as the batch path.
+        Assert.Equal("Shortened it.", result.Reply);
+        Assert.Equal(1, result.ProposalCount);
+
+        // Progress arrived incrementally (more than one delta) and the last report is the whole reply.
+        Assert.True(progress.Reports.Count > 1, $"expected several deltas, got {progress.Reports.Count}");
+        Assert.Equal(reply, progress.Reports[^1]);
+        // Deltas grow monotonically — each report is the accumulated-so-far text.
+        Assert.True(progress.Reports[0].Length < progress.Reports[^1].Length);
+
+        // Both messages are still persisted (streaming did not change the persist-before/append-after order).
+        var messages = (await chat.GetThreadAsync(post.Id)).Messages;
+        Assert.Equal([ChatRoles.User, ChatRoles.Assistant], messages.Select(m => m.Role).ToArray());
+        Assert.Equal("Shortened it.", messages[^1].Text);
+    }
+
+    [Fact]
+    public async Task A_non_streaming_backend_runs_the_turn_with_no_progress()
+    {
+        // AC: a backend that cannot stream is still valid; the call site falls back to GenerateAsync.
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var chat = Chat(test, new SequenceLlm(ReplyJson("Done.", (sections[1].Id, "shorter"))));
+        var progress = new CapturingProgress();
+
+        var result = await chat.SendAsync(post.Id, "make topic A shorter", progress);
+
+        Assert.Equal("Done.", result.Reply);
+        Assert.Equal(1, result.ProposalCount);
+        Assert.Empty(progress.Reports);   // no streaming ⇒ no progress reported
     }
 }

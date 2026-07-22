@@ -53,4 +53,101 @@ public class ProcessRunnerTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal(nonAscii, result.StdOut);
     }
+
+    private static string PsArgs(string script) =>
+        $"-NoProfile -NonInteractive -EncodedCommand {Convert.ToBase64String(Encoding.Unicode.GetBytes(script))}";
+
+    [WindowsOnlyFact]
+    public async Task RunStreamingAsync_yields_lines_incrementally_as_they_are_written()
+    {
+        // Three lines 400 ms apart: if they were buffered to exit they would all arrive together.
+        const string script = "Write-Output 'a'; Start-Sleep -Milliseconds 400; " +
+                              "Write-Output 'b'; Start-Sleep -Milliseconds 400; Write-Output 'c'";
+        var runner = new ProcessRunner();
+        var lines = new List<string>();
+        var stamps = new List<long>();
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        await foreach (var line in runner.RunStreamingAsync(PowerShellExe, PsArgs(script), null, TimeSpan.FromSeconds(20)))
+        {
+            lines.Add(line);
+            stamps.Add(sw.ElapsedMilliseconds);
+        }
+
+        Assert.Equal(["a", "b", "c"], lines);
+        Assert.True(stamps[^1] - stamps[0] >= 400, $"expected incremental arrival; span was {stamps[^1] - stamps[0]}ms");
+    }
+
+    [WindowsOnlyFact]
+    public async Task RunStreamingAsync_throws_TimeoutException_when_output_stalls_past_the_idle_limit()
+    {
+        var runner = new ProcessRunner();
+
+        await Assert.ThrowsAsync<TimeoutException>(async () =>
+        {
+            await foreach (var _ in runner.RunStreamingAsync(
+                PowerShellExe, PsArgs("Start-Sleep -Seconds 5"), null, TimeSpan.FromSeconds(1)))
+            { }
+        });
+    }
+
+    [WindowsOnlyFact]
+    public async Task RunStreamingAsync_throws_on_a_nonzero_exit_after_yielding_output()
+    {
+        var runner = new ProcessRunner();
+        var lines = new List<string>();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var line in runner.RunStreamingAsync(
+                PowerShellExe, PsArgs("Write-Output 'x'; exit 3"), null, TimeSpan.FromSeconds(20)))
+                lines.Add(line);
+        });
+
+        Assert.Equal(["x"], lines);
+        Assert.Contains("exited 3", ex.Message);
+    }
+
+    [WindowsOnlyFact]
+    public async Task RunStreamingAsync_cancellation_stops_the_stream_before_completion()
+    {
+        const string script = "1..50 | ForEach-Object { Write-Output $_; Start-Sleep -Milliseconds 150 }";
+        var runner = new ProcessRunner();
+        using var cts = new CancellationTokenSource();
+        var lines = new List<string>();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await foreach (var line in runner.RunStreamingAsync(
+                PowerShellExe, PsArgs(script), null, TimeSpan.FromSeconds(30), cts.Token))
+            {
+                lines.Add(line);
+                if (lines.Count >= 2) cts.Cancel();
+            }
+        });
+
+        Assert.True(lines.Count < 50, $"expected early stop; got {lines.Count} lines");
+    }
+
+    [WindowsOnlyFact]
+    public async Task RunStreamingAsync_pipes_stdin_and_reads_it_back()
+    {
+        const string input = "streamed “input” — ok";
+        const string script = """
+            $in = [Console]::OpenStandardInput()
+            $reader = New-Object System.IO.StreamReader($in, (New-Object System.Text.UTF8Encoding($false)))
+            $text = $reader.ReadToEnd()
+            $out = [Console]::OpenStandardOutput()
+            $writer = New-Object System.IO.StreamWriter($out, (New-Object System.Text.UTF8Encoding($false)))
+            $writer.WriteLine($text)
+            $writer.Flush()
+            """;
+        var runner = new ProcessRunner();
+        var lines = new List<string>();
+
+        await foreach (var line in runner.RunStreamingAsync(PowerShellExe, PsArgs(script), input, TimeSpan.FromSeconds(20)))
+            lines.Add(line);
+
+        Assert.Equal([input], lines);
+    }
 }

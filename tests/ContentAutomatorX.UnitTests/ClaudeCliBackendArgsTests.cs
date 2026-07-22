@@ -17,6 +17,9 @@ public class RecordingRunner(string stdout = """{"result":"ok"}""") : IProcessRu
         LastArguments = arguments;
         return Task.FromResult(new ProcessResult(0, stdout, ""));
     }
+
+    public IAsyncEnumerable<string> RunStreamingAsync(string fileName, string arguments, string? stdin,
+        TimeSpan idleTimeout, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 public class ClaudeCliBackendArgsTests

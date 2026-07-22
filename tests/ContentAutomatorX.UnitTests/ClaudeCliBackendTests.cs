@@ -18,6 +18,9 @@ public class FakeProcessRunner(params ProcessResult[] results) : IProcessRunner
         Calls++;
         return Task.FromResult(result);
     }
+
+    public IAsyncEnumerable<string> RunStreamingAsync(string fileName, string arguments, string? stdin,
+        TimeSpan idleTimeout, CancellationToken ct = default) => throw new NotSupportedException();
 }
 
 public class ClaudeCliBackendTests
