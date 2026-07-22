@@ -597,6 +597,9 @@ else
         }
     }
 
+    // Intentionally exempt from the TenantReloadGate (#16): this handler does not reload tenant
+    // data or touch the shared scoped DbContext — it only re-checks the guard below — so it cannot
+    // cause the overlapping-reload race the gate exists to prevent.
     private void OnTenantChanged() => _ = InvokeAsync(() =>
     {
         CheckTenantGuard();

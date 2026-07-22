@@ -132,17 +132,19 @@ else
     private string? _error;
     private bool _saving;
     private bool _loadFailed;
+    private readonly TenantReloadGate _reloadGate = new(); // #16: serialise tenant reloads (latest-wins)
 
     // MainLayout owns Ctx.InitializeAsync (it needs JS interop, so it runs after first
     // render) and raises Changed when it completes. Calling it here too would load the
     // card twice on every open, with both loads racing on the same scoped AppDbContext.
+    // The gate serialises those loads so they can no longer overlap that context.
     protected override async Task OnInitializedAsync()
     {
         Ctx.Changed += OnTenantChanged;
-        await LoadAsync();
+        await _reloadGate.RunAsync(LoadAsync);
     }
 
-    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    private void OnTenantChanged() => _ = InvokeAsync(() => _reloadGate.RunAsync(async () =>
     {
         try
         {
@@ -160,7 +162,7 @@ else
             StateHasChanged();
             Snackbar.Add($"Failed to load model settings: {ex.Message}", Severity.Error);
         }
-    });
+    }));
 
     private async Task LoadAsync()
     {
@@ -259,5 +261,9 @@ else
         }
     }
 
-    public void Dispose() => Ctx.Changed -= OnTenantChanged;
+    public void Dispose()
+    {
+        Ctx.Changed -= OnTenantChanged;
+        _reloadGate.Dispose();
+    }
 }

@@ -152,15 +152,16 @@ else
     private int _feedLimit = 50;
     private string _redditClientId = "", _redditSecret = "";
     private bool _redditConfigured, _redditTesting;
+    private readonly TenantReloadGate _reloadGate = new(); // #16: serialise tenant reloads (latest-wins)
 
     protected override async Task OnInitializedAsync()
     {
         Ctx.Changed += OnTenantChanged;
         _redditConfigured = !string.IsNullOrEmpty(await Credentials.GetAsync(RedditConnector.CredentialName));
-        await ReloadAsync();
+        await _reloadGate.RunAsync(ReloadAsync);
     }
 
-    private void OnTenantChanged() => _ = InvokeAsync(async () =>
+    private void OnTenantChanged() => _ = InvokeAsync(() => _reloadGate.RunAsync(async () =>
     {
         try
         {
@@ -172,7 +173,7 @@ else
         {
             Snackbar.Add($"Failed to load tenant data: {ex.Message}", Severity.Error);
         }
-    });
+    }));
 
     private async Task ReloadAsync()
     {
@@ -320,5 +321,9 @@ else
         await ReloadAsync();
     }
 
-    public void Dispose() => Ctx.Changed -= OnTenantChanged;
+    public void Dispose()
+    {
+        Ctx.Changed -= OnTenantChanged;
+        _reloadGate.Dispose();
+    }
 }
