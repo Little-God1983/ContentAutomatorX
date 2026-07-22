@@ -47,7 +47,7 @@ public sealed class TenantReloadGate : IDisposable
         }
         catch (ObjectDisposedException)
         {
-            return; // the page/circuit tore down while this call was queued
+            return; // RunAsync was called after the gate (page/circuit) was disposed
         }
 
         try
