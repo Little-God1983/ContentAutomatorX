@@ -135,7 +135,9 @@ else
                         </div>
                     </MudTabPanel>
                     <MudTabPanel Text="Chat" PanelClass="pt-4">
-                        <IssueChatPanel Messages="@_chat.Messages" Sending="@_chatting" OnSend="SendChatAsync" />
+                        <IssueChatPanel Messages="@_chat.Messages" Sending="@_chatting"
+                                        Composing="@_chatting" ComposingChars="@_composingText.Length"
+                                        OnSend="SendChatAsync" />
                     </MudTabPanel>
                 </MudTabs>
             </MudPaper>
@@ -154,6 +156,8 @@ else
     private bool _autoGenerate, _autoGather;
     private IssueChat _chat = new([], []);
     private bool _chatting;
+    private string _composingText = "";                                 // #18: live streamed reply-so-far
+    private readonly System.Diagnostics.Stopwatch _composeThrottle = new();
     private HistoryState _history = new(null, null);
     private string _modelLabel = "";
 
@@ -424,10 +428,27 @@ else
     {
         if (_chatting) return;
         _chatting = true;
+        _composingText = "";
+        _composeThrottle.Restart();
         StateHasChanged();
+
+        // Stream the reply for liveness — the turn's reply is a JSON object, so this drives a
+        // "composing" indicator rather than showing raw text; the parsed result still lands on save.
+        // Throttle to ~100ms: each StateHasChanged is a SignalR round trip, so per-token would flood
+        // the circuit. InvokeAsync marshals back onto the render dispatcher.
+        var progress = new Progress<string>(text =>
+        {
+            _composingText = text;
+            if (_composeThrottle.ElapsedMilliseconds >= 100)
+            {
+                _composeThrottle.Restart();
+                _ = InvokeAsync(StateHasChanged);
+            }
+        });
+
         try
         {
-            var result = await WithChatAsync(c => c.SendAsync(PostId, message));
+            var result = await WithChatAsync(c => c.SendAsync(PostId, message, progress));
             if (result.ProposalCount > 0)
                 Snackbar.Add($"{result.ProposalCount} suggestion(s) — review them on the cards.", Severity.Success);
             if (result.DroppedEdits > 0)
@@ -441,6 +462,7 @@ else
         finally
         {
             _chatting = false;
+            _composingText = "";
             await ReloadSectionsAsync();
         }
     }

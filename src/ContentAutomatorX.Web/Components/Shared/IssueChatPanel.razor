@@ -19,6 +19,21 @@
             <MudText Typo="Typo.body2" Style="white-space:pre-wrap;">@message.Text</MudText>
         </div>
     }
+    @if (Composing)
+    {
+        // The reply is a JSON object, so its raw text can't be shown mid-stream. This is a live
+        // liveness indicator instead — it grows as the stream arrives (throttled by the caller),
+        // replacing what used to be a silent wait. The parsed suggestions land on the cards on done.
+        <div class="mb-2 pa-2">
+            <MudText Typo="Typo.overline" Color="Color.Primary">ai</MudText>
+            <div class="d-flex align-center" style="gap:8px;">
+                <MudProgressCircular Size="Size.Small" Indeterminate="true" />
+                <MudText Typo="Typo.body2" Class="mud-text-secondary">
+                    composing your changes@(ComposingChars > 0 ? $" · {ComposingChars} chars" : "…")
+                </MudText>
+            </div>
+        </div>
+    }
 </div>
 
 <MudTextField @bind-Value="_draft" Label="Ask for a change…" Lines="3" Immediate="true"
@@ -29,6 +44,8 @@
 @code {
     [Parameter, EditorRequired] public IReadOnlyList<IssueChatMessage> Messages { get; set; } = [];
     [Parameter] public bool Sending { get; set; }
+    [Parameter] public bool Composing { get; set; }
+    [Parameter] public int ComposingChars { get; set; }
     [Parameter] public EventCallback<string> OnSend { get; set; }
 
     private string _draft = "";

@@ -30,7 +30,8 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         return new IssueChat(messages.OrderBy(m => m.CreatedAt).ToList(), proposals);
     }
 
-    public async Task<ChatTurnResult> SendAsync(Guid postId, string message, CancellationToken ct = default)
+    public async Task<ChatTurnResult> SendAsync(Guid postId, string message,
+        IProgress<string>? onReplyProgress = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(message))
             throw new ArgumentException("Say something first.", nameof(message));
@@ -43,7 +44,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
 
         // ask is null: the transcript already ends with the message just persisted above, so
         // re-appending it would show the model the same question twice.
-        var reply = await RunTurnAsync(postId, ask: null, includeTranscript: true, restrictTo: null, ct);
+        var reply = await RunTurnAsync(postId, ask: null, includeTranscript: true, restrictTo: null, onReplyProgress, ct);
         db.IssueChatMessages.Add(new IssueChatMessage
         {
             PostId = postId, Role = ChatRoles.Assistant, Text = reply.Reply
@@ -68,7 +69,8 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
                 + "Keep each topic's subject matter; improve the writing. Propose an edit for every "
                 + "header and topic section listed above, and for nothing else.";
 
-        var reply = await RunTurnAsync(postId, ask, includeTranscript: false, restrictTo: targets, ct);
+        // A button, not a live conversation, so no progress consumer — this runs on GenerateAsync.
+        var reply = await RunTurnAsync(postId, ask, includeTranscript: false, restrictTo: targets, null, ct);
         var (stored, _) = await StoreProposalsAsync(postId, reply.Edits, targets, ct);
         await db.SaveChangesAsync(ct);
         return stored;
@@ -166,7 +168,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
     }
 
     private async Task<ChatReply> RunTurnAsync(Guid postId, string? ask, bool includeTranscript,
-        HashSet<Guid>? restrictTo, CancellationToken ct)
+        HashSet<Guid>? restrictTo, IProgress<string>? onReplyProgress, CancellationToken ct)
     {
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
         var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
@@ -185,12 +187,34 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         ChatReply? reply = null;
         for (var attempt = 1; attempt <= 2 && reply is null; attempt++)
         {
-            var raw = await llm.GenerateAsync(attempt == 1 ? prompt
+            var raw = await GenerateReplyTextAsync(attempt == 1 ? prompt
                 : prompt + "\nYour previous reply was not valid JSON. Respond with ONLY the JSON object.",
-                settings, ct);
-            ChatReplyParser.TryParse(raw.Text, out reply);
+                settings, onReplyProgress, ct);
+            ChatReplyParser.TryParse(raw, out reply);
         }
         return reply ?? throw new InvalidOperationException("The model did not reply as JSON — try again.");
+    }
+
+    /// <summary>Produces the raw reply text, streaming it when the backend can and a consumer wants
+    /// progress, otherwise the single-shot path. The reply is a JSON object, so partial text is never
+    /// parsed: the stream only drives a progress display, and the complete accumulated text (the
+    /// terminal chunk's Text, identical to what GenerateAsync would return) is what the caller parses.
+    /// A backend that is not an <see cref="IStreamingLlmBackend"/> transparently uses GenerateAsync.</summary>
+    private async Task<string> GenerateReplyTextAsync(string prompt, LlmSettings settings,
+        IProgress<string>? onProgress, CancellationToken ct)
+    {
+        if (onProgress is not null && llm is IStreamingLlmBackend streaming)
+        {
+            var sb = new StringBuilder();
+            string? finalText = null;
+            await foreach (var chunk in streaming.StreamAsync(prompt, settings, ct))
+            {
+                if (chunk.IsFinal) finalText = chunk.Text;
+                else { sb.Append(chunk.Text); onProgress.Report(sb.ToString()); }
+            }
+            return finalText ?? sb.ToString();
+        }
+        return (await llm.GenerateAsync(prompt, settings, ct)).Text;
     }
 
     private static string BuildPrompt(Tenant tenant, Recipe? recipe, List<IssueSection> sections,
