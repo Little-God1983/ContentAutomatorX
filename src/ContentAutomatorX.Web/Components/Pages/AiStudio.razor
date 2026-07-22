@@ -332,14 +332,18 @@ else
 
         _jobError = null;
         _savingJobs = true;
+        // Capture the tenant once: the loop awaits per row, and a tenant switch landing between two
+        // of those awaits would otherwise make the remaining rows write this tenant's values onto the
+        // newly-active one — the same cross-tenant hazard the default card's SaveAsync avoids.
+        var tenant = Ctx.Active;
         try
         {
             foreach (var row in _jobRows)
             {
                 var model = row.Model == CustomOption ? row.Custom.Trim() : row.Model;
-                await Settings.SaveAsync(Ctx.Active.Id, new LlmSettings(model, row.Effort), row.Job);
+                await Settings.SaveAsync(tenant.Id, new LlmSettings(model, row.Effort), row.Job);
             }
-            Snackbar.Add($"Job overrides saved for {Ctx.Active.Name}.", Severity.Success);
+            Snackbar.Add($"Job overrides saved for {tenant.Name}.", Severity.Success);
         }
         catch (ArgumentException ex) { _jobError = ex.Message; }
         catch (Exception ex) { Snackbar.Add($"Save failed: {ex.Message}", Severity.Error); }
