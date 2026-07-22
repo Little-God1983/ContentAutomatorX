@@ -37,7 +37,7 @@ public class GenerationPipeline(IAppDbContext db, ILlmBackend llm, IDraftDeliver
         try
         {
             var tenant = await db.Tenants.SingleAsync(t => t.Id == recipe.TenantId, ct);
-            var settings = await llmSettings.GetAsync(recipe.TenantId, ct);
+            var settings = await llmSettings.GetAsync(recipe.TenantId, LlmJobs.RecipeDraft, ct);
             var template = await db.PromptTemplates.FirstOrDefaultAsync(p => p.Id == recipe.PromptTemplateId, ct)
                 ?? await db.PromptTemplates.FirstOrDefaultAsync(p => p.TenantId == null && p.Kind == recipe.Kind, ct);
             var templateText = template?.Template ?? DefaultTemplates.GetFor(recipe.Kind);

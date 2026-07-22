@@ -71,13 +71,80 @@ else
             <MudAlert Severity="Severity.Error" Class="mt-4">Settings could not be loaded. Try switching tenants again.</MudAlert>
         }
     </MudPaper>
+
+    <MudPaper Class="pa-4 mb-6" Outlined="true">
+        <MudText Typo="Typo.subtitle1" Class="mb-1">Per-job overrides — @Ctx.Active.Name</MudText>
+        <MudText Typo="Typo.caption" Class="mb-4 d-block">
+            Each ✨ action can pin its own model and effort. A row left on <em>Inherit</em> uses the
+            tenant default above (then the appsettings default, then whatever the CLI picks). Cheap
+            jobs like subject ideas can stay on a small model while research and drafting use a
+            stronger one — instead of paying the strong model's rate for everything.
+        </MudText>
+
+        <MudSimpleTable Dense="true" Hover="true" Class="mb-3">
+            <thead>
+                <tr>
+                    <th style="text-align:left">Job</th>
+                    <th style="text-align:left">Model</th>
+                    <th style="text-align:left">Effort</th>
+                    <th style="text-align:left">Effective (saved)</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in _jobRows)
+                {
+                    <tr>
+                        <td style="vertical-align:top">
+                            <MudText Typo="Typo.body2" Class="mt-3">@JobLabel(row.Job)</MudText>
+                            @if (row.Model == CustomOption)
+                            {
+                                <MudTextField @bind-Value="row.Custom" Label="Custom model ID" Margin="Margin.Dense"
+                                              Variant="Variant.Outlined" Placeholder="claude-opus-4-8" Class="mt-1" />
+                            }
+                        </td>
+                        <td style="vertical-align:top; min-width:150px">
+                            <MudSelect T="string" @bind-Value="row.Model" Margin="Margin.Dense"
+                                       Variant="Variant.Outlined" Dense="true">
+                                <MudSelectItem T="string" Value="@("")">Inherit</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("opus")">Opus</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("sonnet")">Sonnet</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("haiku")">Haiku</MudSelectItem>
+                                <MudSelectItem T="string" Value="@("fable")">Fable</MudSelectItem>
+                                <MudSelectItem T="string" Value="@CustomOption">Custom…</MudSelectItem>
+                            </MudSelect>
+                        </td>
+                        <td style="vertical-align:top; min-width:130px">
+                            <MudSelect T="LlmEffort" @bind-Value="row.Effort" Margin="Margin.Dense"
+                                       Variant="Variant.Outlined" Dense="true">
+                                <MudSelectItem T="LlmEffort" Value="LlmEffort.Default">Inherit</MudSelectItem>
+                                <MudSelectItem T="LlmEffort" Value="LlmEffort.Low">low</MudSelectItem>
+                                <MudSelectItem T="LlmEffort" Value="LlmEffort.Medium">medium</MudSelectItem>
+                                <MudSelectItem T="LlmEffort" Value="LlmEffort.High">high</MudSelectItem>
+                                <MudSelectItem T="LlmEffort" Value="LlmEffort.XHigh">xhigh</MudSelectItem>
+                                <MudSelectItem T="LlmEffort" Value="LlmEffort.Max">max</MudSelectItem>
+                            </MudSelect>
+                        </td>
+                        <td style="vertical-align:top"><MudText Typo="Typo.caption" Class="mt-3 d-block">@row.Effective</MudText></td>
+                    </tr>
+                }
+            </tbody>
+        </MudSimpleTable>
+
+        @if (_jobError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_jobError</MudAlert>
+        }
+
+        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                   Disabled="@(_savingJobs || _loadFailed)" OnClick="SaveJobsAsync">Save job overrides</MudButton>
+    </MudPaper>
 }
 
-<ComingSoonBanner Phase="provider profiles land with the newsletter vertical; the full job-binding table grows with each phase"
-                  Description="Provider profiles (Claude CLI, LM Studio, Ollama, hosted APIs, MCP servers, TTS — local solutions are first-class) get bound to named jobs like newsletter-compose or yt-description. Every ✨ button in the app runs a job; swapping the model behind it is editing one row here. Manual always works — AI only ever proposes text into ordinary fields." />
+<ComingSoonBanner Phase="model + effort are per-job today; multi-provider profiles land with the newsletter vertical"
+                  Description="The next step is provider profiles (Claude CLI, LM Studio, Ollama, hosted APIs, MCP servers, TTS — local solutions are first-class) bound to each job, so a job can run on a different backend, not just a different Claude model. Every ✨ button in the app runs a job; swapping the model behind it is already editing one row above. Manual always works — AI only ever proposes text into ordinary fields." />
 
 <MudGrid Style="opacity:.8">
-    <MudItem xs="12" md="6">
+    <MudItem xs="12">
         <MudPaper Class="pa-4" Outlined="true">
             <MudText Typo="Typo.subtitle2" Class="mb-2">Provider profiles (planned)</MudText>
             <MudSimpleTable Dense="true">
@@ -94,29 +161,13 @@ else
             </MudSimpleTable>
         </MudPaper>
     </MudItem>
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Outlined="true">
-            <MudText Typo="Typo.subtitle2" Class="mb-2">Job bindings (planned)</MudText>
-            <MudSimpleTable Dense="true">
-                <thead>
-                    <tr><th style="text-align:left">Job</th><th style="text-align:left">Default provider</th></tr>
-                </thead>
-                <tbody>
-                    <tr><td>newsletter-compose</td><td>Claude CLI</td></tr>
-                    <tr><td>yt-title / yt-description</td><td>—</td></tr>
-                    <tr><td>image-post-descr</td><td>—</td></tr>
-                    <tr><td>patreon-teaser</td><td>—</td></tr>
-                    <tr><td>voiceover-tts</td><td>—</td></tr>
-                </tbody>
-            </MudSimpleTable>
-        </MudPaper>
-    </MudItem>
 </MudGrid>
 
 <MudText Typo="Typo.caption" Class="mt-2 d-block">
-    Today the card above is the whole resolution order: this tenant's stored choice,
-    else the appsettings default, else whatever the CLI picks. Per-job and per-run
-    choices are not built yet — see docs/mockups/10-platforms-ai-settings.md.
+    Resolution order: the job's own override, else this tenant's default, else the appsettings
+    default, else whatever the CLI picks — each of model and effort resolved independently. What is
+    not built yet is binding a job to a different <em>provider</em> (LM Studio, Ollama, hosted APIs)
+    and per-run choices — see docs/mockups/10-platforms-ai-settings.md.
 </MudText>
 
 @code {
@@ -133,6 +184,22 @@ else
     private bool _saving;
     private bool _loadFailed;
     private readonly TenantReloadGate _reloadGate = new(); // #16: serialise tenant reloads (latest-wins)
+
+    // Per-job overrides (#17): one editable row per LlmJobs key. Bound to GetStoredAsync per job
+    // (Inherit when the tenant has no override for it) with the same stored-vs-resolved discipline
+    // as the default card, so Save never promotes an inherited value into an explicit row.
+    private List<JobRow> _jobRows = [];
+    private string? _jobError;
+    private bool _savingJobs;
+
+    private sealed class JobRow
+    {
+        public string Job = "";
+        public string Model = "";           // "" = inherit; an alias; or CustomOption
+        public string Custom = "";
+        public LlmEffort Effort = LlmEffort.Default;
+        public string? Effective;           // what this job resolves to as saved, for the last column
+    }
 
     // MainLayout owns Ctx.InitializeAsync (it needs JS interop, so it runs after first
     // render) and raises Changed when it completes. Calling it here too would load the
@@ -200,6 +267,23 @@ else
         _effortInherited = stored.Effort == LlmEffort.Default && resolved.Effort != LlmEffort.Default
             ? $"unset — inheriting {LlmSettings.ToStorage(resolved.Effort)} from appsettings"
             : null;
+
+        // Per-job rows: what the tenant stored for each job (GetStored, so "inherit" stays "inherit")
+        // and what each job currently resolves to (Get, for the "Effective" column).
+        var jobRows = new List<JobRow>();
+        foreach (var job in LlmJobs.All)
+        {
+            var jobStored = await Settings.GetStoredAsync(Ctx.Active.Id, job);
+            var jobResolved = await Settings.GetAsync(Ctx.Active.Id, job);
+            var r = new JobRow { Job = job, Effort = jobStored.Effort, Effective = DescribeEffective(jobResolved) };
+            if (jobStored.Model is "" or "opus" or "sonnet" or "haiku" or "fable")
+                (r.Model, r.Custom) = (jobStored.Model, "");
+            else
+                (r.Model, r.Custom) = (CustomOption, jobStored.Model);
+            jobRows.Add(r);
+        }
+        _jobRows = jobRows;
+        _jobError = null;
     }
 
     private void ClearCard()
@@ -210,6 +294,64 @@ else
         _modelInherited = null;
         _effortInherited = null;
         _error = null;
+        _jobRows = [];
+        _jobError = null;
+    }
+
+    private static string JobLabel(string job) => job switch
+    {
+        LlmJobs.TopicBlurbs => "Topic blurbs",
+        LlmJobs.RegenerateSection => "Regenerate section",
+        LlmJobs.ComposerChat => "Composer chat",
+        LlmJobs.SubjectIdeas => "Subject ideas",
+        LlmJobs.RecipeDraft => "Recipe draft",
+        LlmJobs.Research => "Research",
+        _ => job
+    };
+
+    private static string DescribeEffective(LlmSettings resolved) =>
+        $"{(resolved.Model.Length == 0 ? "CLI default" : resolved.Model)} · " +
+        $"{(resolved.Effort == LlmEffort.Default ? "CLI default" : LlmSettings.ToStorage(resolved.Effort))}";
+
+    private async Task SaveJobsAsync()
+    {
+        if (Ctx.Active is null || _savingJobs) return;
+
+        // Validate every custom model up front so the whole save is atomic-ish: nothing is written
+        // if any row is invalid. Mirror of the service's rule so the error lands on this card.
+        foreach (var row in _jobRows)
+        {
+            var model = row.Model == CustomOption ? row.Custom.Trim() : row.Model;
+            if (model.Length > 0 && !LlmModelName.IsValid(model))
+            {
+                _jobError = $"{JobLabel(row.Job)}: '{model}' is not a valid model name. "
+                          + $"Letters, digits, dot, underscore, hyphen or square brackets, up to {LlmModelName.MaxLength} characters.";
+                return;
+            }
+        }
+
+        _jobError = null;
+        _savingJobs = true;
+        // Capture the tenant once: the loop awaits per row, and a tenant switch landing between two
+        // of those awaits would otherwise make the remaining rows write this tenant's values onto the
+        // newly-active one — the same cross-tenant hazard the default card's SaveAsync avoids.
+        var tenant = Ctx.Active;
+        try
+        {
+            foreach (var row in _jobRows)
+            {
+                var model = row.Model == CustomOption ? row.Custom.Trim() : row.Model;
+                await Settings.SaveAsync(tenant.Id, new LlmSettings(model, row.Effort), row.Job);
+            }
+            Snackbar.Add($"Job overrides saved for {tenant.Name}.", Severity.Success);
+        }
+        catch (ArgumentException ex) { _jobError = ex.Message; }
+        catch (Exception ex) { Snackbar.Add($"Save failed: {ex.Message}", Severity.Error); }
+        finally { _savingJobs = false; }
+
+        // Re-read so the card reflects what was stored: fully-inherited rows drop back to "Inherit"
+        // and the Effective column refreshes. Its own try so a reload failure is not a save failure.
+        try { await LoadAsync(); } catch { }
     }
 
     private async Task SaveAsync()

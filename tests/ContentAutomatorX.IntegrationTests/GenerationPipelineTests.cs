@@ -33,14 +33,16 @@ public class StubLlmSettings(LlmSettings? settings = null) : ILlmSettingsProvide
 {
     private readonly LlmSettings _settings = settings ?? LlmSettings.Inherit;
     public Guid? LastTenantId { get; private set; }
-    public Task<LlmSettings> GetAsync(Guid tenantId, CancellationToken ct = default)
+    public string? LastJob { get; private set; }
+    public Task<LlmSettings> GetAsync(Guid tenantId, string? job = null, CancellationToken ct = default)
     {
         LastTenantId = tenantId;
+        LastJob = job;
         return Task.FromResult(_settings);
     }
-    public Task<LlmSettings> GetStoredAsync(Guid tenantId, CancellationToken ct = default) =>
+    public Task<LlmSettings> GetStoredAsync(Guid tenantId, string? job = null, CancellationToken ct = default) =>
         Task.FromResult(_settings);
-    public Task SaveAsync(Guid tenantId, LlmSettings settings, CancellationToken ct = default) =>
+    public Task SaveAsync(Guid tenantId, LlmSettings settings, string? job = null, CancellationToken ct = default) =>
         Task.CompletedTask;
 }
 
@@ -80,7 +82,8 @@ public class GenerationPipelineTests : IDisposable
         using var test = TestDb.Create();
         var (tenant, _, recipe) = Seed(test);
         var llm = new FakeLlm();
-        var pipeline = new GenerationPipeline(test.Db, llm, new FileShareDraftDelivery(), new StubLlmSettings());
+        var settings = new StubLlmSettings();
+        var pipeline = new GenerationPipeline(test.Db, llm, new FileShareDraftDelivery(), settings);
 
         var (run, draft) = await pipeline.RunAsync(recipe.Id);
 
@@ -90,6 +93,7 @@ public class GenerationPipelineTests : IDisposable
         Assert.True(File.Exists(draft.FilePath));
         Assert.Contains("Item 3", llm.LastPrompt);            // items reached the prompt
         Assert.Contains("Casual.", llm.LastPrompt);            // voice profile reached the prompt
+        Assert.Equal(LlmJobs.RecipeDraft, settings.LastJob);  // resolves under the recipe-draft job override
         Assert.Equal("fake-model", draft.ModelUsed);
         Assert.Equal(3, await test.Db.ContentItems.CountAsync(i => i.Status == ContentItemStatus.Used));
         Assert.NotNull((await test.Db.Recipes.SingleAsync()).LastRunAt);

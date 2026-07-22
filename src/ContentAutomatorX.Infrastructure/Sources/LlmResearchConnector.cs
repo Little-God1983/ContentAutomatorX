@@ -23,7 +23,7 @@ public class LlmResearchConnector(ILlmBackend llm, ILlmSettingsProvider llmSetti
             ?? throw new InvalidOperationException($"Source {source.Id}: invalid LlmResearch config");
 
         var prompt = BuildPrompt(config, retry: false);
-        var settings = await llmSettings.GetAsync(source.TenantId, ct);
+        var settings = await llmSettings.GetAsync(source.TenantId, LlmJobs.Research, ct);
         var reply = await llm.GenerateAsync(prompt, settings, ct);
         if (!TryParse(reply.Text, out var parsed))
         {
