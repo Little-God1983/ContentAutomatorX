@@ -44,7 +44,7 @@ public class ComposerHistoryTests
         await composer.AddSectionAsync(post.Id, SectionTypes.Divider);
         Assert.Equal(before + 1, await RevisionsAsync());
 
-        await composer.UpdateSectionAsync(sections[1].Id, "T", "B", null, null, null);
+        await composer.UpdateSectionAsync(sections[1].Id, "T", "B", null, null, null, null);
         Assert.Equal(before + 2, await RevisionsAsync());
 
         await composer.MoveSectionAsync(sections[2].Id, -1);

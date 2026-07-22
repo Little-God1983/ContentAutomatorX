@@ -2,9 +2,9 @@ using System.Text.Json;
 
 namespace ContentAutomatorX.Application.Services;
 
-/// <summary>One proposed rewrite of one existing section. A null Title or BodyMd means that field
-/// is unchanged — the model is not required to restate what it is not touching.</summary>
-public record ChatEdit(Guid SectionId, string? Title, string? BodyMd);
+/// <summary>One proposed rewrite of one existing section. A null Title, BodyMd or Category means
+/// that field is unchanged — the model is not required to restate what it is not touching.</summary>
+public record ChatEdit(Guid SectionId, string? Title, string? BodyMd, string? Category);
 
 /// <summary>What the model said, plus what it wants to change. DroppedEdits counts edits that were
 /// structurally unusable, so the UI can say so instead of quietly proposing fewer changes.</summary>
@@ -14,7 +14,7 @@ public static class ChatReplyParser
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
-    private record RawEdit(string? SectionId, string? Title, string? BodyMd);
+    private record RawEdit(string? SectionId, string? Title, string? BodyMd, string? Category);
     private record RawReply(string? Reply, List<RawEdit>? Edits);
 
     /// <summary>Structural validation only. Whether a sectionId actually belongs to the issue is
@@ -31,7 +31,9 @@ public static class ChatReplyParser
             var dropped = 0;
             foreach (var edit in raw.Edits ?? [])
             {
-                var hasField = !string.IsNullOrWhiteSpace(edit.Title) || !string.IsNullOrWhiteSpace(edit.BodyMd);
+                var hasField = !string.IsNullOrWhiteSpace(edit.Title)
+                    || !string.IsNullOrWhiteSpace(edit.BodyMd)
+                    || !string.IsNullOrWhiteSpace(edit.Category);
                 // Parsed as a string, not a Guid: a Guid-typed property throws during Deserialize,
                 // which would lose every other edit in the same reply. Models really do emit junk
                 // here — echoing the prompt's own "<id>" placeholder is a common habit.
@@ -40,7 +42,8 @@ public static class ChatReplyParser
                     dropped++;
                     continue;
                 }
-                edits.Add(new ChatEdit(sectionId, NullIfBlank(edit.Title), NullIfBlank(edit.BodyMd)));
+                edits.Add(new ChatEdit(sectionId, NullIfBlank(edit.Title), NullIfBlank(edit.BodyMd),
+                    NullIfBlank(edit.Category)));
             }
 
             var prose = raw.Reply?.Trim() ?? "";

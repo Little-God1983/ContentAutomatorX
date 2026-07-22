@@ -1,0 +1,537 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║  INTO THE LATENT — reusable newsletter template                          ║
+  ║  Currently filled with dummy content so it previews in a browser.        ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+
+  ── HOW TO USE ────────────────────────────────────────────────────────────
+  Every content section below is marked with a "BLOCK:" comment. To build an
+  issue: duplicate the blocks you want, delete the ones you don't, swap the
+  text and image URLs. Blocks are self-contained <tr> rows — copy from the
+  opening <tr> to the matching </tr> and nothing else, and they'll keep
+  working in any order.
+
+  ── WHY THIS LOOKS LIKE 2003 HTML ─────────────────────────────────────────
+  Email clients are not browsers. Outlook renders with Microsoft Word's
+  engine; Gmail strips <style> blocks in some contexts. So:
+    • Layout uses nested <table> — flexbox and grid do not work.
+    • Styles are inline on each element — external/embedded CSS is unreliable.
+    • The <style> block up top only holds resets and the mobile media query,
+      which are the two things that DO survive in the clients that matter.
+  It's verbose on purpose. Don't "clean it up" into divs.
+
+  ── PALETTE ───────────────────────────────────────────────────────────────
+  Converted from the site's HSL tokens in apps/web/src/index.css, because
+  email needs literal hex values (no CSS variables).
+
+    dark bg      #0A0A12   ← --background  240 30% 5%
+    dark card    #0F0F1A   ← --card        240 28% 8%
+    dark border  #252537   ← --border      240 20% 18%
+    teal primary #1AE6D5   ← --primary     175 80% 50%
+    on-teal text #090915   ← --primary-foreground
+    violet       #935AE2   ← --accent      265 70% 62%
+    light text   #0F0F1A       muted (light) #5A5E70
+
+    teal-ink     #0A7B71   ← NOT from the site. The bright teal on white is
+                             ~1.4:1 contrast — unreadable. This darker teal
+                             hits ~5:1 for links on light backgrounds. Bright
+                             teal stays on buttons and dark panels only.
+
+  ── FONTS ─────────────────────────────────────────────────────────────────
+  No @import, deliberately. Space Grotesk / Inter / JetBrains Mono can't be
+  loaded in most email clients anyway, and pulling them from Google would
+  leak every recipient's IP on open — the same thing the site avoids by
+  self-hosting. So: system stacks, with bold + tight letter-spacing standing
+  in for Space Grotesk, and a real mono stack (natively available everywhere)
+  for the badges and category labels.
+
+  ── IMAGES ────────────────────────────────────────────────────────────────
+  Currently placehold.co URLs, so the preview needs internet. Real images
+  must be absolute https:// URLs on a host that allows hotlinking — email
+  clients can't read local files. Export at 2× the display width (a 536px
+  slot wants a 1072px file) so it stays sharp on retina screens.
+
+  Note: MailerLite's API has no file-upload endpoint (its File Manager is
+  dashboard-only), so an automated pipeline needs its own image host.
+
+  ── MERGE TAGS ────────────────────────────────────────────────────────────
+  {$unsubscribe} in the footer is MailerLite's tag for the subscriber's
+  unique unsubscribe URL. Verified against their variables documentation.
+  It is meant to stay as literal text in this file — MailerLite substitutes
+  it at send time, which is why it renders raw in a browser preview.
+-->
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Stops iOS Mail from auto-resizing text it thinks is too small. -->
+  <meta name="x-apple-disable-message-reformatting" />
+
+  <!-- Declares this as a light-mode design. Discourages Apple Mail and
+       Outlook.com from auto-inverting colors, which would turn the white
+       body muddy and wreck the dark header/footer contrast. -->
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+
+  <title>Into the Latent — Newsletter</title>
+
+  <style type="text/css">
+    /* ── Client resets ───────────────────────────────────────────────────
+       Each of these defuses a specific known bug. Leave them alone. */
+
+    /* Stops iOS/Windows Phone inflating font sizes on their own. */
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+
+    /* Removes the phantom gaps Outlook adds around table cells. */
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+
+    /* Kills the mystery gap under images and fixes IE's ugly downscaling. */
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+
+    body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+
+    /* ── Mobile ──────────────────────────────────────────────────────────
+       Gmail's app ignores media queries, which is fine — the layout is
+       fluid enough to hold up without them. These are an enhancement for
+       the clients that do support them, not a load-bearing dependency.
+       !important is required to beat the inline styles. */
+    @media only screen and (max-width: 600px) {
+      .sm-pad     { padding-left: 20px !important; padding-right: 20px !important; }
+      .sm-full    { width: 100% !important; max-width: 100% !important; }
+      .sm-h1      { font-size: 27px !important; line-height: 33px !important; }
+      .sm-stack   { display: block !important; width: 100% !important; }
+      .sm-center  { text-align: center !important; }
+    }
+  </style>
+</head>
+
+<body style="margin:0; padding:0; background-color:#EDEEF3;">
+
+  <!-- ══ PREHEADER ═══════════════════════════════════════════════════════
+       The grey line the inbox shows next to the subject. Hidden inside the
+       email itself. Write it as a real teaser — if you leave it empty the
+       client scrapes whatever text comes first instead, which is usually
+       the header, which looks broken.
+
+       The &#847;&zwnj; junk after it is standard practice: invisible
+       characters that eat up the preview slot so Gmail doesn't spill the
+       body copy in after your teaser. Keep them. -->
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#EDEEF3;">
+    Flux LoRA training that actually holds a face, plus what shipped this month.
+    &#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;
+  </div>
+
+  <!-- Full-bleed wrapper. Paints the grey backdrop the 600px card sits on.
+       Some clients ignore background-color on <body>, so it's set here too. -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#EDEEF3;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+
+        <!-- Outlook ignores max-width, so it needs its own fixed 600px table
+             wrapped in a conditional comment only Outlook reads. Other
+             clients skip it entirely and use the max-width table below. -->
+        <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+
+        <!-- ══ THE EMAIL CARD ══ 600px is the long-standing safe width:
+             it fits the Outlook reading pane without horizontal scroll. -->
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="sm-full"
+               style="width:600px; max-width:600px; background-color:#FFFFFF;">
+
+          <!-- ══════════════════════════════════════════════════════════
+               HEADER — dark, brand lockup. Fixed part of every issue.
+               ══════════════════════════════════════════════════════════ -->
+          <tr>
+            <td class="sm-pad" style="background-color:#0A0A12; padding:22px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <!-- The logo mark, rebuilt in HTML rather than as an image:
+                       a teal dot inside a soft teal square, same as the site's
+                       <Brand> component. Doing it in markup means it still
+                       shows when a client blocks images by default — which
+                       Outlook does out of the box. -->
+                  <td width="34" style="width:34px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="34"
+                           style="width:34px; height:34px; background-color:#0B2026; border:1px solid #0F6260; border-radius:9px;">
+                      <tr>
+                        <td align="center" valign="middle" style="height:32px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <!-- font-size/line-height 0 stops the empty cell
+                                 collapsing or growing to a text line's height. -->
+                            <tr><td style="width:11px; height:11px; background-color:#1AE6D5; border-radius:6px; font-size:0; line-height:0;">&nbsp;</td></tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td style="padding-left:11px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:17px; font-weight:700; letter-spacing:-0.3px; color:#E6E9EF;">
+                    Into the Latent
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ══════════════════════════════════════════════════════════
+               HERO — dark. EDIT PER ISSUE: badge, headline, subline.
+               ══════════════════════════════════════════════════════════ -->
+          <tr>
+            <td class="sm-pad" style="background-color:#0A0A12; padding:8px 32px 44px 32px; border-bottom:1px solid #252537;">
+
+              <!-- Mono badge — the issue number / date pill. A one-cell table
+                   rather than a <span> because only a table cell reliably
+                   takes padding + background across clients. -->
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td style="background-color:#0B2026; border:1px solid #0F6260; border-radius:20px; padding:6px 13px;
+                             font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                             font-size:11px; letter-spacing:0.7px; color:#1AE6D5; text-transform:uppercase;">
+                    Issue 001 &middot; July 2026
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Headline. The <br /> is a manual line break so the two
+                   lines balance — retune it when you change the wording, or
+                   drop it and let it wrap naturally. -->
+              <p class="sm-h1" style="margin:22px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:34px; line-height:40px; font-weight:700; letter-spacing:-0.8px; color:#E6E9EF;">
+                Signals from the<br />latent&nbsp;<span style="color:#1AE6D5;">space</span>
+              </p>
+
+              <p style="margin:14px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:15px; line-height:24px; color:#8D91A5;">
+                AI news, new tutorials, and channel updates — no spam, no noise,
+                just the useful frequencies.
+              </p>
+            </td>
+          </tr>
+
+          <!-- ══════════════════════════════════════════════════════════
+               BODY — light from here down to the footer.
+               Everything below is a swappable block.
+               ══════════════════════════════════════════════════════════ -->
+
+          <!-- ── BLOCK: intro text ──────────────────────────────────────
+               Your short note at the top of the issue. Optional; delete the
+               whole <tr> if an issue doesn't need one. -->
+          <tr>
+            <td class="sm-pad" style="padding:38px 32px 0 32px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                       font-size:16px; line-height:26px; color:#3A3E4D;">
+              Hey — this month was mostly about consistency: getting a face to survive
+              50 generations without drifting. Two write-ups below, plus a new build video.
+            </td>
+          </tr>
+
+          <!-- ── BLOCK: article card ────────────────────────────────────
+               DUPLICATE THIS <tr> once per article. Swap: image src + alt,
+               the three href values (all point at the same post), category,
+               reading time, title, excerpt.
+
+               Note the padding pattern used throughout: top padding only,
+               never bottom. Each block owns the space above itself, so
+               deleting any block leaves no double gap behind. -->
+          <tr>
+            <td class="sm-pad" style="padding:30px 32px 0 32px;">
+              <!-- Cover image. width="536" as an HTML attribute (not just CSS)
+                   because Outlook needs it; the inline max-width makes it
+                   shrink on mobile. Always write real alt text — a good chunk
+                   of recipients see it instead of the image. -->
+              <a href="https://intothelatent.com/blog/flux-lora-consistency" style="text-decoration:none;">
+                <img src="https://placehold.co/1072x600/0F0F1A/1AE6D5/png?text=Cover+image"
+                     width="536" alt="Flux LoRA consistency"
+                     style="display:block; width:100%; max-width:536px; height:auto; border-radius:12px;" />
+              </a>
+
+              <!-- Category + reading time, mirroring the blog cards on the site. -->
+              <p style="margin:14px 0 0 0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                        font-size:11px; letter-spacing:0.5px; color:#8A8FA0; text-transform:uppercase;">
+                <span style="color:#0A7B71;">Tutorial</span> &nbsp;&middot;&nbsp; 9 min read
+              </p>
+
+              <!-- Title. Colored + text-decoration:none on the <a> itself —
+                   without both, clients paint links default blue and underline
+                   them regardless of what the parent says. -->
+              <p style="margin:8px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:21px; line-height:28px; font-weight:700; letter-spacing:-0.4px;">
+                <a href="https://intothelatent.com/blog/flux-lora-consistency" style="color:#0F0F1A; text-decoration:none;">
+                  Training a Flux LoRA that actually holds a face
+                </a>
+              </p>
+
+              <p style="margin:9px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:15px; line-height:24px; color:#5A5E70;">
+                Caption strategy, learning-rate schedule, and the regularisation set that
+                stopped my character drifting after twenty generations.
+              </p>
+
+              <p style="margin:11px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:14px; font-weight:600;">
+                <a href="https://intothelatent.com/blog/flux-lora-consistency" style="color:#0A7B71; text-decoration:none;">Read the write-up &rarr;</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- ── DIVIDER ────────────────────────────────────────────────
+               A bordered table row, not <hr> — Outlook renders <hr>
+               inconsistently and won't respect its color. -->
+          <tr><td class="sm-pad" style="padding:30px 32px 0 32px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr><td style="border-top:1px solid #E4E6ED; font-size:0; line-height:0;">&nbsp;</td></tr>
+            </table>
+          </td></tr>
+
+          <!-- ── BLOCK: article card (second copy) ──────────────────────
+               Identical structure to the first. Shown twice so you can see
+               how two cards sit together with a divider between them. -->
+          <tr>
+            <td class="sm-pad" style="padding:30px 32px 0 32px;">
+              <a href="https://intothelatent.com/blog/comfyui-api-nodes" style="text-decoration:none;">
+                <img src="https://placehold.co/1072x600/0F0F1A/935AE2/png?text=Cover+image"
+                     width="536" alt="ComfyUI API nodes"
+                     style="display:block; width:100%; max-width:536px; height:auto; border-radius:12px;" />
+              </a>
+
+              <p style="margin:14px 0 0 0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                        font-size:11px; letter-spacing:0.5px; color:#8A8FA0; text-transform:uppercase;">
+                <span style="color:#0A7B71;">News</span> &nbsp;&middot;&nbsp; 4 min read
+              </p>
+
+              <p style="margin:8px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:21px; line-height:28px; font-weight:700; letter-spacing:-0.4px;">
+                <a href="https://intothelatent.com/blog/comfyui-api-nodes" style="color:#0F0F1A; text-decoration:none;">
+                  ComfyUI's new API nodes change the automation story
+                </a>
+              </p>
+
+              <p style="margin:9px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:15px; line-height:24px; color:#5A5E70;">
+                You can now drive a graph from outside the UI without the websocket dance.
+                Here's what that unlocks for batch pipelines.
+              </p>
+
+              <p style="margin:11px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:14px; font-weight:600;">
+                <a href="https://intothelatent.com/blog/comfyui-api-nodes" style="color:#0A7B71; text-decoration:none;">Read the write-up &rarr;</a>
+              </p>
+            </td>
+          </tr>
+
+          <!-- ── BLOCK: video feature ───────────────────────────────────
+               Deliberately dark inside the light body so it reads as a
+               distinct object rather than a third article — and it pulls the
+               site's card styling back in mid-email.
+
+               The thumbnail needs a play triangle burned into the image
+               itself: you can't reliably overlay one element on another in
+               email, so an image with the ▶ already on it is the only way
+               that survives everywhere. -->
+          <tr>
+            <td class="sm-pad" style="padding:34px 32px 0 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                     style="background-color:#0F0F1A; border-radius:14px;">
+                <tr>
+                  <td style="padding:18px 18px 0 18px;">
+                    <a href="https://www.youtube.com/@IntoTheLatent" style="text-decoration:none;">
+                      <img src="https://placehold.co/1000x563/0A0A12/1AE6D5/png?text=Video+thumbnail"
+                           width="500" alt="Watch on YouTube"
+                           style="display:block; width:100%; max-width:500px; height:auto; border-radius:9px;" />
+                    </a>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:16px 18px 20px 18px;">
+                    <p style="margin:0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                              font-size:11px; letter-spacing:0.5px; color:#1AE6D5; text-transform:uppercase;">
+                      New on YouTube
+                    </p>
+                    <p style="margin:7px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                              font-size:18px; line-height:25px; font-weight:700; letter-spacing:-0.3px; color:#E6E9EF;">
+                      Building a character-consistent pipeline, end to end
+                    </p>
+                    <p style="margin:8px 0 16px 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                              font-size:14px; line-height:22px; color:#8D91A5;">
+                      42 minutes, no cuts, including the parts that broke.
+                    </p>
+
+                    <!-- BUTTON pattern — used here and in the CTA block below.
+                         The color lives on the <td> via bgcolor (an attribute
+                         Outlook understands) while the <a> carries the padding,
+                         so the whole rectangle is clickable. Outlook drops the
+                         border-radius and shows a square teal button, which is
+                         a fine degradation. -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td align="center" bgcolor="#1AE6D5" style="border-radius:8px;">
+                          <a href="https://www.youtube.com/@IntoTheLatent"
+                             style="display:inline-block; padding:12px 24px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                                    font-size:14px; font-weight:700; color:#090915; text-decoration:none;">
+                            Watch the build &rarr;
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── BLOCK: text + CTA ──────────────────────────────────────
+               General-purpose announcement: heading, paragraph, button.
+               Use it for services, launches, anything without a cover image. -->
+          <tr>
+            <td class="sm-pad" style="padding:34px 32px 0 32px;">
+              <p style="margin:0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:20px; line-height:27px; font-weight:700; letter-spacing:-0.4px; color:#0F0F1A;">
+                Coaching slots open again in August
+              </p>
+              <p style="margin:9px 0 18px 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:15px; line-height:24px; color:#5A5E70;">
+                One-on-one sessions on diffusion workflows, pipeline design, and getting
+                repeatable output. Four slots, first come first served.
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <td align="center" bgcolor="#1AE6D5" style="border-radius:8px;">
+                    <a href="https://intothelatent.com/services"
+                       style="display:inline-block; padding:12px 24px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                              font-size:14px; font-weight:700; color:#090915; text-decoration:none;">
+                      See the services
+                    </a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ── BLOCK: sponsorship ─────────────────────────────────────
+               Paid placement. You're publishing from Germany, where paid
+               content has to be labelled unmistakably — so the ADVERTISEMENT
+               pill and the italic disclosure line at the bottom are not
+               decoration. Keep both if there's money involved, and don't
+               soften the wording to something vaguer like "partner".
+
+               The tinted panel is the second signal: it visually separates
+               sponsor copy from your own writing, so nobody mistakes one
+               for the other. Delete the whole <tr> on issues with no sponsor. -->
+          <tr>
+            <td class="sm-pad" style="padding:34px 32px 38px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+                     style="background-color:#F6F7FA; border:1px solid #E4E6ED; border-radius:14px;">
+                <tr>
+                  <td style="padding:20px 20px 22px 20px;">
+
+                    <!-- Required label. -->
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                      <tr>
+                        <td style="background-color:#EAEBF1; border-radius:4px; padding:4px 9px;
+                                   font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                                   font-size:10px; font-weight:700; letter-spacing:1.1px; color:#5A5E70;">
+                          ADVERTISEMENT
+                        </td>
+                      </tr>
+                    </table>
+
+                    <p style="margin:14px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                              font-size:18px; line-height:25px; font-weight:700; letter-spacing:-0.3px; color:#0F0F1A;">
+                      Sponsor name — one-line pitch goes here
+                    </p>
+                    <p style="margin:8px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                              font-size:15px; line-height:24px; color:#5A5E70;">
+                      Two or three sentences of sponsor copy. Keeps the same rhythm as the
+                      rest of the issue so it reads cleanly, but the label and the tinted
+                      panel make it unmistakably paid placement.
+                    </p>
+                    <p style="margin:11px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:14px; font-weight:600;">
+                      <a href="https://example.com" style="color:#0A7B71; text-decoration:none;">Visit sponsor &rarr;</a>
+                    </p>
+
+                    <!-- Required disclosure. -->
+                    <p style="margin:15px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                              font-size:12px; line-height:18px; font-style:italic; color:#8A8FA0;">
+                      This section is paid promotion. Sponsorships keep this newsletter free.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- ══════════════════════════════════════════════════════════
+               FOOTER — dark. Fixed part of every issue.
+               Nothing here is optional: the postal address, the unsubscribe
+               link, and the "why am I getting this" line are legal
+               requirements for commercial email, not filler.
+               ══════════════════════════════════════════════════════════ -->
+          <tr>
+            <td class="sm-pad" style="background-color:#0A0A12; padding:32px 32px 34px 32px;">
+
+              <p style="margin:0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:15px; font-weight:700; letter-spacing:-0.2px; color:#E6E9EF;">
+                Into the Latent
+              </p>
+
+              <!-- Social / destination links. Four is about the limit before
+                   this wraps awkwardly at mobile widths. -->
+              <p style="margin:12px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:13px; line-height:22px;">
+                <a href="https://www.youtube.com/@IntoTheLatent" style="color:#1AE6D5; text-decoration:none;">YouTube</a>
+                <span style="color:#3A3E52;">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+                <a href="https://patreon.com/AIKnowledgeCentral" style="color:#1AE6D5; text-decoration:none;">Patreon</a>
+                <span style="color:#3A3E52;">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+                <a href="https://koalendar.com/e/1hr-1-on-1-stable-diffusion" style="color:#1AE6D5; text-decoration:none;">1-on-1 coaching</a>
+                <span style="color:#3A3E52;">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+                <a href="https://intothelatent.com/" style="color:#1AE6D5; text-decoration:none;">Website</a>
+              </p>
+
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;">
+                <tr><td style="border-top:1px solid #252537; font-size:0; line-height:0;">&nbsp;</td></tr>
+              </table>
+
+              <!-- Sender identity. Pulled from apps/web/src/data/legal.js —
+                   if you change your address there, change it here too.
+                   Required in commercial email; also helps deliverability,
+                   since spam filters look for it. -->
+              <p style="margin:18px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:12px; line-height:19px; color:#6B7085;">
+                Christian Wenzl &middot; c/o Postflex #5664 &middot; Emsdettener Str. 10 &middot; 48268 Greven &middot; Deutschland<br />
+                <a href="https://intothelatent.com/impressum" style="color:#8D91A5;">Impressum</a> &nbsp;·&nbsp;
+                <a href="https://intothelatent.com/privacy" style="color:#8D91A5;">Privacy Policy</a>
+              </p>
+
+              <!-- Permission reminder + unsubscribe.
+
+                   {$unsubscribe} is MailerLite's merge tag for the
+                   subscriber's unique unsubscribe URL — verified against
+                   mailerlite.com/help/how-to-use-variables-in-mailerlite.
+                   It stays as a literal tag: MailerLite swaps it in at send
+                   time. In a browser preview it has nothing to resolve
+                   against, so seeing the raw text here is correct.
+
+                   Don't hardcode a URL in its place — the link has to be
+                   per-subscriber or unsubscribing silently fails, which is
+                   both a legal problem and a fast route to spam complaints.
+
+                   ({$email} inserts the recipient's own address. Left out
+                   deliberately — it's optional and adds visual noise.) -->
+              <p style="margin:14px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                        font-size:12px; line-height:19px; color:#5A5F75;">
+                You're receiving this because you subscribed at intothelatent.com.<br />
+                <a href="{$unsubscribe}" style="color:#8D91A5; text-decoration:underline;">Unsubscribe</a>
+              </p>
+
+              <!-- Same easter egg as the site footer. -->
+              <p style="margin:16px 0 0 0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                        font-size:11px; color:#3A3E52;">
+                latent://into-the-latent
+              </p>
+            </td>
+          </tr>
+
+        </table>
+        <!--[if mso]></td></tr></table><![endif]-->
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

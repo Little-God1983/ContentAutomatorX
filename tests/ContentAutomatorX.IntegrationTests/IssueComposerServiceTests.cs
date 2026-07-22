@@ -107,14 +107,14 @@ public class IssueComposerServiceTests
     public static IssueComposerService ComposerWith(World w, ILlmBackend llm, IssueHistoryService history) =>
         new(w.Test.Db, llm,
             new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-                llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
-            new StubLlmSettings(), history);
+                llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db)),
+            new StubLlmSettings(), history, new NewsletterTemplateService(w.Test.Db));
 
     private static IssueComposerService Composer(World w, ILlmBackend llm, StubLlmSettings? settings = null) =>
         new(w.Test.Db, llm,
             new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-                llm, w.Platforms, w.MailerLite, new StubLlmSettings()),
-            settings ?? new StubLlmSettings(), new IssueHistoryService(w.Test.Db));
+                llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db)),
+            settings ?? new StubLlmSettings(), new IssueHistoryService(w.Test.Db), new NewsletterTemplateService(w.Test.Db));
 
     [Fact]
     public async Task CreateFromItems_builds_header_topics_footer_with_contiguous_positions()
@@ -211,7 +211,7 @@ public class IssueComposerServiceTests
             w.Items.Select(i => i.Id).ToList(), "t");
         var sections = await composer.GetSectionsAsync(post.Id);
 
-        await composer.UpdateSectionAsync(sections[1].Id, "New title", "new body", null, "https://ex.com/new", null);
+        await composer.UpdateSectionAsync(sections[1].Id, "New title", "new body", null, "https://ex.com/new", null, null);
         await composer.RemoveSectionAsync(sections[2].Id);
 
         var after = await composer.GetSectionsAsync(post.Id);
@@ -255,7 +255,7 @@ public class IssueComposerServiceTests
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id,
             w.Items.Select(i => i.Id).ToList(), "t");
         var sections = await composer.GetSectionsAsync(post.Id);
-        await composer.UpdateSectionAsync(sections[1].Id, sections[1].Title, "HAND EDITED", null, sections[1].LinkUrl, null);
+        await composer.UpdateSectionAsync(sections[1].Id, sections[1].Title, "HAND EDITED", null, sections[1].LinkUrl, null, null);
 
         var filled = await composer.GenerateTopicsAsync(post.Id, "keep it short");
 
@@ -309,7 +309,7 @@ public class IssueComposerServiceTests
         var composer = Composer(w, llm);
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         var sections = await composer.GetSectionsAsync(post.Id);
-        await composer.UpdateSectionAsync(sections[1].Id, "T", "done", null, null, null);
+        await composer.UpdateSectionAsync(sections[1].Id, "T", "done", null, null, null, null);
 
         Assert.Equal(0, await composer.GenerateTopicsAsync(post.Id, null));
         Assert.Empty(llm.Prompts);
@@ -402,7 +402,7 @@ public class IssueComposerServiceTests
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Sectioned issue");
         await composer.GenerateTopicsAsync(post.Id, null);
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-            llm, w.Platforms, w.MailerLite, new StubLlmSettings());
+            llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         var pushed = await posts.PushAsync(post.Id);
 
@@ -424,7 +424,7 @@ public class IssueComposerServiceTests
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings()),
-            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings());
+            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
         await posts.SaveIssueMetaAsync(post.Id, "t", new string('x', 256), null);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => posts.PushAsync(post.Id));
@@ -441,7 +441,7 @@ public class IssueComposerServiceTests
         var composer = Composer(w, new FakeLlm());
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "Old");
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, new FakeLlm(), new FakeDelivery(), new StubLlmSettings()),
-            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings());
+            new FakeLlm(), w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         await posts.SaveIssueMetaAsync(post.Id, "New title", "Subj", "Pv");
 
@@ -450,6 +450,68 @@ public class IssueComposerServiceTests
         Assert.Equal(("New title", "Subj", "Pv"), (reloaded.Title, reloaded.Subject, reloaded.PreviewText));
         Assert.Null(reloaded.DraftId);                                      // meta save never creates a Draft
         Assert.Equal(3, await fresh.IssueSections.CountAsync(s => s.PostId == post.Id));
+    }
+
+    public static async Task<(IssueComposerService Composer, Guid PostId)> NewIssueAsync(TestDb t)
+    {
+        var tenant = new Tenant { Name = "T", Slug = $"t-{Guid.NewGuid():N}" };
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        var post = new Post { TenantId = tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter, Title = "Issue" };
+        t.Db.AddRange(tenant, platform, post);
+        await t.Db.SaveChangesAsync();
+
+        var llm = new FakeLlm();
+        var mailerLite = new FakeMailerLite();
+        var platforms = new PlatformService(t.Db, new InMemoryCredentials(), mailerLite);
+        var composer = new IssueComposerService(t.Db, llm,
+            new PostService(t.Db, new GenerationPipeline(t.Db, llm, new FakeDelivery(), new StubLlmSettings()),
+                llm, platforms, mailerLite, new StubLlmSettings(), new NewsletterTemplateService(t.Db)),
+            new StubLlmSettings(), new IssueHistoryService(t.Db), new NewsletterTemplateService(t.Db));
+
+        await composer.EnsureSectionsAsync(post.Id);
+        return (composer, post.Id);
+    }
+
+    [Fact]
+    public async Task Category_round_trips_through_update()
+    {
+        using var t = TestDb.Create();
+        var (composer, postId) = await NewIssueAsync(t);
+        var section = await composer.AddSectionAsync(postId, SectionTypes.Topic);
+
+        await composer.UpdateSectionAsync(section.Id, "Title", "Body", null, null, null, "Tutorial");
+
+        Assert.Equal("Tutorial", (await t.Db.IssueSections.SingleAsync(s => s.Id == section.Id)).Category);
+    }
+
+    [Fact]
+    public async Task Undo_restores_the_category()
+    {
+        using var t = TestDb.Create();
+        var (composer, postId) = await NewIssueAsync(t);
+        var history = new IssueHistoryService(t.Db);
+        var section = await composer.AddSectionAsync(postId, SectionTypes.Topic);
+
+        await composer.UpdateSectionAsync(section.Id, "T", "B", null, null, null, "Tutorial");
+        await composer.UpdateSectionAsync(section.Id, "T", "B", null, null, null, "News");
+        await history.UndoAsync(postId);
+
+        Assert.Equal("Tutorial", (await t.Db.IssueSections.SingleAsync(s => s.Id == section.Id)).Category);
+    }
+
+    [Fact]
+    public async Task A_video_section_can_be_added_and_edited()
+    {
+        using var t = TestDb.Create();
+        var (composer, postId) = await NewIssueAsync(t);
+
+        var section = await composer.AddSectionAsync(postId, SectionTypes.Video);
+        await composer.UpdateSectionAsync(section.Id, "The build", "42 minutes.", null,
+            "https://youtu.be/dQw4w9WgXcQ", "Watch the build →", null);
+
+        var stored = await t.Db.IssueSections.SingleAsync(s => s.Id == section.Id);
+        Assert.Equal(SectionTypes.Video, stored.Type);
+        Assert.Equal("https://youtu.be/dQw4w9WgXcQ", stored.LinkUrl);
     }
 
     [Fact]
@@ -462,7 +524,7 @@ public class IssueComposerServiceTests
         var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
         await composer.GenerateTopicsAsync(post.Id, null);
         var posts = new PostService(w.Test.Db, new GenerationPipeline(w.Test.Db, llm, new FakeDelivery(), new StubLlmSettings()),
-            llm, w.Platforms, w.MailerLite, new StubLlmSettings());
+            llm, w.Platforms, w.MailerLite, new StubLlmSettings(), new NewsletterTemplateService(w.Test.Db));
 
         var ideas = await posts.SubjectIdeasAsync(post.Id);
 

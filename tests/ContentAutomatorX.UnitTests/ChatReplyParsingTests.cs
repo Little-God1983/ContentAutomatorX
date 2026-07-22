@@ -96,4 +96,35 @@ public class ChatReplyParsingTests
         Assert.False(ChatReplyParser.TryParse(text, out var reply));
         Assert.Null(reply);
     }
+
+    [Fact]
+    public void Parses_a_category_edit()
+    {
+        var id = Guid.NewGuid();
+        var json = $$"""{"reply":"ok","edits":[{"sectionId":"{{id}}","category":"Tutorial"}]}""";
+
+        Assert.True(ChatReplyParser.TryParse(json, out var reply));
+        var edit = Assert.Single(reply!.Edits);
+        Assert.Equal("Tutorial", edit.Category);
+        Assert.Null(edit.Title);
+        Assert.Null(edit.BodyMd);
+    }
+
+    [Fact]
+    public void An_edit_carrying_only_a_category_is_kept_not_dropped()
+    {
+        var json = $$"""{"reply":"ok","edits":[{"sectionId":"{{Guid.NewGuid()}}","category":"News"}]}""";
+        Assert.True(ChatReplyParser.TryParse(json, out var reply));
+        Assert.Single(reply!.Edits);
+        Assert.Equal(0, reply.DroppedEdits);
+    }
+
+    [Fact]
+    public void An_edit_with_no_usable_field_at_all_is_still_dropped()
+    {
+        var json = $$"""{"reply":"ok","edits":[{"sectionId":"{{Guid.NewGuid()}}"}]}""";
+        Assert.True(ChatReplyParser.TryParse(json, out var reply));
+        Assert.Empty(reply!.Edits);
+        Assert.Equal(1, reply.DroppedEdits);
+    }
 }

@@ -20,6 +20,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<IssueChatMessage> IssueChatMessages => Set<IssueChatMessage>();
     public DbSet<IssueSectionProposal> IssueSectionProposals => Set<IssueSectionProposal>();
     public DbSet<IssueRevision> IssueRevisions => Set<IssueRevision>();
+    public DbSet<NewsletterTemplate> NewsletterTemplates => Set<NewsletterTemplate>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -55,5 +56,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         b.Entity<IssueRevision>().HasIndex(r => new { r.PostId, r.Stack, r.Ordinal }).IsUnique();
         b.Entity<IssueRevision>()
             .HasOne<Post>().WithMany().HasForeignKey(r => r.PostId).OnDelete(DeleteBehavior.Cascade);
+        // Not unique: a tenant may hold several templates. No FK to Tenant, matching every other
+        // tenant-owned entity here.
+        b.Entity<NewsletterTemplate>().HasIndex(t => t.TenantId);
     }
 }

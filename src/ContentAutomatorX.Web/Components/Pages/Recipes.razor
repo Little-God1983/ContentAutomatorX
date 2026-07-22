@@ -8,6 +8,8 @@
 @inject IServiceScopeFactory ScopeFactory
 @inject ISnackbar Snackbar
 @inject IScrollManager ScrollManager
+@inject IDialogService DialogService
+@inject NewsletterTemplateService NewsletterTemplates
 
 <MudText Typo="Typo.h4" Class="mb-4">Automations</MudText>
 
@@ -73,6 +75,18 @@ else
                 <MudSelectItem T="Guid?" Value="@((Guid?)p.Id)">@p.DisplayName</MudSelectItem>
             }
         </MudSelect>
+        <div class="d-flex align-center" style="gap:8px">
+            <MudSelect T="Guid?" @bind-Value="_newsletterTemplateId" Label="Newsletter template" Class="flex-grow-1">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">@DefaultTemplateLabel</MudSelectItem>
+                @foreach (var nt in _newsletterTemplates)
+                {
+                    <MudSelectItem T="Guid?" Value="@((Guid?)nt.Id)">@nt.Name@(nt.IsDefault ? " (default)" : "")</MudSelectItem>
+                }
+            </MudSelect>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" Disabled="@(SelectedTemplate is null)"
+                       OnClick="EditTemplateAsync">Edit</MudButton>
+            <MudButton Variant="Variant.Outlined" Size="Size.Small" OnClick="NewTemplateAsync">New</MudButton>
+        </div>
         <MudSwitch T="bool" @bind-Value="_enabled" Label="Enabled" Color="Color.Primary" />
 
         @if (_editing is not null && _template is not null)
@@ -126,6 +140,81 @@ else
     private Guid? _targetPlatformId;
     private IReadOnlyCollection<Guid> _selectedSourceIds = [];
 
+    private Guid? _newsletterTemplateId;
+    private List<NewsletterTemplate> _newsletterTemplates = [];
+
+    /// <summary>What a null Recipe.NewsletterTemplateId actually renders with, named. The old wording
+    /// ("built-in if none") described both outcomes at once and so told you neither — a recipe left on
+    /// null looked unconfigured even when a tenant default was set and was the template being used.
+    /// Mirrors NewsletterTemplateService.ResolveForPostAsync's fallback: the tenant's IsDefault
+    /// template, else the built-in renderer.</summary>
+    private string DefaultTemplateLabel =>
+        _newsletterTemplates.FirstOrDefault(t => t.IsDefault) is { } d
+            ? $"Tenant default ({d.Name})"
+            : "Tenant default (built-in — none set)";
+
+    private async Task LoadTemplatesAsync()
+    {
+        if (Ctx.Active is null) return;
+        _newsletterTemplates = await NewsletterTemplates.ListAsync(Ctx.Active.Id);
+    }
+
+    /// <summary>The template the dropdown's current selection actually resolves to — the pinned one,
+    /// or on null the tenant default (the same fallback DefaultTemplateLabel names and
+    /// ResolveForPostAsync applies). Null only when null resolves to the built-in renderer, which has
+    /// no row to open. Gating Edit on _newsletterTemplateId instead left the button greyed out while
+    /// the field named an editable template, so the only way to reach it was to pin it first.</summary>
+    private NewsletterTemplate? SelectedTemplate =>
+        _newsletterTemplateId is Guid id
+            ? _newsletterTemplates.FirstOrDefault(t => t.Id == id)
+            : _newsletterTemplates.FirstOrDefault(t => t.IsDefault);
+
+    private Task EditTemplateAsync() => OpenTemplateAsync(SelectedTemplate, isNew: false);
+
+    private Task NewTemplateAsync() => OpenTemplateAsync(new NewsletterTemplate
+    {
+        TenantId = Ctx.Active!.Id, Name = "", Html = StarterTemplate.Html,
+        IsDefault = _newsletterTemplates.Count == 0
+    }, isNew: true);
+
+    private async Task OpenTemplateAsync(NewsletterTemplate? template, bool isNew)
+    {
+        if (template is null) return;
+        try
+        {
+            var parameters = new DialogParameters<TemplateEditorDialog>
+            {
+                { x => x.Template, template },
+                { x => x.IsNew, isNew },
+                { x => x.TenantId, Ctx.Active!.Id }
+            };
+            var options = new DialogOptions { FullScreen = true, CloseButton = true };
+            var dialog = await DialogService.ShowAsync<TemplateEditorDialog>("Newsletter template", parameters, options);
+            var result = await dialog.Result;
+            if (result is null || result.Canceled) return;
+
+            var wasFollowingDefault = _newsletterTemplateId is null;
+            await LoadTemplatesAsync();
+            // Data is a NewsletterTemplate on save, null on delete.
+            //
+            // Editing (isNew: false) from the "Tenant default" position must not pin the recipe to
+            // whatever that resolved to. The recipe was set to follow the default, and editing that
+            // template's markup is not a request to stop following it — pinning here would silently
+            // freeze the recipe onto today's default, so a later change of default would skip it.
+            //
+            // Creating (isNew: true) does pin, from either position: a template you just authored is
+            // one you want this recipe to use, and a new non-default template is otherwise
+            // unreachable from a recipe that was following the default.
+            _newsletterTemplateId = result.Data is NewsletterTemplate saved && (isNew || !wasFollowingDefault)
+                ? saved.Id
+                : null;
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"Template editor failed: {ex.Message}", Severity.Error);
+        }
+    }
+
     private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
 
     protected override async Task OnInitializedAsync()
@@ -155,11 +244,13 @@ else
             _sources = [];
             _platforms = [];
             _recipes = [];
+            _newsletterTemplates = [];
             return;
         }
         _sources = await SourceSvc.ListAsync(Ctx.Active.Id);
         _platforms = [await PlatformSvc.GetOrCreateMailerLiteAsync(Ctx.Active.Id)];
         _recipes = await RecipeSvc.ListAsync(Ctx.Active.Id);
+        await LoadTemplatesAsync();
         _labelSuggestions = _recipes
             .Select(r => TryParseOutput(r.OutputJson)?.TargetPlatform)
             .Where(l => !string.IsNullOrWhiteSpace(l))
@@ -186,6 +277,7 @@ else
         _editing = r;
         _name = r.Name; _kind = r.Kind; _cron = r.ScheduleCron ?? ""; _enabled = r.IsEnabled;
         _targetPlatformId = r.TargetPlatformId;
+        _newsletterTemplateId = r.NewsletterTemplateId;
         _tone = r.ToneModifiers ?? ""; _length = r.LengthTarget ?? ""; _language = r.Language ?? "";
         _selectedSourceIds = JsonSerializer.Deserialize<Guid[]>(r.SourceIdsJson) ?? [];
         var rules = JsonSerializer.Deserialize<SelectionRules>(r.SelectionJson, JsonOpts) ?? new SelectionRules();
@@ -207,6 +299,7 @@ else
         _tone = ""; _length = ""; _language = ""; _subfolder = ""; _filenamePattern = ""; _targetPlatform = "";
         _cron = ""; _windowDays = 7; _minScore = null; _maxItems = 10; _enabled = true;
         _targetPlatformId = null;
+        _newsletterTemplateId = null;
         _selectedSourceIds = [];
     }
 
@@ -241,7 +334,8 @@ else
                 SelectionJson = selection, OutputJson = output,
                 ToneModifiers = _tone, LengthTarget = _length, Language = _language,
                 ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron, IsEnabled = _enabled,
-                TargetPlatformId = _targetPlatformId
+                TargetPlatformId = _targetPlatformId,
+                NewsletterTemplateId = _newsletterTemplateId
             });
         }
         else
@@ -250,6 +344,7 @@ else
             _editing.OutputJson = output; _editing.ToneModifiers = _tone; _editing.LengthTarget = _length;
             _editing.Language = _language; _editing.ScheduleCron = string.IsNullOrWhiteSpace(_cron) ? null : _cron;
             _editing.IsEnabled = _enabled; _editing.TargetPlatformId = _targetPlatformId;
+            _editing.NewsletterTemplateId = _newsletterTemplateId;
             await RecipeSvc.UpdateAsync();   // also persists the edited _template.Template (tracked)
         }
         Reset();

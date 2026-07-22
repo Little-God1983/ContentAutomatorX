@@ -9,13 +9,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ContentAutomatorX.Application.Services;
 
-public record TopicBlurb(Guid ItemId, string Title, string Blurb);
+public record TopicBlurb(Guid ItemId, string Title, string Blurb, string? Category);
 
 /// <summary>Owns the structured-issue composer: section lifecycle (Task 4) and AI topic
 /// generation (Task 5). An issue always has exactly one Header (first) and one Footer (last);
 /// positions stay 0-based and contiguous after every mutation.</summary>
 public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService posts,
-    ILlmSettingsProvider llmSettings, IssueHistoryService history)
+    ILlmSettingsProvider llmSettings, IssueHistoryService history, NewsletterTemplateService templates)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -90,7 +90,8 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
     }
 
     public async Task UpdateSectionAsync(Guid sectionId, string? title, string? bodyMd,
-        string? imageUrl, string? linkUrl, string? linkText, CancellationToken ct = default)
+        string? imageUrl, string? linkUrl, string? linkText, string? category,
+        CancellationToken ct = default)
     {
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
         await history.SnapshotAsync(section.PostId, "Edit section", ct);
@@ -99,6 +100,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         section.ImageUrl = imageUrl;
         section.LinkUrl = linkUrl;
         section.LinkText = linkText;
+        section.Category = category;
         await db.SaveChangesAsync(ct);
     }
 
@@ -147,8 +149,11 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var post = await db.Posts.SingleAsync(p => p.Id == postId, ct);
         var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
         var sections = await GetSectionsAsync(postId, ct);
-        return SectionHtmlRenderer.Render(sections, tenant, title)
-            .Replace(SectionHtmlRenderer.UnsubscribeToken, "#");
+        var template = await templates.ResolveForPostAsync(postId, ct);
+        var html = template is null
+            ? SectionHtmlRenderer.Render(sections, tenant, title)
+            : TemplateHtmlRenderer.Render(sections, tenant, title, template.Html, post.CreatedAt);
+        return html.Replace(SectionHtmlRenderer.UnsubscribeToken, "#");
     }
 
     private static void Renumber(List<IssueSection> ordered)
@@ -205,6 +210,7 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
             if (!byItem.TryGetValue(section.SourceItemId!.Value, out var topic)) continue;
             section.BodyMd = topic.Blurb;
             if (!string.IsNullOrWhiteSpace(topic.Title)) section.Title = topic.Title;
+            if (!string.IsNullOrWhiteSpace(topic.Category)) section.Category = topic.Category;
             filled++;
             filledItemIds.Add(section.SourceItemId!.Value);
         }
@@ -271,7 +277,8 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         if (!string.IsNullOrWhiteSpace(extraInstructions)) sb.AppendLine($"Extra instructions: {extraInstructions}");
         sb.AppendLine();
         sb.AppendLine("Write one short markdown blurb (2-4 sentences) per item below. Improve the title when it helps.");
-        sb.AppendLine("""Respond with ONLY a JSON array, no prose, no markdown fences: [{"itemId":"<id>","title":"...","blurb":"..."}]""");
+        sb.AppendLine("""Respond with ONLY a JSON array, no prose, no markdown fences: [{"itemId":"<id>","title":"...","blurb":"...","category":"..."}]""");
+        sb.AppendLine("category is a one- or two-word label for the piece, such as Tutorial, News or Release.");
         foreach (var item in items)
         {
             sb.AppendLine($"--- itemId: {item.Id} ---");

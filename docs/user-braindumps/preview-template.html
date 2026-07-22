@@ -1,0 +1,421 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!--
+  ╔══════════════════════════════════════════════════════════════════════════╗
+  ║  INTO THE LATENT — reusable newsletter template                          ║
+  ║  Block-annotated version. The app fills it in automatically — see below. ║
+  ╚══════════════════════════════════════════════════════════════════════════╝
+
+  ── BLOCKS ARE FILLED AUTOMATICALLY ───────────────────────────────────────
+  Every content region below is wrapped in a named BLOCK comment pair, with
+  {{double-curly}} placeholders and conditional regions inside it. When an
+  issue is built the app substitutes those placeholders from the issue's own
+  sections, drops any conditional region whose field is empty, and repeats
+  the topic/video/sponsor/button/divider block once for every matching
+  section, in order. There is nothing left to hand-copy, duplicate or
+  retype per issue — editing the markup in this file changes the design;
+  the content itself always comes from the issue being sent.
+
+  ── WHY THIS LOOKS LIKE 2003 HTML ─────────────────────────────────────────
+  Email clients are not browsers. Outlook renders with Microsoft Word's
+  engine; Gmail strips <style> blocks in some contexts. So:
+    • Layout uses nested <table> — flexbox and grid do not work.
+    • Styles are inline on each element — external/embedded CSS is unreliable.
+    • The <style> block up top only holds resets and the mobile media query,
+      which are the two things that DO survive in the clients that matter.
+  It's verbose on purpose. Don't "clean it up" into divs.
+
+  ── PALETTE ───────────────────────────────────────────────────────────────
+  Converted from the site's HSL tokens in apps/web/src/index.css, because
+  email needs literal hex values (no CSS variables).
+
+    dark bg      #0A0A12   ← --background  240 30% 5%
+    dark card    #0F0F1A   ← --card        240 28% 8%
+    dark border  #252537   ← --border      240 20% 18%
+    teal primary #1AE6D5   ← --primary     175 80% 50%
+    on-teal text #090915   ← --primary-foreground
+    violet       #935AE2   ← --accent      265 70% 62%
+    light text   #0F0F1A       muted (light) #5A5E70
+
+    teal-ink     #0A7B71   ← NOT from the site. The bright teal on white is
+                             ~1.4:1 contrast — unreadable. This darker teal
+                             hits ~5:1 for links on light backgrounds. Bright
+                             teal stays on buttons and dark panels only.
+
+  ── FONTS ─────────────────────────────────────────────────────────────────
+  No @import, deliberately. Space Grotesk / Inter / JetBrains Mono can't be
+  loaded in most email clients anyway, and pulling them from Google would
+  leak every recipient's IP on open — the same thing the site avoids by
+  self-hosting. So: system stacks, with bold + tight letter-spacing standing
+  in for Space Grotesk, and a real mono stack (natively available everywhere)
+  for the badges and category labels.
+
+  ── IMAGES ────────────────────────────────────────────────────────────────
+  Cover images and video thumbnails come from whatever URL each issue's own
+  sections carry — this file no longer hardcodes any placehold.co URLs. Real
+  images must be absolute https:// URLs on a host that allows hotlinking —
+  email clients can't read local files. Export at 2× the display width (a
+  536px slot wants a 1072px file) so it stays sharp on retina screens.
+
+  Note: MailerLite's API has no file-upload endpoint (its File Manager is
+  dashboard-only), so an automated pipeline needs its own image host.
+
+  ── MERGE TAGS ────────────────────────────────────────────────────────────
+  {{unsubscribe_url}} in the footer is this app's own ESP-neutral token for
+  the subscriber's unique unsubscribe URL (SectionHtmlRenderer's
+  UnsubscribeToken). The MailerLite push substitutes MailerLite's own merge
+  tag for it right before the API call — {$unsubscribe}, verified against
+  their variables documentation — so nothing in this file is
+  MailerLite-specific, and a future push to a different ESP only needs its
+  own substitution step, not a rewrite of this template.
+-->
+<!-- BLOCK: shell -->
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Stops iOS Mail from auto-resizing text it thinks is too small. -->
+  <meta name="x-apple-disable-message-reformatting" />
+
+  <!-- Declares this as a light-mode design. Discourages Apple Mail and
+       Outlook.com from auto-inverting colors, which would turn the white
+       body muddy and wreck the dark header/footer contrast. -->
+  <meta name="color-scheme" content="light" />
+  <meta name="supported-color-schemes" content="light" />
+
+  <title>{{issue_title}}</title>
+
+  <style type="text/css">
+    /* ── Client resets ───────────────────────────────────────────────────
+       Each of these defuses a specific known bug. Leave them alone. */
+
+    /* Stops iOS/Windows Phone inflating font sizes on their own. */
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+
+    /* Removes the phantom gaps Outlook adds around table cells. */
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+
+    /* Kills the mystery gap under images and fixes IE's ugly downscaling. */
+    img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+
+    body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+
+    /* ── Mobile ──────────────────────────────────────────────────────────
+       Gmail's app ignores media queries, which is fine — the layout is
+       fluid enough to hold up without them. These are an enhancement for
+       the clients that do support them, not a load-bearing dependency.
+       !important is required to beat the inline styles. */
+    @media only screen and (max-width: 600px) {
+      .sm-pad     { padding-left: 20px !important; padding-right: 20px !important; }
+      .sm-full    { width: 100% !important; max-width: 100% !important; }
+      .sm-h1      { font-size: 27px !important; line-height: 33px !important; }
+      .sm-stack   { display: block !important; width: 100% !important; }
+      .sm-center  { text-align: center !important; }
+    }
+  </style>
+</head>
+
+<body style="margin:0; padding:0; background-color:#EDEEF3;">
+
+  <!-- ══ PREHEADER ═══════════════════════════════════════════════════════
+       The grey line the inbox shows next to the subject. Hidden inside the
+       email itself.
+
+       The &#847;&zwnj; junk after it is standard practice: invisible
+       characters that eat up the preview slot so Gmail doesn't spill the
+       body copy in after the teaser. Keep them. -->
+  <div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; line-height:1px; color:#EDEEF3;">
+    {{preheader}}
+    &#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;
+  </div>
+
+  <!-- Full-bleed wrapper. Paints the grey backdrop the 600px card sits on.
+       Some clients ignore background-color on <body>, so it's set here too. -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#EDEEF3;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+
+        <!-- Outlook ignores max-width, so it needs its own fixed 600px table
+             wrapped in a conditional comment only Outlook reads. Other
+             clients skip it entirely and use the max-width table below. -->
+        <!--[if mso]><table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+
+        <!-- ══ THE EMAIL CARD ══ 600px is the long-standing safe width:
+             it fits the Outlook reading pane without horizontal scroll. -->
+        <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" class="sm-full"
+               style="width:600px; max-width:600px; background-color:#FFFFFF;">
+
+          <!-- ══════════════════════════════════════════════════════════
+               HEADER — dark, brand lockup. Fixed part of every issue.
+               ══════════════════════════════════════════════════════════ -->
+          <tr>
+            <td class="sm-pad" style="background-color:#0A0A12; padding:22px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                <tr>
+                  <!-- The logo mark, rebuilt in HTML rather than as an image:
+                       a teal dot inside a soft teal square, same as the site's
+                       <Brand> component. Doing it in markup means it still
+                       shows when a client blocks images by default — which
+                       Outlook does out of the box. -->
+                  <td width="34" style="width:34px;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="34"
+                           style="width:34px; height:34px; background-color:#0B2026; border:1px solid #0F6260; border-radius:9px;">
+                      <tr>
+                        <td align="center" valign="middle" style="height:32px;">
+                          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                            <!-- font-size/line-height 0 stops the empty cell
+                                 collapsing or growing to a text line's height. -->
+                            <tr><td style="width:11px; height:11px; background-color:#1AE6D5; border-radius:6px; font-size:0; line-height:0;">&nbsp;</td></tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td style="padding-left:11px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:17px; font-weight:700; letter-spacing:-0.3px; color:#E6E9EF;">
+                    Into the Latent
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          {{sections}}
+
+        </table>
+        <!--[if mso]></td></tr></table><![endif]-->
+
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+<!-- /BLOCK -->
+
+<!-- BLOCK: header -->
+<tr>
+  <td class="sm-pad" style="background-color:#0A0A12; padding:8px 32px 44px 32px; border-bottom:1px solid #252537;">
+
+    <!-- Mono badge — the issue date pill. A one-cell table rather than a
+         <span> because only a table cell reliably takes padding + background
+         across clients. -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td style="background-color:#0B2026; border:1px solid #0F6260; border-radius:20px; padding:6px 13px;
+                   font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                   font-size:11px; letter-spacing:0.7px; color:#1AE6D5; text-transform:uppercase;">
+          {{issue_date}}
+        </td>
+      </tr>
+    </table>
+
+    <p class="sm-h1" style="margin:22px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:34px; line-height:40px; font-weight:700; letter-spacing:-0.8px; color:#E6E9EF;">
+      {{title}}
+    </p>
+
+    <div style="margin:14px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:15px; line-height:24px; color:#8D91A5;">
+      {{body_html}}
+    </div>
+  </td>
+</tr>
+<!-- /BLOCK -->
+
+<!-- BLOCK: topic -->
+<tr>
+  <td class="sm-pad" style="padding:30px 32px 0 32px;">
+    <!-- IF: image --><img src="{{image_url}}" width="536" alt="{{title}}"
+         style="display:block; width:100%; max-width:536px; height:auto; border-radius:12px;" /><!-- /IF -->
+
+    <!-- IF: category --><p style="margin:14px 0 0 0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+              font-size:11px; letter-spacing:0.5px; color:#8A8FA0; text-transform:uppercase;">
+      <span style="color:#0A7B71;">{{category}}</span> &nbsp;&middot;&nbsp; {{reading_time}}
+    </p><!-- /IF -->
+
+    <p style="margin:8px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:21px; line-height:28px; font-weight:700; letter-spacing:-0.4px; color:#0F0F1A;">
+      {{title}}
+    </p>
+
+    <div style="margin:9px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:15px; line-height:24px; color:#5A5E70;">
+      {{body_html}}
+    </div>
+
+    <!-- IF: link --><p style="margin:11px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:14px; font-weight:600;">
+      <a href="{{link_url}}" style="color:#0A7B71; text-decoration:none;">{{link_text}}</a>
+    </p><!-- /IF -->
+  </td>
+</tr>
+<!-- /BLOCK -->
+
+<!-- BLOCK: divider -->
+<tr><td class="sm-pad" style="padding:30px 32px 0 32px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="border-top:1px solid #E4E6ED; font-size:0; line-height:0;">&nbsp;</td></tr>
+  </table>
+</td></tr>
+<!-- /BLOCK -->
+
+<!-- BLOCK: video -->
+<tr>
+  <td class="sm-pad" style="padding:34px 32px 0 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background-color:#0F0F1A; border-radius:14px;">
+      <tr>
+        <td style="padding:18px 18px 0 18px;">
+          <!-- IF: thumbnail --><img src="{{thumbnail_url}}" width="500" alt="{{title}}"
+               style="display:block; width:100%; max-width:500px; height:auto; border-radius:9px;" /><!-- /IF -->
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:16px 18px 20px 18px;">
+          <p style="margin:0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                    font-size:11px; letter-spacing:0.5px; color:#1AE6D5; text-transform:uppercase;">
+            New on YouTube
+          </p>
+          <p style="margin:7px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                    font-size:18px; line-height:25px; font-weight:700; letter-spacing:-0.3px; color:#E6E9EF;">
+            {{title}}
+          </p>
+          <div style="margin:8px 0 16px 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                    font-size:14px; line-height:22px; color:#8D91A5;">
+            {{body_html}}
+          </div>
+
+          <!-- IF: video -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td align="center" bgcolor="#1AE6D5" style="border-radius:8px;">
+                <a href="{{video_url}}"
+                   style="display:inline-block; padding:12px 24px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                          font-size:14px; font-weight:700; color:#090915; text-decoration:none;">
+                  {{link_text}}
+                </a>
+              </td>
+            </tr>
+          </table>
+          <!-- /IF -->
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<!-- /BLOCK -->
+
+<!-- BLOCK: button -->
+<tr>
+  <td class="sm-pad" style="padding:34px 32px 0 32px;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+      <tr>
+        <td align="center" bgcolor="#1AE6D5" style="border-radius:8px;">
+          <!-- IF: link --><a href="{{link_url}}"
+             style="display:inline-block; padding:12px 24px; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                    font-size:14px; font-weight:700; color:#090915; text-decoration:none;">
+            {{link_text}}
+          </a><!-- /IF -->
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<!-- /BLOCK -->
+
+<!-- BLOCK: sponsor -->
+<tr>
+  <td class="sm-pad" style="padding:34px 32px 38px 32px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background-color:#F6F7FA; border:1px solid #E4E6ED; border-radius:14px;">
+      <tr>
+        <td style="padding:20px 20px 22px 20px;">
+
+          <!-- Required label. -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="background-color:#EAEBF1; border-radius:4px; padding:4px 9px;
+                         font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+                         font-size:10px; font-weight:700; letter-spacing:1.1px; color:#5A5E70;">
+                ADVERTISEMENT
+              </td>
+            </tr>
+          </table>
+
+          <p style="margin:14px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                    font-size:18px; line-height:25px; font-weight:700; letter-spacing:-0.3px; color:#0F0F1A;">
+            {{title}}
+          </p>
+          <div style="margin:8px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                    font-size:15px; line-height:24px; color:#5A5E70;">
+            {{body_html}}
+          </div>
+          <!-- IF: link --><p style="margin:11px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:14px; font-weight:600;">
+            <a href="{{link_url}}" style="color:#0A7B71; text-decoration:none;">{{link_text}}</a>
+          </p><!-- /IF -->
+
+          <!-- Required disclosure. -->
+          <p style="margin:15px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+                    font-size:12px; line-height:18px; font-style:italic; color:#8A8FA0;">
+            This section is paid promotion. Sponsorships keep this newsletter free.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </td>
+</tr>
+<!-- /BLOCK -->
+
+<!-- BLOCK: footer -->
+<tr>
+  <td class="sm-pad" style="background-color:#0A0A12; padding:32px 32px 34px 32px;">
+
+    <p style="margin:0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:15px; font-weight:700; letter-spacing:-0.2px; color:#E6E9EF;">
+      Into the Latent
+    </p>
+
+    <!-- Social / destination links. Four is about the limit before
+         this wraps awkwardly at mobile widths. -->
+    <p style="margin:12px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; font-size:13px; line-height:22px;">
+      <a href="https://www.youtube.com/@IntoTheLatent" style="color:#1AE6D5; text-decoration:none;">YouTube</a>
+      <span style="color:#3A3E52;">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+      <a href="https://patreon.com/AIKnowledgeCentral" style="color:#1AE6D5; text-decoration:none;">Patreon</a>
+      <span style="color:#3A3E52;">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+      <a href="https://koalendar.com/e/1hr-1-on-1-stable-diffusion" style="color:#1AE6D5; text-decoration:none;">1-on-1 coaching</a>
+      <span style="color:#3A3E52;">&nbsp;&nbsp;·&nbsp;&nbsp;</span>
+      <a href="https://intothelatent.com/" style="color:#1AE6D5; text-decoration:none;">Website</a>
+    </p>
+
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:20px;">
+      <tr><td style="border-top:1px solid #252537; font-size:0; line-height:0;">&nbsp;</td></tr>
+    </table>
+
+    <!-- Sender identity. Required in commercial email; also helps
+         deliverability, since spam filters look for it. -->
+    <p style="margin:18px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:12px; line-height:19px; color:#6B7085;">
+      {{sender_identity}}<br />
+      <a href="https://intothelatent.com/impressum" style="color:#8D91A5;">Impressum</a> &nbsp;·&nbsp;
+      <a href="https://intothelatent.com/privacy" style="color:#8D91A5;">Privacy Policy</a>
+    </p>
+
+    <!-- Permission reminder + unsubscribe. The div below is the issue's own
+         editable footer copy; the unsubscribe link itself is NOT part of
+         that editable copy — it must always render, so it sits outside any
+         conditional region as its own literal href. -->
+    <div style="margin:14px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:12px; line-height:19px; color:#5A5F75;">
+      {{body_html}}
+    </div>
+    <p style="margin:4px 0 0 0; font-family:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+              font-size:12px; line-height:19px; color:#5A5F75;">
+      <a href="{{unsubscribe_url}}" style="color:#8D91A5; text-decoration:underline;">Unsubscribe</a>
+    </p>
+
+    <!-- Same easter egg as the site footer. -->
+    <p style="margin:16px 0 0 0; font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+              font-size:11px; color:#3A3E52;">
+      latent://into-the-latent
+    </p>
+  </td>
+</tr>
+<!-- /BLOCK -->

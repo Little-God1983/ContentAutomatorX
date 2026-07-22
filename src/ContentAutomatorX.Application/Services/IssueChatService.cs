@@ -89,6 +89,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         await history.SnapshotAsync(section.PostId, "Accept suggestion", ct);
         if (proposal.ProposedTitle is not null) section.Title = proposal.ProposedTitle;
         if (proposal.ProposedBodyMd is not null) section.BodyMd = proposal.ProposedBodyMd;
+        if (proposal.ProposedCategory is not null) section.Category = proposal.ProposedCategory;
         db.IssueSectionProposals.Remove(proposal);
         await db.SaveChangesAsync(ct);
     }
@@ -98,7 +99,8 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
     /// user to click through the confirm.</summary>
     private static bool IsStale(IssueSection section, IssueSectionProposal proposal) =>
         (proposal.ProposedBodyMd is not null && (section.BodyMd ?? "") != proposal.BaselineBodyMd)
-        || (proposal.ProposedTitle is not null && (section.Title ?? "") != (proposal.BaselineTitle ?? ""));
+        || (proposal.ProposedTitle is not null && (section.Title ?? "") != (proposal.BaselineTitle ?? ""))
+        || (proposal.ProposedCategory is not null && (section.Category ?? "") != (proposal.BaselineCategory ?? ""));
 
     public async Task RejectAsync(Guid proposalId, CancellationToken ct = default)
     {
@@ -195,16 +197,17 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
     {
         var sb = new StringBuilder();
         sb.AppendLine("You are editing an existing newsletter issue with its author.");
-        sb.AppendLine("You may rewrite the title and body of the sections listed below.");
-        sb.AppendLine("You may NOT add sections, delete sections, or change their order.");
+        sb.AppendLine("You may rewrite the title, body and category of the sections listed below.");
+        sb.AppendLine("You may NOT add sections, delete sections, change their order, or change a section's type.");
         sb.AppendLine("Only ever use a sectionId that appears below; any other id is discarded.");
         if (!string.IsNullOrWhiteSpace(tenant.VoiceProfile)) sb.AppendLine($"Voice: {tenant.VoiceProfile}");
         if (!string.IsNullOrWhiteSpace(recipe?.ToneModifiers)) sb.AppendLine($"Tone: {recipe.ToneModifiers}");
         if (!string.IsNullOrWhiteSpace(recipe?.Language)) sb.AppendLine($"Write in: {recipe.Language}");
         sb.AppendLine();
         sb.AppendLine("""Respond with ONLY a JSON object, no prose outside it, no markdown fences:""");
-        sb.AppendLine("""{"reply":"what you want to say","edits":[{"sectionId":"<id>","title":"...","bodyMd":"..."}]}""");
-        sb.AppendLine("Omit title or bodyMd to leave that field unchanged. Use an empty edits array to just answer.");
+        sb.AppendLine("""{"reply":"what you want to say","edits":[{"sectionId":"<id>","title":"...","bodyMd":"...","category":"..."}]}""");
+        sb.AppendLine("category is a short label like Tutorial or News, and applies to topic sections only.");
+        sb.AppendLine("Omit any field to leave it unchanged. Use an empty edits array to just answer.");
         sb.AppendLine();
         sb.AppendLine("--- the issue ---");
         foreach (var section in sections)
@@ -212,6 +215,7 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             var editable = restrictTo is null || restrictTo.Contains(section.Id);
             sb.AppendLine($"sectionId: {section.Id} | type: {section.Type}{(editable ? "" : " | READ-ONLY, do not edit")}");
             if (!string.IsNullOrWhiteSpace(section.Title)) sb.AppendLine($"Title: {section.Title}");
+            if (!string.IsNullOrWhiteSpace(section.Category)) sb.AppendLine($"Category: {section.Category}");
             if (!string.IsNullOrWhiteSpace(section.BodyMd)) sb.AppendLine(section.BodyMd);
             sb.AppendLine();
         }
@@ -241,7 +245,8 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
         var merged = edits.GroupBy(e => e.SectionId)
             .Select(g => new ChatEdit(g.Key,
                 g.Select(e => e.Title).LastOrDefault(t => t is not null),
-                g.Select(e => e.BodyMd).LastOrDefault(b => b is not null)))
+                g.Select(e => e.BodyMd).LastOrDefault(b => b is not null),
+                g.Select(e => e.Category).LastOrDefault(c => c is not null)))
             .ToList();
         var sections = (await db.IssueSections.Where(s => s.PostId == postId).ToListAsync(ct))
             .ToDictionary(s => s.Id);
@@ -257,6 +262,31 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
                 dropped++;
                 continue;
             }
+
+            // Free chat applies no type filter (restrictTo is null), so the model can propose a
+            // category on a section type that has none — a Footer, Divider or Video. It would be
+            // stored and shown in the proposal panel, but only Topic sections ever render
+            // {{category}}, so it would never actually appear — and the next time the user expands
+            // that card and clicks Apply, SectionCard's full-replace write would silently wipe it,
+            // since SectionCard.HasCategory() is Topic-only and never shows a field for it to
+            // survive in. Drop it here, in code, rather than relying on the prompt telling the model
+            // not to propose one — and count it the same way an out-of-scope edit is counted, so the
+            // UI can report it instead of silently proposing less than the reply claimed.
+            var category = edit.Category;
+            if (category is not null && !SectionTypes.HasCategory(section.Type))
+            {
+                category = null;
+                dropped++;
+                // A category-only edit (title and body both untouched) has nothing left to propose
+                // once its category is nulled — storing it anyway would add a proposal card with
+                // ProposedTitle, ProposedBodyMd and ProposedCategory all null (a no-op the user could
+                // "Apply" and change nothing) and count the same edit as both stored AND dropped.
+                if (edit.Title is null && edit.BodyMd is null)
+                {
+                    continue;
+                }
+            }
+
             // At most one pending proposal per section — a later suggestion supersedes an earlier
             // one rather than queueing behind it. The unique index enforces this too.
             var previous = existing.FirstOrDefault(p => p.SectionId == edit.SectionId);
@@ -269,7 +299,9 @@ public class IssueChatService(IAppDbContext db, ILlmBackend llm, ILlmSettingsPro
             {
                 PostId = postId, SectionId = section.Id,
                 ProposedTitle = edit.Title, ProposedBodyMd = edit.BodyMd,
-                BaselineBodyMd = section.BodyMd ?? "", BaselineTitle = section.Title
+                ProposedCategory = category,
+                BaselineBodyMd = section.BodyMd ?? "", BaselineTitle = section.Title,
+                BaselineCategory = section.Category
             });
             stored++;
         }

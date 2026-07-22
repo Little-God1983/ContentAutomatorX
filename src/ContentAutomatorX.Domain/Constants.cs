@@ -41,8 +41,17 @@ public static class SectionTypes
     public const string Sponsor = "Sponsor";
     public const string Button = "Button";
     public const string Divider = "Divider";
+    public const string Video = "Video";
     public const string Footer = "Footer";
     public const string LegacyBody = "LegacyBody";
+
+    /// <summary>Only a Topic section has a category — it is the one block with a {{category}}
+    /// placeholder (TemplatePlaceholders.BlockSpecific) and the one type SectionCard's editor form
+    /// shows a category field for. A proposed category on any other type would be stored but never
+    /// render, and would be silently wiped the next time that section's card is expanded and applied
+    /// (a full-replace write) — so anything that accepts a proposed category, not just the section
+    /// editor form, must gate on this.</summary>
+    public static bool HasCategory(string sectionType) => sectionType == Topic;
 }
 
 public static class ChatRoles

@@ -30,6 +30,31 @@ public class IssueChatServiceTests
     private static IssueChatService Chat(TestDb test, ILlmBackend llm) =>
         new(test.Db, llm, new StubLlmSettings(), new IssueHistoryService(test.Db));
 
+    /// <summary>Header/topic/footer issue plus a FakeLlm that returns the given reply verbatim,
+    /// with the literal "SECTION" placeholder swapped for the topic's real id — so callers can
+    /// write the JSON reply inline without knowing the id up front.</summary>
+    private static async Task<(IssueChatService Chat, Guid PostId, Guid SectionId)> ChatWithOneTopicAsync(
+        TestDb test, string replyTemplate)
+    {
+        var tenant = new Tenant { Name = "T", Slug = $"t-chat-cat-{Guid.NewGuid():N}" };
+        var platform = new Platform { TenantId = tenant.Id, Type = PlatformTypes.MailerLite, DisplayName = "ML" };
+        var post = new Post { TenantId = tenant.Id, PlatformId = platform.Id, Kind = DraftKinds.Newsletter, Title = "Issue" };
+        var topic = new IssueSection { PostId = post.Id, Position = 1, Type = SectionTypes.Topic, Title = "A", BodyMd = "a" };
+        var sections = new List<IssueSection>
+        {
+            new() { PostId = post.Id, Position = 0, Type = SectionTypes.Header, BodyMd = "intro" },
+            topic,
+            new() { PostId = post.Id, Position = 2, Type = SectionTypes.Footer, BodyMd = "bye" }
+        };
+        test.Db.AddRange(tenant, platform, post);
+        test.Db.IssueSections.AddRange(sections);
+        await test.Db.SaveChangesAsync();
+
+        var reply = replyTemplate.Replace("SECTION", topic.Id.ToString());
+        var chat = Chat(test, new SequenceLlm(reply));
+        return (chat, post.Id, topic.Id);
+    }
+
     private static string ReplyJson(string prose, params (Guid Id, string Body)[] edits) =>
         $$"""{"reply":"{{prose}}","edits":[{{string.Join(",",
             edits.Select(e => $$"""{"sectionId":"{{e.Id}}","bodyMd":"{{e.Body}}"}"""))}}]}""";
@@ -182,6 +207,50 @@ public class IssueChatServiceTests
 
         Assert.Equal(1, result.ProposalCount);
         Assert.Equal(sections[2].Id, (await test.Db.IssueSectionProposals.SingleAsync()).SectionId);
+    }
+
+    [Fact] // F5 — free chat applies no type filter, so the model can propose a category on a
+    // section type that has no category concept (only Topic renders {{category}} —
+    // TemplatePlaceholders.BlockSpecific). It must be dropped, not stored: stored-but-unrenderable
+    // would also be silently wiped the next time the section card is expanded and Apply is clicked
+    // (SectionCard.HasCategory() is Topic-only, and Apply is a full-field replace).
+    public async Task A_proposed_category_on_a_section_type_with_no_category_is_dropped()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var reply = $$"""
+            {"reply":"Tagged it.","edits":[{"sectionId":"{{sections[2].Id}}","bodyMd":"better ad","category":"Ads"}]}
+            """;
+
+        var result = await Chat(test, new SequenceLlm(reply)).SendAsync(post.Id, "fix the sponsor and tag it");
+
+        Assert.Equal(1, result.ProposalCount);
+        Assert.Equal(1, result.DroppedEdits);   // the category component, not the whole edit
+        var proposal = await test.Db.IssueSectionProposals.SingleAsync();
+        Assert.Equal(sections[2].Id, proposal.SectionId);   // Sponsor — the rest of the edit still lands
+        Assert.Equal("better ad", proposal.ProposedBodyMd);
+        Assert.Null(proposal.ProposedCategory);
+    }
+
+    [Fact] // Fix — a category-only edit on a section type with no category concept must not become
+    // a no-op proposal. StoreProposalsAsync nulls the category (as the test above confirms) but
+    // previously still called db.IssueSectionProposals.Add unconditionally afterward — with Title,
+    // BodyMd and Category all null, that stores a proposal card that changes nothing when accepted,
+    // and counts the one edit as BOTH stored (ProposalCount) AND dropped (DroppedEdits). Once
+    // nothing survives the category nulling, the edit must be dropped entirely and counted once.
+    public async Task A_category_only_edit_on_a_section_type_with_no_category_is_dropped_not_stored()
+    {
+        var (test, post, sections) = await SeedAsync();
+        using var _ = test;
+        var reply = $$"""
+            {"reply":"Tagged it.","edits":[{"sectionId":"{{sections[2].Id}}","category":"Ads"}]}
+            """;
+
+        var result = await Chat(test, new SequenceLlm(reply)).SendAsync(post.Id, "tag the sponsor");
+
+        Assert.Equal(0, result.ProposalCount);
+        Assert.Equal(1, result.DroppedEdits);
+        Assert.Empty(await test.Db.IssueSectionProposals.ToListAsync());
     }
 
     [Fact]
@@ -348,5 +417,56 @@ public class IssueChatServiceTests
         await Assert.ThrowsAsync<StaleProposalException>(() => chat.AcceptAsync(proposal.Id, force: false));
         Assert.Equal("Hand typed title",
             (await test.Db.IssueSections.SingleAsync(s => s.Id == sections[1].Id)).Title);
+    }
+
+    [Fact]
+    public async Task Accepting_a_category_proposal_writes_it_to_the_section()
+    {
+        using var t = TestDb.Create();
+        var (chat, postId, sectionId) = await ChatWithOneTopicAsync(t, """
+            {"reply":"Relabelled.","edits":[{"sectionId":"SECTION","category":"Tutorial"}]}
+            """);
+
+        await chat.SendAsync(postId, "Give this a category.");
+        var proposal = await t.Db.IssueSectionProposals.SingleAsync();
+        Assert.Equal("Tutorial", proposal.ProposedCategory);
+
+        await chat.AcceptAsync(proposal.Id, force: false);
+        Assert.Equal("Tutorial", (await t.Db.IssueSections.SingleAsync(s => s.Id == sectionId)).Category);
+    }
+
+    [Fact]
+    public async Task A_category_proposal_goes_stale_when_the_category_changes_underneath_it()
+    {
+        using var t = TestDb.Create();
+        var (chat, postId, sectionId) = await ChatWithOneTopicAsync(t, """
+            {"reply":"Relabelled.","edits":[{"sectionId":"SECTION","category":"Tutorial"}]}
+            """);
+
+        await chat.SendAsync(postId, "Give this a category.");
+        var section = await t.Db.IssueSections.SingleAsync(s => s.Id == sectionId);
+        section.Category = "Changed by hand";
+        await t.Db.SaveChangesAsync();
+
+        var proposal = await t.Db.IssueSectionProposals.SingleAsync();
+        await Assert.ThrowsAsync<StaleProposalException>(() => chat.AcceptAsync(proposal.Id, force: false));
+    }
+
+    [Fact]
+    public async Task A_body_only_proposal_is_not_stale_because_the_category_changed()
+    {
+        using var t = TestDb.Create();
+        var (chat, postId, sectionId) = await ChatWithOneTopicAsync(t, """
+            {"reply":"Rewrote it.","edits":[{"sectionId":"SECTION","bodyMd":"New body."}]}
+            """);
+
+        await chat.SendAsync(postId, "Rewrite this.");
+        var section = await t.Db.IssueSections.SingleAsync(s => s.Id == sectionId);
+        section.Category = "Tutorial";
+        await t.Db.SaveChangesAsync();
+
+        var proposal = await t.Db.IssueSectionProposals.SingleAsync();
+        await chat.AcceptAsync(proposal.Id, force: false);   // must not throw
+        Assert.Equal("New body.", (await t.Db.IssueSections.SingleAsync(s => s.Id == sectionId)).BodyMd);
     }
 }

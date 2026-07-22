@@ -19,5 +19,6 @@ public interface IAppDbContext
     DbSet<IssueChatMessage> IssueChatMessages { get; }
     DbSet<IssueSectionProposal> IssueSectionProposals { get; }
     DbSet<IssueRevision> IssueRevisions { get; }
+    DbSet<NewsletterTemplate> NewsletterTemplates { get; }
     Task<int> SaveChangesAsync(CancellationToken ct = default);
 }

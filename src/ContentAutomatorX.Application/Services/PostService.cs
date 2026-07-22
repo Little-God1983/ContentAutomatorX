@@ -12,7 +12,8 @@ using Microsoft.EntityFrameworkCore;
 namespace ContentAutomatorX.Application.Services;
 
 public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBackend llm,
-    PlatformService platforms, IMailerLiteClient mailerLite, ILlmSettingsProvider llmSettings)
+    PlatformService platforms, IMailerLiteClient mailerLite, ILlmSettingsProvider llmSettings,
+    NewsletterTemplateService templates)
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
 
@@ -227,7 +228,10 @@ public class PostService(IAppDbContext db, GenerationPipeline generation, ILlmBa
         if (sections.Count > 0)
         {
             var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
-            html = SectionHtmlRenderer.Render(sections, tenant, post.Title)
+            var template = await templates.ResolveForPostAsync(post.Id, ct);
+            html = (template is null
+                    ? SectionHtmlRenderer.Render(sections, tenant, post.Title)
+                    : TemplateHtmlRenderer.Render(sections, tenant, post.Title, template.Html, post.CreatedAt))
                 .Replace(SectionHtmlRenderer.UnsubscribeToken, "{$unsubscribe}"); // MailerLite's variable
         }
         else // legacy free-markdown issue

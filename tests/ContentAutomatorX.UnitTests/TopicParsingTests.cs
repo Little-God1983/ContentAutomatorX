@@ -12,7 +12,7 @@ public class TopicParsingTests
         var ok = IssueComposerService.TryParseTopics(
             $$"""[{"itemId":"{{Id}}","title":"T","blurb":"B"}]""", out var topics);
         Assert.True(ok);
-        Assert.Equal(new TopicBlurb(Id, "T", "B"), Assert.Single(topics!));
+        Assert.Equal(new TopicBlurb(Id, "T", "B", null), Assert.Single(topics!));
     }
 
     [Fact]

@@ -43,6 +43,7 @@ public sealed class SaveHookDbContext(AppDbContext inner, Guid targetSourceId, A
     public DbSet<IssueChatMessage> IssueChatMessages => inner.IssueChatMessages;
     public DbSet<IssueSectionProposal> IssueSectionProposals => inner.IssueSectionProposals;
     public DbSet<IssueRevision> IssueRevisions => inner.IssueRevisions;
+    public DbSet<NewsletterTemplate> NewsletterTemplates => inner.NewsletterTemplates;
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)
     {
