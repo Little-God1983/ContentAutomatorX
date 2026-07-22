@@ -1,7 +1,7 @@
 @inherits LayoutComponentBase
 @inject TenantContext Ctx
 
-<MudThemeProvider />
+<MudThemeProvider @ref="_themeProvider" @bind-IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
@@ -12,6 +12,11 @@
                        OnClick="@(() => _drawerOpen = !_drawerOpen)" />
         <MudText Typo="Typo.h6">ContentAutomatorX</MudText>
         <MudSpacer />
+        <MudIconButton Icon="@(_isDarkMode ? Icons.Material.Filled.LightMode : Icons.Material.Filled.DarkMode)"
+                       Color="Color.Inherit"
+                       OnClick="ToggleTheme"
+                       title="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")"
+                       aria-label="@(_isDarkMode ? "Switch to light mode" : "Switch to dark mode")" />
         <NewMenu />
         <TenantSwitcher />
     </MudAppBar>
@@ -47,9 +52,47 @@
 @code {
     private bool _drawerOpen = true;
 
+    private MudThemeProvider _themeProvider = null!;
+    // Dark on by default: the fallback if the OS preference can't be read.
+    private bool _isDarkMode = true;
+    // Once the user toggles manually, their choice wins over live OS changes (until reload).
+    private bool _manualOverride;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        // ProtectedLocalStorage needs JS interop — unavailable before first render.
-        if (firstRender) await Ctx.InitializeAsync();
+        // ProtectedLocalStorage and JS interop are unavailable before first render.
+        if (!firstRender) return;
+
+        await Ctx.InitializeAsync();
+
+        try
+        {
+            _isDarkMode = await _themeProvider.GetSystemDarkModeAsync();
+            await _themeProvider.WatchSystemDarkModeAsync(OnSystemDarkModeChanged);
+        }
+        catch
+        {
+            // Couldn't read the OS preference — keep the dark default.
+        }
+
+        StateHasChanged();
+    }
+
+    private void ToggleTheme()
+    {
+        _isDarkMode = !_isDarkMode;
+        _manualOverride = true;
+    }
+
+    private Task OnSystemDarkModeChanged(bool isDark)
+    {
+        // Respect a manual choice; otherwise follow the OS live.
+        if (_manualOverride) return Task.CompletedTask;
+
+        return InvokeAsync(() =>
+        {
+            _isDarkMode = isDark;
+            StateHasChanged();
+        });
     }
 }
