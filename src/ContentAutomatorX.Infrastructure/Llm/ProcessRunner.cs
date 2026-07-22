@@ -75,7 +75,12 @@ public class ProcessRunner : IProcessRunner
         // Reached EOF without cancellation — confirm a clean exit or surface the failure.
         await process.WaitForExitAsync(ct);
         if (process.ExitCode != 0)
-            throw new InvalidOperationException($"process exited {process.ExitCode}: {await stderrTask}");
+        {
+            // stderrTask was already observed in the finally; if the drain itself faulted, report the
+            // exit code with empty stderr rather than letting the IOException mask the real failure.
+            var stderr = stderrTask.IsCompletedSuccessfully ? stderrTask.Result : "";
+            throw new InvalidOperationException($"process exited {process.ExitCode}: {stderr}");
+        }
     }
 
     /// <summary>Reads one line, but treats a gap longer than <paramref name="idleTimeout"/> as a hang
