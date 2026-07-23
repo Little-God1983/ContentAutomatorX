@@ -178,7 +178,7 @@ public static partial class SectionHtmlRenderer
     private static string SafeAccent(string? hex) =>
         hex is not null && AccentRegex().IsMatch(hex) ? hex : EmailHtmlRenderer.DefaultAccent;
 
-    private static bool IsHttpUrl(string? url) =>
+    internal static bool IsHttpUrl(string? url) =>
         url is not null &&
         (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
          url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
