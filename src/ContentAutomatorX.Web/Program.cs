@@ -100,6 +100,8 @@ builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.TenantContext>();
 builder.Services.AddSingleton<ContentAutomatorX.Web.Services.TenantAvatarStore>();
+builder.Services.AddHttpClient(nameof(ContentAutomatorX.Web.Services.NewsletterImageStagingStore));
+builder.Services.AddSingleton<ContentAutomatorX.Web.Services.NewsletterImageStagingStore>();
 
 // --- scheduler ---
 builder.Services.AddHostedService<SchedulerService>();
@@ -158,6 +160,14 @@ app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(avatarStore.DirectoryPath),
     RequestPath = ContentAutomatorX.Web.Services.TenantAvatarStore.RequestPath,
+});
+// Runtime-staged newsletter images (uploaded / URL-imported) live outside the build too — map
+// their directory at /newsletter-images so the composer preview can hotlink them locally.
+var newsletterImages = app.Services.GetRequiredService<ContentAutomatorX.Web.Services.NewsletterImageStagingStore>();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(newsletterImages.DirectoryPath),
+    RequestPath = ContentAutomatorX.Web.Services.NewsletterImageStagingStore.RequestPath,
 });
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();

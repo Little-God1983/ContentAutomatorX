@@ -105,6 +105,33 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>Points a section at a staged image (upload or URL import). Clears any pasted
+    /// hotlink so a section has exactly one image source. Returns the previous ImageKey, if any,
+    /// so the caller can delete its now-orphaned staging file.</summary>
+    public async Task<string?> SetSectionImageKeyAsync(Guid sectionId, string key, CancellationToken ct = default)
+    {
+        var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
+        await history.SnapshotAsync(section.PostId, "Set image", ct);
+        var previous = section.ImageKey;
+        section.ImageKey = key;
+        section.ImageUrl = null;                 // uploaded/imported image replaces any hotlink
+        await db.SaveChangesAsync(ct);
+        return previous;
+    }
+
+    /// <summary>Removes a section's image entirely (staged key and any hotlink). Returns the
+    /// previous ImageKey, if any, for the caller to delete its staging file.</summary>
+    public async Task<string?> ClearSectionImageAsync(Guid sectionId, CancellationToken ct = default)
+    {
+        var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
+        await history.SnapshotAsync(section.PostId, "Remove image", ct);
+        var previous = section.ImageKey;
+        section.ImageKey = null;
+        section.ImageUrl = null;
+        await db.SaveChangesAsync(ct);
+        return previous;
+    }
+
     public async Task RemoveSectionAsync(Guid sectionId, CancellationToken ct = default)
     {
         var section = await db.IssueSections.SingleAsync(s => s.Id == sectionId, ct);
@@ -151,9 +178,11 @@ public class IssueComposerService(IAppDbContext db, ILlmBackend llm, PostService
         var tenant = await db.Tenants.SingleAsync(t => t.Id == post.TenantId, ct);
         var sections = await GetSectionsAsync(postId, ct);
         var template = await templates.ResolveForPostAsync(postId, ct);
+        // Preview resolves a staged upload to its local endpoint; the send path (PostService) keeps
+        // the default resolver, which omits staged images until PR 2 hosts them on R2.
         var html = template is null
-            ? SectionHtmlRenderer.Render(sections, tenant, title)
-            : TemplateHtmlRenderer.Render(sections, tenant, title, template.Html, post.CreatedAt);
+            ? SectionHtmlRenderer.Render(sections, tenant, title, NewsletterImageStaging.PreviewSrc)
+            : TemplateHtmlRenderer.Render(sections, tenant, title, template.Html, post.CreatedAt, NewsletterImageStaging.PreviewSrc);
         return html.Replace(SectionHtmlRenderer.UnsubscribeToken, "#");
     }
 

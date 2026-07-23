@@ -9,7 +9,7 @@ namespace ContentAutomatorX.Application.Services;
 public record HistoryState(string? UndoLabel, string? RedoLabel);
 
 internal record SectionSnapshot(Guid Id, int Position, string Type, string? Title, string? BodyMd,
-    string? ImageUrl, string? LinkUrl, string? LinkText, Guid? SourceItemId, string? Category);
+    string? ImageUrl, string? ImageKey, string? LinkUrl, string? LinkText, Guid? SourceItemId, string? Category);
 
 internal record IssueSnapshot(string Title, string? Subject, string? PreviewText,
     List<SectionSnapshot> Sections);
@@ -90,7 +90,7 @@ public class IssueHistoryService(IAppDbContext db)
             .OrderBy(s => s.Position).ToListAsync(ct);
         return new IssueSnapshot(post.Title, post.Subject, post.PreviewText,
             sections.Select(s => new SectionSnapshot(s.Id, s.Position, s.Type, s.Title, s.BodyMd,
-                s.ImageUrl, s.LinkUrl, s.LinkText, s.SourceItemId, s.Category)).ToList());
+                s.ImageUrl, s.ImageKey, s.LinkUrl, s.LinkText, s.SourceItemId, s.Category)).ToList());
     }
 
     private async Task RestoreAsync(Guid postId, IssueSnapshot snapshot, CancellationToken ct)
@@ -128,6 +128,7 @@ public class IssueHistoryService(IAppDbContext db)
             section.Title = want.Title;
             section.BodyMd = want.BodyMd;
             section.ImageUrl = want.ImageUrl;
+            section.ImageKey = want.ImageKey;
             section.LinkUrl = want.LinkUrl;
             section.LinkText = want.LinkText;
             section.SourceItemId = want.SourceItemId;

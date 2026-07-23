@@ -66,6 +66,87 @@ public class IssueComposerServiceTests
         Assert.Equal(b, TenantBranding.Parse(b.ToJson()));
     }
 
+    [Fact]
+    public async Task SetSectionImageKey_sets_key_clears_url_returns_old()
+    {
+        var w = await BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = ComposerWith(w, new SequenceLlm(TopicsJsonFor(w.Items)), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id)).First(s => s.Type == SectionTypes.Topic);
+        topic.ImageUrl = "https://ex.com/old.png";
+        await w.Test.Db.SaveChangesAsync();
+
+        var first = await composer.SetSectionImageKeyAsync(topic.Id, "one.png");
+        Assert.Null(first);                                  // no prior key
+        var s1 = (await composer.GetSectionsAsync(post.Id)).First(s => s.Id == topic.Id);
+        Assert.Equal("one.png", s1.ImageKey);
+        Assert.Null(s1.ImageUrl);                            // hotlink cleared
+
+        var second = await composer.SetSectionImageKeyAsync(topic.Id, "two.png");
+        Assert.Equal("one.png", second);                     // returns prior key
+    }
+
+    [Fact]
+    public async Task ClearSectionImage_clears_both_and_returns_old_key()
+    {
+        var w = await BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = ComposerWith(w, new SequenceLlm(TopicsJsonFor(w.Items)), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id)).First(s => s.Type == SectionTypes.Topic);
+        await composer.SetSectionImageKeyAsync(topic.Id, "pic.png");
+
+        var old = await composer.ClearSectionImageAsync(topic.Id);
+        Assert.Equal("pic.png", old);
+        var s = (await composer.GetSectionsAsync(post.Id)).First(x => x.Id == topic.Id);
+        Assert.Null(s.ImageKey);
+        Assert.Null(s.ImageUrl);
+    }
+
+    [Fact]
+    public async Task RenderPreview_points_staged_image_at_local_endpoint()
+    {
+        var w = await BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = ComposerWith(w, new SequenceLlm(TopicsJsonFor(w.Items)), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id)).First(s => s.Type == SectionTypes.Topic);
+        await composer.SetSectionImageKeyAsync(topic.Id, "pic.png");
+
+        var html = await composer.RenderPreviewAsync(post.Id, "My issue");
+        Assert.Contains("/newsletter-images/pic.png", html);
+    }
+
+    [Fact]
+    public async Task Undo_restores_ImageKey()
+    {
+        var w = await BuildWorldAsync();
+        using var _ = w.Test;
+        var history = new IssueHistoryService(w.Test.Db);
+        var composer = ComposerWith(w, new SequenceLlm(TopicsJsonFor(w.Items)), history);
+        var post = await composer.CreateFromItemsAsync(w.Tenant.Id, w.Recipe.Id, [w.Items[0].Id], "t");
+        var topic = (await composer.GetSectionsAsync(post.Id)).First(s => s.Type == SectionTypes.Topic);
+
+        // Stage an image key, then take a snapshot (via any mutation) that captures it...
+        topic.ImageKey = "abc.png";
+        await w.Test.Db.SaveChangesAsync();
+        await composer.UpdateSectionAsync(topic.Id, "t", "b", topic.ImageUrl, null, null, null); // snapshots abc.png
+
+        // ...then change the key out-of-band (no new snapshot). Undo must put abc.png back,
+        // which only works if the snapshot actually carries ImageKey.
+        topic.ImageKey = "changed.png";
+        await w.Test.Db.SaveChangesAsync();
+
+        await history.UndoAsync(post.Id);
+
+        var after = (await composer.GetSectionsAsync(post.Id)).First(s => s.Id == topic.Id);
+        Assert.Equal("abc.png", after.ImageKey);
+    }
+
     public sealed record World(TestDb Test, PlatformService Platforms, FakeMailerLite MailerLite,
         Tenant Tenant, Recipe Recipe, Source Source, List<ContentItem> Items);
 

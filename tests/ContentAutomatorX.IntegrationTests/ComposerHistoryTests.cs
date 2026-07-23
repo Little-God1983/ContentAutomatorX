@@ -19,10 +19,10 @@ public class ComposerHistoryTests
 
         Assert.Equal(new[]
         {
-            "AddSectionAsync", "AddTopicsFromItemsAsync", "CreateFromItemsAsync", "EnsureSectionsAsync",
-            "ExportMarkdownAsync", "GenerateTopicsAsync", "GetSectionsAsync", "MoveSectionAsync",
-            "RegenerateSectionAsync", "RemoveSectionAsync", "RenderPreviewAsync", "TryParseTopics",
-            "UpdateSectionAsync"
+            "AddSectionAsync", "AddTopicsFromItemsAsync", "ClearSectionImageAsync", "CreateFromItemsAsync",
+            "EnsureSectionsAsync", "ExportMarkdownAsync", "GenerateTopicsAsync", "GetSectionsAsync",
+            "MoveSectionAsync", "RegenerateSectionAsync", "RemoveSectionAsync", "RenderPreviewAsync",
+            "SetSectionImageKeyAsync", "TryParseTopics", "UpdateSectionAsync"
         }, names);
     }
 
