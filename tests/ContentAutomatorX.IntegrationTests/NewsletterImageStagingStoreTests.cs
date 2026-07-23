@@ -46,6 +46,51 @@ public class NewsletterImageStagingStoreTests
         store.Delete(null);
     }
 
+    private static byte[] PngBytes() => new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2, 3, 4 };
+
+    private static NewsletterImageStagingStore WithResponse(byte[] body, string contentType, out string dir)
+    {
+        dir = Path.Combine(Path.GetTempPath(), "cx-stage-" + Guid.NewGuid().ToString("N"));
+        var handler = new StubHandler(_ =>
+        {
+            var msg = new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(body) };
+            msg.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(contentType);
+            return msg;
+        });
+        return new NewsletterImageStagingStore(dir, new HttpClient(handler));
+    }
+
+    [Fact]
+    public async Task SaveFromUrl_stages_a_valid_png()
+    {
+        var store = WithResponse(PngBytes(), "image/png", out var dir);
+        var key = await store.SaveFromUrlAsync("https://host/img.png");
+        Assert.EndsWith(".png", key);
+        Assert.True(File.Exists(Path.Combine(dir, key)));
+    }
+
+    [Fact]
+    public async Task SaveFromUrl_rejects_html_masquerading_as_png()
+    {
+        var store = WithResponse(System.Text.Encoding.UTF8.GetBytes("<html>nope</html>"), "image/png", out _);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveFromUrlAsync("https://host/x"));
+    }
+
+    [Fact]
+    public async Task SaveFromUrl_rejects_disallowed_content_even_with_image_header()
+    {
+        // Body is not a real image (no magic bytes) though header claims image/png.
+        var store = WithResponse(new byte[] { 0, 1, 2, 3, 4, 5 }, "image/png", out _);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveFromUrlAsync("https://host/x"));
+    }
+
+    [Fact]
+    public async Task SaveFromUrl_rejects_relative_url()
+    {
+        var store = Make(out _);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.SaveFromUrlAsync("/not/absolute"));
+    }
+
     [Fact]
     public async Task Delete_removes_a_staged_file()
     {
