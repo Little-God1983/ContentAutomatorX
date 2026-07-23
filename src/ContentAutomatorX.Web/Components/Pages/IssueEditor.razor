@@ -8,6 +8,7 @@
 @inject NavigationManager Nav
 @inject IDialogService DialogService
 @inject IJSRuntime JS
+@inject ContentAutomatorX.Web.Services.NewsletterImageStagingStore StagingStore
 
 <MudText Typo="Typo.h4" Class="mb-4">Issue composer</MudText>
 
@@ -109,7 +110,10 @@ else
                                  OnRegenerate="@(() => RegenerateAsync(section))"
                                  OnAcceptProposal="@(() => AcceptProposalAsync(proposal!))"
                                  OnRejectProposal="@(() => RejectProposalAsync(proposal!))"
-                                 OnApply="@(edit => ApplyAsync(section, edit))" />
+                                 OnApply="@(edit => ApplyAsync(section, edit))"
+                                 OnUploadImage="@(file => UploadImageAsync(section, file))"
+                                 OnImportImageUrl="@(url => ImportImageAsync(section, url))"
+                                 OnRemoveImage="@(() => RemoveImageAsync(section))" />
                 }
                 <MudMenu Label="Add section" StartIcon="@Icons.Material.Filled.Add"
                          Variant="Variant.Outlined" Class="mt-2" Disabled="@AnyBusy">
@@ -302,14 +306,47 @@ else
     private Task MoveAsync(IssueSection s, int direction) =>
         RunMutationAsync(c => c.MoveSectionAsync(s.Id, direction), "Move");
 
-    private Task DeleteAsync(IssueSection s) =>
-        RunMutationAsync(c => c.RemoveSectionAsync(s.Id), "Delete");
+    private async Task DeleteAsync(IssueSection s)
+    {
+        var oldKey = s.ImageKey;                           // best-effort staged-file cleanup on delete
+        await RunMutationAsync(c => c.RemoveSectionAsync(s.Id), "Delete");
+        StagingStore.Delete(oldKey);
+    }
 
     private Task AddSectionAsync(string type) =>
         RunMutationAsync(c => c.AddSectionAsync(PostId, type), "Add");
 
+    // The card no longer edits ImageUrl (image is managed via upload/import/remove), so pass the
+    // section's current ImageUrl through unchanged to preserve any legacy/auto-metadata hotlink.
     private Task ApplyAsync(IssueSection s, SectionCard.SectionEdit e) =>
-        RunMutationAsync(c => c.UpdateSectionAsync(s.Id, e.Title, e.BodyMd, e.ImageUrl, e.LinkUrl, e.LinkText, e.Category), "Save");
+        RunMutationAsync(c => c.UpdateSectionAsync(s.Id, e.Title, e.BodyMd, s.ImageUrl, e.LinkUrl, e.LinkText, e.Category), "Save");
+
+    private async Task UploadImageAsync(IssueSection s, IBrowserFile file)
+    {
+        string key;
+        try { key = await StagingStore.SaveAsync(file); }
+        catch (InvalidOperationException ex) { Snackbar.Add(ex.Message, Severity.Error); return; }
+        var oldKey = s.ImageKey;
+        await RunMutationAsync(c => c.SetSectionImageKeyAsync(s.Id, key), "Image");
+        StagingStore.Delete(oldKey);                       // the replaced staged file, if any
+    }
+
+    private async Task ImportImageAsync(IssueSection s, string url)
+    {
+        string key;
+        try { key = await StagingStore.SaveFromUrlAsync(url); }
+        catch (InvalidOperationException ex) { Snackbar.Add(ex.Message, Severity.Error); return; }
+        var oldKey = s.ImageKey;
+        await RunMutationAsync(c => c.SetSectionImageKeyAsync(s.Id, key), "Image");
+        StagingStore.Delete(oldKey);
+    }
+
+    private async Task RemoveImageAsync(IssueSection s)
+    {
+        var oldKey = s.ImageKey;
+        await RunMutationAsync(c => c.ClearSectionImageAsync(s.Id), "Image");
+        StagingStore.Delete(oldKey);
+    }
 
     private async Task GenerateAsync()
     {

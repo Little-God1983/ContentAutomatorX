@@ -1,5 +1,8 @@
 @using ContentAutomatorX.Domain
 @using ContentAutomatorX.Domain.Entities
+@using ContentAutomatorX.Application.Newsletter
+@using ContentAutomatorX.Web.Services
+@using Microsoft.AspNetCore.Components.Forms
 
 <MudPaper Outlined="true" Class="pa-2 mb-2">
     <div class="d-flex align-center" style="gap:4px">
@@ -72,7 +75,38 @@
             }
             @if (HasImage())
             {
-                <MudTextField @bind-Value="_image" Label="@ImageLabel()" />
+                var current = NewsletterImageStaging.PreviewSrc(Section);
+                <div class="mt-2">
+                    @if (current is not null)
+                    {
+                        <img src="@current" alt="" style="max-width:100%;max-height:160px;display:block;margin-bottom:6px;border:1px solid var(--mud-palette-lines-default);" />
+                        @if (!string.IsNullOrEmpty(Section.ImageKey))
+                        {
+                            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-1">
+                                Shown in preview — will be hosted when you post to MailerLite (coming soon).
+                            </MudText>
+                        }
+                    }
+                    <div class="d-flex align-center" style="gap:8px">
+                        <MudFileUpload T="IBrowserFile" Accept="image/*" FilesChanged="OnFilePicked" Disabled="@Busy">
+                            <ActivatorContent>
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                           StartIcon="@Icons.Material.Filled.Upload" Disabled="@Busy">Upload</MudButton>
+                            </ActivatorContent>
+                        </MudFileUpload>
+                        @if (current is not null)
+                        {
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                                       Disabled="@Busy" OnClick="@(() => OnRemoveImage.InvokeAsync())">Remove</MudButton>
+                        }
+                    </div>
+                    <div class="d-flex align-center mt-1" style="gap:8px">
+                        <MudTextField @bind-Value="_importUrl" Label="@ImageLabel()" Class="flex-grow-1" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                   Disabled="@(Busy || string.IsNullOrWhiteSpace(_importUrl))"
+                                   OnClick="ImportUrl">Import URL</MudButton>
+                    </div>
+                </div>
             }
             @if (HasLink())
             {
@@ -92,7 +126,7 @@
 </MudPaper>
 
 @code {
-    public record SectionEdit(string? Title, string? BodyMd, string? ImageUrl, string? LinkUrl,
+    public record SectionEdit(string? Title, string? BodyMd, string? LinkUrl,
         string? LinkText, string? Category);
 
     [Parameter, EditorRequired] public IssueSection Section { get; set; } = default!;
@@ -107,23 +141,38 @@
     [Parameter] public IssueSectionProposal? Proposal { get; set; }
     [Parameter] public EventCallback OnAcceptProposal { get; set; }
     [Parameter] public EventCallback OnRejectProposal { get; set; }
+    [Parameter] public EventCallback<IBrowserFile> OnUploadImage { get; set; }
+    [Parameter] public EventCallback<string> OnImportImageUrl { get; set; }
+    [Parameter] public EventCallback OnRemoveImage { get; set; }
 
     private bool _expanded;
-    private string _title = "", _body = "", _image = "", _link = "", _linkText = "", _category = "";
+    private string _title = "", _body = "", _link = "", _linkText = "", _category = "";
+    private string _importUrl = "";
+
+    private Task OnFilePicked(IBrowserFile? file) =>
+        file is null ? Task.CompletedTask : OnUploadImage.InvokeAsync(file);
+
+    private async Task ImportUrl()
+    {
+        var url = _importUrl.Trim();
+        if (url.Length == 0) return;
+        _importUrl = "";
+        await OnImportImageUrl.InvokeAsync(url);
+    }
 
     private void ToggleExpand()
     {
         _expanded = !_expanded;
         if (_expanded)
-            (_title, _body, _image, _link, _linkText, _category) = (Section.Title ?? "",
-                Section.BodyMd ?? "", Section.ImageUrl ?? "", Section.LinkUrl ?? "",
+            (_title, _body, _link, _linkText, _category) = (Section.Title ?? "",
+                Section.BodyMd ?? "", Section.LinkUrl ?? "",
                 Section.LinkText ?? "", Section.Category ?? "");
     }
 
     private async Task Apply()
     {
         await OnApply.InvokeAsync(new SectionEdit(NullIfEmpty(_title), NullIfEmpty(_body),
-            NullIfEmpty(_image), NullIfEmpty(_link), NullIfEmpty(_linkText), NullIfEmpty(_category)));
+            NullIfEmpty(_link), NullIfEmpty(_linkText), NullIfEmpty(_category)));
         _expanded = false;
     }
 
@@ -140,9 +189,9 @@
 
     private string ImageLabel() => Section.Type switch
     {
-        SectionTypes.Sponsor => "Logo URL (https)",
-        SectionTypes.Video => "Thumbnail URL (optional — derived from the video when blank)",
-        _ => "Image URL (https)"
+        SectionTypes.Sponsor => "Import logo from URL (https)",
+        SectionTypes.Video => "Import thumbnail from URL (optional — derived from the video when blank)",
+        _ => "Import image from URL (https)"
     };
 
     private string LinkLabel() => Section.Type == SectionTypes.Video
