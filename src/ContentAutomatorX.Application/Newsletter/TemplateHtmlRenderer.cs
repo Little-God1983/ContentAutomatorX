@@ -14,8 +14,9 @@ namespace ContentAutomatorX.Application.Newsletter;
 public static partial class TemplateHtmlRenderer
 {
     public static string Render(IReadOnlyList<IssueSection> sections, Tenant tenant, string title,
-        string templateHtml, DateTimeOffset issueDate)
+        string templateHtml, DateTimeOffset issueDate, Func<IssueSection, string?>? imageSrc = null)
     {
+        var resolve = imageSrc ?? SectionHtmlRenderer.DefaultImageSrc;
         var parsed = TemplateParser.Parse(templateHtml);
         if (!parsed.Blocks.TryGetValue(TemplateBlocks.Shell, out var shell))
             // Backstop that should never fire: TemplateValidator's E3 rule blocks saving a template
@@ -26,7 +27,7 @@ public static partial class TemplateHtmlRenderer
             // all. Falling back to the built-in renderer instead guarantees the issue still goes out
             // with real content and its own unsubscribe footer, the same guarantee EnsureUnsubscribeLink
             // exists to provide for every other template defect.
-            return SectionHtmlRenderer.Render(sections, tenant, title);
+            return SectionHtmlRenderer.Render(sections, tenant, title, resolve);
 
         var branding = TenantBranding.Parse(tenant.BrandingJson);
         var accent = SafeAccent(branding.AccentColorHex);
@@ -46,9 +47,9 @@ public static partial class TemplateHtmlRenderer
         {
             var blockName = TemplateBlocks.ForSectionType(section.Type);
             if (blockName is not null && parsed.Blocks.TryGetValue(blockName, out var block))
-                body.AppendLine(RenderBlock(block, SectionValues(section, tenant, accent, globals)));
+                body.AppendLine(RenderBlock(block, SectionValues(section, tenant, accent, globals, resolve)));
             else
-                body.AppendLine(SectionHtmlRenderer.RenderSection(section, accent));
+                body.AppendLine(SectionHtmlRenderer.RenderSection(section, accent, resolve));
         }
 
         var shellValues = new Dictionary<string, string>(globals, StringComparer.Ordinal)
@@ -162,7 +163,7 @@ public static partial class TemplateHtmlRenderer
     }
 
     private static Dictionary<string, string> SectionValues(IssueSection section, Tenant tenant,
-        string accent, IReadOnlyDictionary<string, string> globals)
+        string accent, IReadOnlyDictionary<string, string> globals, Func<IssueSection, string?> imageSrc)
     {
         var values = new Dictionary<string, string>(globals, StringComparer.Ordinal)
         {
@@ -178,11 +179,11 @@ public static partial class TemplateHtmlRenderer
         if (section.Type == SectionTypes.Video)
         {
             values["video_url"] = values["link_url"];
-            values["thumbnail_url"] = SafeUrl(SectionHtmlRenderer.VideoThumbnail(section), allowMailto: false);
+            values["thumbnail_url"] = SafeUrl(SectionHtmlRenderer.VideoThumbnail(section, imageSrc), allowMailto: false);
         }
         else
         {
-            values["image_url"] = SafeUrl(section.ImageUrl, allowMailto: false);
+            values["image_url"] = SafeUrl(imageSrc(section), allowMailto: false);
         }
         return values;
     }
@@ -202,6 +203,9 @@ public static partial class TemplateHtmlRenderer
         if (string.IsNullOrWhiteSpace(url)) return "";
         var ok = url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
               || url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+              // Root-relative staging path used only by the composer preview (same-origin, safe);
+              // the send path never emits it because PushSrc omits staged ImageKeys.
+              || url.StartsWith(NewsletterImageStaging.RequestPath + "/", StringComparison.Ordinal)
               || (allowMailto && url.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase));
         return ok ? WebUtility.HtmlEncode(url) : "";
     }

@@ -50,6 +50,25 @@ public class SectionHtmlRendererTests
     ];
 
     [Fact]
+    public void Render_uses_imageSrc_resolver_for_topic_image()
+    {
+        var sections = new List<IssueSection>
+        { new() { Position = 0, Type = SectionTypes.Topic, Title = "T", ImageKey = "k.png" } };
+        var html = SectionHtmlRenderer.Render(sections, TestTenant(), "t",
+            s => s.ImageKey is { } k ? $"/newsletter-images/{k}" : null);
+        Assert.Contains("/newsletter-images/k.png", html);
+    }
+
+    [Fact]
+    public void Render_default_omits_ImageKey()   // push behaviour: staged image has no host yet
+    {
+        var sections = new List<IssueSection>
+        { new() { Position = 0, Type = SectionTypes.Topic, Title = "T", ImageKey = "k.png" } };
+        var html = SectionHtmlRenderer.Render(sections, TestTenant(), "t");
+        Assert.DoesNotContain("newsletter-images", html);
+    }
+
+    [Fact]
     public void Render_produces_one_email_document_with_every_section_type()
     {
         var html = SectionHtmlRenderer.Render(AllSectionTypes(), TestTenant(), "AI Weekly #1");

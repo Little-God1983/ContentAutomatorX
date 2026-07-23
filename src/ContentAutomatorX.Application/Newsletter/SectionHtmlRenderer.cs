@@ -15,8 +15,16 @@ public static partial class SectionHtmlRenderer
 {
     public const string UnsubscribeToken = "%%UNSUBSCRIBE%%";
 
-    public static string Render(IReadOnlyList<IssueSection> sections, Tenant tenant, string title)
+    /// <summary>The default image resolver: a pasted/auto-metadata hotlink only. Staged uploads
+    /// (ImageKey) are omitted — this is the send-path behaviour. The composer preview passes
+    /// NewsletterImageStaging.PreviewSrc instead so staged images show locally.</summary>
+    internal static string? DefaultImageSrc(IssueSection s) =>
+        IsHttpUrl(s.ImageUrl) ? s.ImageUrl : null;
+
+    public static string Render(IReadOnlyList<IssueSection> sections, Tenant tenant, string title,
+        Func<IssueSection, string?>? imageSrc = null)
     {
+        var resolve = imageSrc ?? DefaultImageSrc;
         var branding = TenantBranding.Parse(tenant.BrandingJson);
         var accent = SafeAccent(branding.AccentColorHex);
         var font = EmailFonts.Stack(branding.FontKey);
@@ -36,7 +44,7 @@ public static partial class SectionHtmlRenderer
         sb.AppendLine($"""<h1 style="font-size:26px;margin:0 0 16px;color:#111111;">{safeTitle}</h1>""");
 
         foreach (var section in sections.OrderBy(s => s.Position))
-            AppendSection(sb, section, accent);
+            AppendSection(sb, section, accent, resolve);
 
         sb.AppendLine($"""
             <hr style="border:none;border-top:1px solid #dddddd;margin:24px 0 12px;" />
@@ -53,14 +61,16 @@ public static partial class SectionHtmlRenderer
     /// <summary>The built-in markup for one section, used as TemplateHtmlRenderer's per-section
     /// fallback when a template has no block for that type. Assumes it sits inside a 600px table
     /// cell, which the template's shell provides.</summary>
-    public static string RenderSection(IssueSection section, string accent)
+    public static string RenderSection(IssueSection section, string accent,
+        Func<IssueSection, string?>? imageSrc = null)
     {
         var sb = new StringBuilder();
-        AppendSection(sb, section, accent);
+        AppendSection(sb, section, accent, imageSrc ?? DefaultImageSrc);
         return sb.ToString();
     }
 
-    private static void AppendSection(StringBuilder sb, IssueSection s, string accent)
+    private static void AppendSection(StringBuilder sb, IssueSection s, string accent,
+        Func<IssueSection, string?> imageSrc)
     {
         var title = WebUtility.HtmlEncode(s.Title ?? "");
         switch (s.Type)
@@ -74,8 +84,8 @@ public static partial class SectionHtmlRenderer
             case SectionTypes.Topic:
                 if (title.Length > 0)
                     sb.AppendLine($"""<h2 style="font-size:21px;margin:20px 0 10px;color:{accent};">{title}</h2>""");
-                if (IsHttpUrl(s.ImageUrl))
-                    sb.AppendLine($"""<img src="{WebUtility.HtmlEncode(s.ImageUrl)}" alt="{title}" style="max-width:100%;height:auto;border:0;display:block;margin:0 0 10px;" />""");
+                if (imageSrc(s) is { } topicImg)
+                    sb.AppendLine($"""<img src="{WebUtility.HtmlEncode(topicImg)}" alt="{title}" style="max-width:100%;height:auto;border:0;display:block;margin:0 0 10px;" />""");
                 sb.AppendLine(EmailHtmlRenderer.RenderFragment(s.BodyMd ?? "", accent));
                 if (IsHttpUrl(s.LinkUrl))
                     sb.AppendLine($"""<p style="margin:0 0 14px;"><a href="{WebUtility.HtmlEncode(s.LinkUrl)}" style="color:{accent};">Read more &rarr;</a></p>""");
@@ -84,7 +94,7 @@ public static partial class SectionHtmlRenderer
             case SectionTypes.Video:
                 if (title.Length > 0)
                     sb.AppendLine($"""<h2 style="font-size:21px;margin:20px 0 10px;color:{accent};">{title}</h2>""");
-                var thumbnail = VideoThumbnail(s);
+                var thumbnail = VideoThumbnail(s, imageSrc);
                 if (thumbnail is not null)
                 {
                     var img = $"""<img src="{WebUtility.HtmlEncode(thumbnail)}" alt="{title}" style="max-width:100%;height:auto;border:0;display:block;margin:0 0 10px;" />""";
@@ -100,8 +110,8 @@ public static partial class SectionHtmlRenderer
             case SectionTypes.Sponsor:
                 sb.AppendLine("""<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px;"><tr><td style="border:1px solid #dddddd;background:#f9f9f9;padding:16px;">""");
                 sb.AppendLine("""<p style="margin:0 0 8px;font-size:11px;letter-spacing:1px;color:#888888;">SPONSORED</p>""");
-                if (IsHttpUrl(s.ImageUrl))
-                    sb.AppendLine($"""<img src="{WebUtility.HtmlEncode(s.ImageUrl)}" alt="{title}" style="max-height:40px;height:auto;border:0;display:block;margin:0 0 8px;" />""");
+                if (imageSrc(s) is { } sponsorImg)
+                    sb.AppendLine($"""<img src="{WebUtility.HtmlEncode(sponsorImg)}" alt="{title}" style="max-height:40px;height:auto;border:0;display:block;margin:0 0 8px;" />""");
                 if (title.Length > 0)
                     sb.AppendLine($"""<h3 style="font-size:18px;margin:0 0 8px;color:#111111;">{title}</h3>""");
                 sb.AppendLine(EmailHtmlRenderer.RenderFragment(s.BodyMd ?? "", accent));
@@ -183,11 +193,10 @@ public static partial class SectionHtmlRenderer
         (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
          url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 
-    /// <summary>Override wins; otherwise derive from the YouTube URL. Null when neither works.</summary>
-    internal static string? VideoThumbnail(IssueSection s) =>
-        IsHttpUrl(s.ImageUrl) ? s.ImageUrl
-        : YouTubeUrl.TryGetVideoId(s.LinkUrl, out var id) ? YouTubeUrl.FallbackThumbnail(id)
-        : null;
+    /// <summary>Resolved image (upload/hotlink) wins; otherwise derive from the YouTube URL.
+    /// Null when neither works.</summary>
+    internal static string? VideoThumbnail(IssueSection s, Func<IssueSection, string?> imageSrc) =>
+        imageSrc(s) ?? (YouTubeUrl.TryGetVideoId(s.LinkUrl, out var id) ? YouTubeUrl.FallbackThumbnail(id) : null);
 
     [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
     private static partial Regex AccentRegex();
