@@ -1,0 +1,85 @@
+@* One circular tenant tile for the picker: initials-in-a-colored-circle (or a
+   "+" for the add tile), with the tenant name beneath. Purely presentational —
+   the parent owns selection and roving focus. When it becomes the focused tile
+   it pulls DOM focus to its button so keyboard arrows land where they should. *@
+
+<button type="button"
+        @ref="_button"
+        class="@CssClass"
+        tabindex="@(Focused ? 0 : -1)"
+        aria-label="@AriaLabel"
+        aria-current="@(Highlighted ? "true" : null)"
+        @onclick="OnActivate">
+    <span class="tenant-tile__circle" style="@CircleStyle">
+        @if (IsAddTile)
+        {
+            <MudIcon Icon="@Icons.Material.Filled.Add" Size="Size.Large" />
+        }
+        else if (!string.IsNullOrEmpty(AvatarUrl))
+        {
+            <img class="tenant-tile__img" src="@AvatarUrl" alt="" />
+        }
+        else
+        {
+            @Initials
+        }
+    </span>
+    <span class="tenant-tile__label">@Label</span>
+</button>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+
+    /// <summary>Initials shown in the circle (ignored when <see cref="IsAddTile"/> or an avatar is set).</summary>
+    [Parameter] public string Initials { get; set; } = "";
+
+    /// <summary>Avatar image URL; when set (and not the add tile) it fills the circle instead of initials.</summary>
+    [Parameter] public string? AvatarUrl { get; set; }
+
+    /// <summary>Circle background (a validated <c>#rrggbb</c>); null renders no inline fill.</summary>
+    [Parameter] public string? Color { get; set; }
+
+    /// <summary>Readable foreground for <see cref="Color"/>.</summary>
+    [Parameter] public string? TextColor { get; set; }
+
+    /// <summary>Render the dashed "add tenant" tile instead of an avatar.</summary>
+    [Parameter] public bool IsAddTile { get; set; }
+
+    /// <summary>Ring the remembered/last-used tenant.</summary>
+    [Parameter] public bool Highlighted { get; set; }
+
+    /// <summary>This is the roving-focus tile: it is the tab stop and grabs DOM focus.</summary>
+    [Parameter] public bool Focused { get; set; }
+
+    [Parameter] public EventCallback OnActivate { get; set; }
+
+    private ElementReference _button;
+    private bool _prevFocused;
+    private bool _needsFocus;
+
+    private string CssClass =>
+        "tenant-tile"
+        + (IsAddTile ? " tenant-tile--add" : "")
+        + (Highlighted ? " tenant-tile--highlighted" : "");
+
+    private string AriaLabel => IsAddTile ? "Add tenant" : Label;
+
+    private string? CircleStyle =>
+        IsAddTile || Color is null ? null : $"background-color:{Color};color:{TextColor ?? "#ffffff"};";
+
+    protected override void OnParametersSet()
+    {
+        // Focus on the false→true transition (covers first mount of the pre-
+        // highlighted tile and every arrow-key move).
+        if (Focused && !_prevFocused) _needsFocus = true;
+        _prevFocused = Focused;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_needsFocus) return;
+        _needsFocus = false;
+        try { await _button.FocusAsync(); }
+        catch { /* element may have been removed mid-navigation */ }
+    }
+}

@@ -1,0 +1,44 @@
+.tenant-picker {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3.5rem;
+    padding: 2.5rem 1.5rem;
+    overflow: auto;
+    color: #f5f5f7;
+    /* Dark, ambient PS5-style backdrop. */
+    background: radial-gradient(circle at 50% 28%, #1b2a3d 0%, #0c1017 62%, #06080c 100%);
+}
+
+.tenant-picker__header {
+    text-align: center;
+}
+
+.tenant-picker__title {
+    margin: 0;
+    font-size: clamp(1.6rem, 3vw, 2.4rem);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+}
+
+.tenant-picker__subtitle {
+    margin-top: 0.6rem;
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    font-weight: 400;
+    opacity: 0.66;
+}
+
+.tenant-picker__tiles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 1.5rem 2rem;
+    width: 100%;
+    /* Roomy enough for ~6 tiles on one row; wraps (centered) only beyond that
+       or on narrow screens, rather than prematurely at a handful of tenants. */
+    max-width: 1200px;
+}

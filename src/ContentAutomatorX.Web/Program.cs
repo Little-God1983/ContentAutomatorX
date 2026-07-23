@@ -99,6 +99,7 @@ builder.Services.AddScoped<PostSyncService>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.ITenantIdStore,
     ContentAutomatorX.Web.Services.ProtectedLocalStorageTenantIdStore>();
 builder.Services.AddScoped<ContentAutomatorX.Web.Services.TenantContext>();
+builder.Services.AddSingleton<ContentAutomatorX.Web.Services.TenantAvatarStore>();
 
 // --- scheduler ---
 builder.Services.AddHostedService<SchedulerService>();
@@ -150,6 +151,14 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.MapStaticAssets();
+// Runtime-uploaded tenant avatars live outside the build, so MapStaticAssets (build-time
+// assets only) won't serve them — map their directory explicitly at /avatars.
+var avatarStore = app.Services.GetRequiredService<ContentAutomatorX.Web.Services.TenantAvatarStore>();
+app.UseStaticFiles(new StaticFileOptions
+{
+    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(avatarStore.DirectoryPath),
+    RequestPath = ContentAutomatorX.Web.Services.TenantAvatarStore.RequestPath,
+});
 app.UseAntiforgery();
 app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapMcp("/mcp");

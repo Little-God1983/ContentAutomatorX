@@ -3,6 +3,7 @@
 @inject ISnackbar Snackbar
 @inject TenantContext Ctx
 @inject IDialogService DialogService
+@inject TenantAvatarStore AvatarStore
 @using ContentAutomatorX.Application.Newsletter
 @using ContentAutomatorX.Domain.Models
 
@@ -14,6 +15,47 @@
     <MudTextField @bind-Value="_slug" Label="Slug (short id, used in draft front-matter)" />
     <MudTextField @bind-Value="_voice" Label="Voice profile (tone, style, audience — goes into every prompt)" Lines="5" />
     <MudTextField @bind-Value="_folder" Label="Output folder (local OneDrive/Mega synced path)" />
+    <MudDivider Class="my-3" />
+    <MudText Typo="Typo.subtitle1">Profile image</MudText>
+    @if (_editing is null)
+    {
+        <MudText Typo="Typo.caption" Class="mud-text-secondary">
+            Save the tenant first, then add a profile image — it shows on the tenant picker.
+        </MudText>
+    }
+    else
+    {
+        <div class="d-flex align-center flex-wrap mt-2" style="gap:16px">
+            <MudAvatar Style="height:72px;width:72px;font-size:1.6rem" Color="Color.Secondary">
+                @if (_editing.AvatarPath is null)
+                {
+                    @Initials(_editing.Name)
+                }
+                else
+                {
+                    <img src="@TenantAvatarStore.UrlFor(_editing.AvatarPath)" alt=""
+                         style="width:100%;height:100%;object-fit:cover;" />
+                }
+            </MudAvatar>
+            <MudFileUpload T="IBrowserFile" FilesChanged="UploadAvatar"
+                           Accept="image/png,image/jpeg,image/webp,image/gif">
+                <CustomContent>
+                    <MudButton Variant="Variant.Outlined" Disabled="_avatarBusy"
+                               StartIcon="@Icons.Material.Filled.CloudUpload" OnClick="@context.OpenFilePickerAsync">
+                        @(_editing.AvatarPath is null ? "Upload image" : "Replace image")
+                    </MudButton>
+                </CustomContent>
+            </MudFileUpload>
+            @if (_editing.AvatarPath is not null)
+            {
+                <MudButton Variant="Variant.Text" Color="Color.Error" Disabled="_avatarBusy"
+                           StartIcon="@Icons.Material.Filled.Delete" OnClick="RemoveAvatar">Remove</MudButton>
+            }
+        </div>
+        <MudText Typo="Typo.caption" Class="mud-text-secondary mt-1">
+            PNG, JPEG, WEBP or GIF, up to 5 MB. Saved immediately.
+        </MudText>
+    }
     <MudDivider Class="my-3" />
     <MudText Typo="Typo.subtitle1">Newsletter</MudText>
     <div class="d-flex flex-wrap" style="gap:16px">
@@ -147,5 +189,56 @@
         _tenants = await TenantSvc.ListAsync();
         await Ctx.RefreshAsync();
         Snackbar.Add($"Deleted {t.Name}", Severity.Success);
+    }
+
+    // Avatars apply immediately (like most "profile picture" changes), independent of the
+    // form's Save button. The old file is deleted only after the new AvatarPath is committed.
+    private bool _avatarBusy;
+
+    private async Task UploadAvatar(IBrowserFile? file)
+    {
+        if (file is null || _editing is null) return;
+        _avatarBusy = true;
+        try
+        {
+            var newName = await AvatarStore.SaveAsync(file);
+            var previous = _editing.AvatarPath;
+            _editing.AvatarPath = newName;
+            await TenantSvc.UpdateAsync();
+            AvatarStore.Delete(previous);
+            await Ctx.RefreshAsync();
+            Snackbar.Add("Profile image updated", Severity.Success);
+        }
+        catch (InvalidOperationException ex)
+        {
+            Snackbar.Add(ex.Message, Severity.Error);
+        }
+        finally { _avatarBusy = false; }
+    }
+
+    private async Task RemoveAvatar()
+    {
+        if (_editing?.AvatarPath is null) return;
+        _avatarBusy = true;
+        try
+        {
+            var previous = _editing.AvatarPath;
+            _editing.AvatarPath = null;
+            await TenantSvc.UpdateAsync();
+            AvatarStore.Delete(previous);
+            await Ctx.RefreshAsync();
+            Snackbar.Add("Profile image removed", Severity.Success);
+        }
+        finally { _avatarBusy = false; }
+    }
+
+    private static string Initials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+            return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}";
+        var word = parts[0];
+        return (word.Length >= 2 ? word[..2] : word).ToUpperInvariant();
     }
 }

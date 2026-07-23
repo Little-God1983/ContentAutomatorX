@@ -1,0 +1,161 @@
+@page "/select-tenant"
+@layout EmptyLayout
+@implements IDisposable
+@inject TenantContext Ctx
+@inject IDialogService DialogService
+@inject NavigationManager Nav
+
+<PageTitle>Who's using this app? — ContentAutomatorX</PageTitle>
+
+<div class="tenant-picker">
+    <div class="tenant-picker__header">
+        @* Deliberately not an <h1>: Routes.razor's FocusOnNavigate Selector="h1"
+           would otherwise steal focus from the auto-focused tile on load. *@
+        <div class="tenant-picker__title" role="heading" aria-level="1">Welcome to ContentAutomatorX</div>
+        <div class="tenant-picker__subtitle">Who's using this app?</div>
+    </div>
+
+    @if (!Ctx.Initialized)
+    {
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Large" />
+    }
+    else
+    {
+        <div class="tenant-picker__tiles" role="group" aria-label="Choose a tenant" @onkeydown="OnKeyDown">
+            <TenantTile Label="Add tenant"
+                        IsAddTile="true"
+                        Focused="@(_focusedIndex == 0)"
+                        OnActivate="AddTenantAsync" />
+            @for (var i = 0; i < Ctx.ActiveTenants.Count; i++)
+            {
+                var index = i;
+                var tenant = Ctx.ActiveTenants[index];
+                var color = AccentColor(tenant);
+                <TenantTile Label="@tenant.Name"
+                            Initials="@Initials(tenant.Name)"
+                            Color="@color"
+                            TextColor="@TextColorFor(color)"
+                            AvatarUrl="@TenantAvatarStore.UrlFor(tenant.AvatarPath)"
+                            Highlighted="@(tenant.Id == Ctx.Active?.Id)"
+                            Focused="@(index + 1 == _focusedIndex)"
+                            OnActivate="@(() => EnterAsync(tenant.Id))" />
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
+
+    // 0 is the leftmost "Add tenant" tile; 1..ActiveTenants.Count are the tenants.
+    private int _focusedIndex;
+
+    private static readonly System.Text.RegularExpressions.Regex HexPattern = new("^#[0-9a-fA-F]{6}$");
+
+    protected override void OnInitialized()
+    {
+        Ctx.Changed += OnChanged;
+        if (Ctx.Initialized) SetInitialFocus();   // reached via redirect: list already loaded
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || Ctx.Initialized) return;
+        // Reached by direct navigation: load the tenant list (needs post-render JS interop).
+        await Ctx.InitializeAsync();
+        SetInitialFocus();
+        StateHasChanged();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private void SetInitialFocus()
+    {
+        // Pre-focus the remembered tenant (else the first tenant), so arrows work at
+        // once. Tenants live at index 1..N; the Add tile at 0 is the fallback only
+        // when there are no tenants yet.
+        _focusedIndex = Ctx.ActiveTenants.Count > 0 ? 1 : 0;
+        for (var i = 0; i < Ctx.ActiveTenants.Count; i++)
+        {
+            if (Ctx.ActiveTenants[i].Id == Ctx.Active?.Id) { _focusedIndex = i + 1; break; }
+        }
+    }
+
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        var total = Ctx.ActiveTenants.Count + 1;   // +1 for the Add tile
+        switch (e.Key)
+        {
+            case "ArrowRight":
+            case "ArrowDown":
+                _focusedIndex = (_focusedIndex + 1) % total;
+                break;
+            case "ArrowLeft":
+            case "ArrowUp":
+                _focusedIndex = (_focusedIndex - 1 + total) % total;
+                break;
+            case "Home":
+                _focusedIndex = 0;
+                break;
+            case "End":
+                _focusedIndex = total - 1;
+                break;
+            // Enter/Space are handled natively by the focused tile's <button>.
+        }
+    }
+
+    private async Task EnterAsync(Guid tenantId)
+    {
+        await Ctx.EnterAsync(tenantId);
+        NavigateIntoApp();
+    }
+
+    private async Task AddTenantAsync()
+    {
+        var dialog = await DialogService.ShowAsync<CreateTenantDialog>("New tenant");
+        var result = await dialog.Result;
+        if (result is null || result.Canceled) return;
+        if (result.Data is Guid newId)
+        {
+            await Ctx.EnterAsync(newId);   // dialog already added + listed it
+            NavigateIntoApp();
+        }
+    }
+
+    private void NavigateIntoApp()
+    {
+        var target = string.IsNullOrWhiteSpace(ReturnUrl) ? "/" : ReturnUrl!;
+        if (target.StartsWith("/select-tenant", StringComparison.OrdinalIgnoreCase))
+            target = "/";   // never bounce back to the picker
+        Nav.NavigateTo(target);
+    }
+
+    private static string Initials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 2)
+            return $"{char.ToUpperInvariant(parts[0][0])}{char.ToUpperInvariant(parts[1][0])}";
+        var word = parts[0];
+        return (word.Length >= 2 ? word[..2] : word).ToUpperInvariant();
+    }
+
+    private static string AccentColor(Tenant t)
+    {
+        var hex = TenantBranding.Parse(t.BrandingJson).AccentColorHex;
+        return hex is not null && HexPattern.IsMatch(hex) ? hex : EmailHtmlRenderer.DefaultAccent;
+    }
+
+    private static string TextColorFor(string hex)
+    {
+        // Relative luminance → black text on light fills, white on dark.
+        var r = Convert.ToInt32(hex.Substring(1, 2), 16);
+        var g = Convert.ToInt32(hex.Substring(3, 2), 16);
+        var b = Convert.ToInt32(hex.Substring(5, 2), 16);
+        var luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255.0;
+        return luminance > 0.6 ? "#1a1a1a" : "#ffffff";
+    }
+
+    public void Dispose() => Ctx.Changed -= OnChanged;
+}
