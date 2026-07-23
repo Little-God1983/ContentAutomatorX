@@ -2,6 +2,15 @@ h1:focus {
     outline: none;
 }
 
+/* Full-screen placeholder shown by MainLayout while the tenant picker gate is
+   deciding / redirecting, so the app chrome never flashes before selection. */
+.app-gate {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+}
+
 .valid.modified:not([type=checkbox]) {
     outline: 1px solid #26b050;
 }

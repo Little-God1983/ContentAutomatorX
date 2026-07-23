@@ -1,0 +1,84 @@
+.tenant-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.9rem;
+    width: 160px;
+    padding: 0.75rem 0.5rem;
+    background: none;
+    border: none;
+    border-radius: 16px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.tenant-tile:focus {
+    outline: none; /* the ring lives on the circle, keyboard-only via :focus-visible */
+}
+
+.tenant-tile__circle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 128px;
+    height: 128px;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+    font-size: 2.6rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    color: #fff;
+    user-select: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+/* Hover / keyboard focus: subtle lift + glow. */
+.tenant-tile:hover .tenant-tile__circle {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.22), 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.tenant-tile:focus-visible .tenant-tile__circle {
+    transform: scale(1.06);
+    box-shadow: 0 0 0 4px #4fc3f7, 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+/* Remembered / last-used tenant gets a persistent ring. */
+.tenant-tile--highlighted .tenant-tile__circle {
+    border-color: rgba(255, 255, 255, 0.65);
+}
+
+/* Add-tenant tile: dashed outline, no fill. */
+.tenant-tile--add .tenant-tile__circle {
+    background: transparent;
+    border: 3px dashed rgba(255, 255, 255, 0.4);
+    color: rgba(255, 255, 255, 0.75);
+    box-shadow: none;
+}
+
+.tenant-tile--add:hover .tenant-tile__circle {
+    border-color: rgba(255, 255, 255, 0.8);
+    color: #fff;
+}
+
+/* Avatar image fills the circle, cropped to a circle regardless of source aspect ratio. */
+.tenant-tile__img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+}
+
+.tenant-tile__label {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 1.05rem;
+    line-height: 1.3;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0.92;
+}

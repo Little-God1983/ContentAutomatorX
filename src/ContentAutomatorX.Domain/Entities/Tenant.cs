@@ -11,5 +11,6 @@ public class Tenant
     public string DefaultFooterMd { get; set; } = "";
     public string BrandingJson { get; set; } = "{}";   // TenantBranding
     public string SenderIdentity { get; set; } = "";   // "Name, street, city, country" for the compliance footer
+    public string? AvatarPath { get; set; }            // file name under data/avatars for the picker; null = initials
     public bool IsActive { get; set; } = true;
 }

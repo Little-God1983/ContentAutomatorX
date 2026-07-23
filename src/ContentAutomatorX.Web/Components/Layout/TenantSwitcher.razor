@@ -17,9 +17,19 @@ else
     <MudMenu AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
         <ActivatorContent>
             @* MudBlazor 9: custom activators must open the menu themselves via the context *@
+            @{ var avatarUrl = TenantAvatarStore.UrlFor(Ctx.Active.AvatarPath); }
             <MudButton Color="Color.Inherit" EndIcon="@Icons.Material.Filled.ArrowDropDown"
                        OnClick="@(e => context.ToggleAsync(e))">
-                <MudAvatar Size="Size.Small" Color="Color.Secondary" Class="mr-2">@Initial(Ctx.Active.Name)</MudAvatar>
+                <MudAvatar Size="Size.Small" Color="Color.Secondary" Class="mr-2">
+                    @if (avatarUrl is null)
+                    {
+                        @Initial(Ctx.Active.Name)
+                    }
+                    else
+                    {
+                        <img src="@avatarUrl" alt="" style="width:100%;height:100%;object-fit:cover;" />
+                    }
+                </MudAvatar>
                 @Ctx.Active.Name
             </MudButton>
         </ActivatorContent>

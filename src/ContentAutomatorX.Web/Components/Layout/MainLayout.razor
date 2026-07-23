@@ -1,11 +1,23 @@
 @inherits LayoutComponentBase
 @inject TenantContext Ctx
+@inject NavigationManager Nav
 
 <MudThemeProvider @ref="_themeProvider" @bind-IsDarkMode="_isDarkMode" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />
 
+@if (!Ctx.Initialized || !Ctx.SelectionConfirmed)
+{
+    @* Entry gate: hold back the shell until a tenant is explicitly picked. On a
+       fresh circuit OnAfterRenderAsync redirects to the picker, so this is only
+       ever a brief placeholder — never a flash of the app chrome. *@
+    <div class="app-gate">
+        <MudProgressCircular Indeterminate="true" Color="Color.Primary" Size="Size.Large" />
+    </div>
+}
+else
+{
 <MudLayout>
     <MudAppBar Elevation="1">
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start"
@@ -48,6 +60,7 @@
         @Body
     </MudMainContent>
 </MudLayout>
+}
 
 @code {
     private bool _drawerOpen = true;
@@ -64,6 +77,15 @@
         if (!firstRender) return;
 
         await Ctx.InitializeAsync();
+
+        if (!Ctx.SelectionConfirmed)
+        {
+            // No explicit pick yet this circuit — send them to the picker, carrying
+            // the page they were trying to reach so we can return there afterwards.
+            var returnUrl = "/" + Nav.ToBaseRelativePath(Nav.Uri);
+            Nav.NavigateTo($"/select-tenant?returnUrl={Uri.EscapeDataString(returnUrl)}");
+            return;
+        }
 
         try
         {

@@ -1,0 +1,15 @@
+@inherits LayoutComponentBase
+
+@*
+    Bare, chrome-less layout for full-screen surfaces that render outside the app
+    shell (the tenant picker). It carries its own MudBlazor providers because the
+    ones in MainLayout aren't in the render tree here, and it forces dark mode so
+    the picker always shows its ambient PS5-style look regardless of app theme.
+*@
+
+<MudThemeProvider IsDarkMode="true" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+@Body

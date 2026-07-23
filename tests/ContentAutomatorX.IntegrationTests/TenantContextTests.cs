@@ -82,6 +82,73 @@ public class TenantContextTests
     }
 
     [Fact]
+    public async Task Initialize_pre_highlights_a_tenant_but_does_not_confirm_selection()
+    {
+        using var test = TestDb.Create();
+        var beta = AddTenant(test, "Beta");
+        var ctx = new TenantContext(new TenantService(test.Db), new FakeTenantIdStore { Stored = beta.Id });
+
+        await ctx.InitializeAsync();
+
+        Assert.Equal(beta.Id, ctx.Active!.Id);   // pre-highlighted for the picker
+        Assert.False(ctx.SelectionConfirmed);      // ...but the user hasn't entered yet
+    }
+
+    [Fact]
+    public async Task Enter_confirms_selection_sets_active_persists_and_raises_Changed()
+    {
+        using var test = TestDb.Create();
+        AddTenant(test, "Alpha");
+        var beta = AddTenant(test, "Beta");
+        var store = new FakeTenantIdStore();
+        var ctx = new TenantContext(new TenantService(test.Db), store);
+        await ctx.InitializeAsync();
+        var changed = 0;
+        ctx.Changed += () => changed++;
+
+        await ctx.EnterAsync(beta.Id);
+
+        Assert.True(ctx.SelectionConfirmed);
+        Assert.Equal(beta.Id, ctx.Active!.Id);
+        Assert.Equal(beta.Id, store.Stored);
+        Assert.Equal(1, changed);
+    }
+
+    [Fact]
+    public async Task Enter_confirms_even_when_tenant_is_already_the_pre_highlighted_active()
+    {
+        // The SwitchAsync no-op trap: clicking the remembered tenant must still enter.
+        using var test = TestDb.Create();
+        var beta = AddTenant(test, "Beta");
+        var ctx = new TenantContext(new TenantService(test.Db), new FakeTenantIdStore { Stored = beta.Id });
+        await ctx.InitializeAsync();
+        Assert.Equal(beta.Id, ctx.Active!.Id);   // already active from restore
+        var changed = 0;
+        ctx.Changed += () => changed++;
+
+        await ctx.EnterAsync(beta.Id);
+
+        Assert.True(ctx.SelectionConfirmed);
+        Assert.Equal(1, changed);   // Changed still raised, unlike SwitchAsync
+    }
+
+    [Fact]
+    public async Task Enter_with_unknown_id_is_ignored_and_leaves_picker_unconfirmed()
+    {
+        using var test = TestDb.Create();
+        AddTenant(test, "Alpha");
+        var ctx = new TenantContext(new TenantService(test.Db), new FakeTenantIdStore());
+        await ctx.InitializeAsync();
+        var changed = 0;
+        ctx.Changed += () => changed++;
+
+        await ctx.EnterAsync(Guid.NewGuid());
+
+        Assert.False(ctx.SelectionConfirmed);
+        Assert.Equal(0, changed);
+    }
+
+    [Fact]
     public async Task Switch_sets_active_persists_and_raises_Changed_but_ignores_unknown_ids()
     {
         using var test = TestDb.Create();
